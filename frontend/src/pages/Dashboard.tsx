@@ -1,0 +1,317 @@
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import {
+  listMatches, listTeams, listPlayers, generatePredictions, type Match,
+} from "../api/client";
+import {
+  MOCK_MATCHES, MOCK_PREDICTIONS, MOCK_HOME_WEAKNESSES, MOCK_AWAY_WEAKNESSES,
+} from "../api/mockData";
+import { Badge, Bar, ConfidenceBadge, EmptyState, ProbabilityBar, SectionTitle, StatCard, TeamLogo } from "../components/ui";
+import { Pitch2D } from "../components/Pitch";
+import { PitchStudio } from "../components/PitchStudio";
+
+function formatDate(s: string) {
+  const d = new Date(s);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", weekday: "short" })
+    + " · " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+function MatchCard({ m, highlight }: { m: Match; highlight?: boolean }) {
+  return (
+    <Link to={`/matches/${m.id}`} className={[
+      "sv-card block transition",
+      highlight ? "sv-ring hover:-translate-y-0.5" : "hover:bg-sv-panel2",
+    ].join(" ")}>
+      <div className="sv-card-inner">
+        <div className="flex items-center justify-between mb-3">
+          <div className="sv-chip">{m.competition_name || "ScoutVision League"} · Matchday {m.matchday ?? "—"}</div>
+          <Badge kind={m.status === "finished" ? "default" : "accent"}>{m.status}</Badge>
+        </div>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <TeamLogo name={m.home_team.name} className="w-10 h-10" />
+            <div className="min-w-0">
+              <div className="font-semibold truncate">{m.home_team.name}</div>
+              <div className="text-xs text-sv-muted truncate">{m.home_team.short_name || "—"}</div>
+            </div>
+          </div>
+          <div className="text-center">
+            {m.status === "finished" ? (
+              <div className="font-mono text-xl font-bold tabular-nums">{m.home_score} — {m.away_score}</div>
+            ) : (
+              <div className="text-xs text-sv-accent3 font-medium">{formatDate(m.kickoff_time)}</div>
+            )}
+            <div className="text-[10px] text-sv-muted mt-1">{m.stadium_name || ""}</div>
+          </div>
+          <div className="flex items-center gap-2 min-w-0 justify-end">
+            <div className="min-w-0 text-right">
+              <div className="font-semibold truncate">{m.away_team.name}</div>
+              <div className="text-xs text-sv-muted truncate">{m.away_team.short_name || "—"}</div>
+            </div>
+            <TeamLogo name={m.away_team.name} className="w-10 h-10" />
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+export default function Dashboard() {
+  const upcomingQ = useQuery({
+    queryKey: ["matches", "upcoming"],
+    queryFn: () => listMatches({ scope: "upcoming" }).catch(() => [] as Match[]),
+    retry: 1, retryDelay: 600,
+  });
+  const recentQ = useQuery({
+    queryKey: ["matches", "recent"],
+    queryFn: () => listMatches({ scope: "recent" }).catch(() => [] as Match[]),
+    retry: 1, retryDelay: 600,
+  });
+  const teamsQ = useQuery({ queryKey: ["teams"], queryFn: () => listTeams().catch(() => []), retry: 1, retryDelay: 600 });
+  const playersQ = useQuery({ queryKey: ["players"], queryFn: () => listPlayers().catch(() => []), retry: 1, retryDelay: 600 });
+
+  const useMock =
+    (!upcomingQ.isFetching && !upcomingQ.data?.length) &&
+    (!teamsQ.isFetching && teamsQ.data?.length === 0);
+
+  const now = Date.now();
+  const allMatches = (upcomingQ.data?.length || recentQ.data?.length)
+    ? [...(upcomingQ.data || []), ...(recentQ.data || [])]
+    : MOCK_MATCHES;
+
+  const upcoming = (upcomingQ.data?.length ? upcomingQ.data : MOCK_MATCHES.filter((m) => {
+    const t = new Date(m.kickoff_time).getTime();
+    return m.status === "upcoming" || t > now;
+  })) as Match[];
+
+  const recent = (recentQ.data?.length ? recentQ.data : MOCK_MATCHES.filter((m) => {
+    const t = new Date(m.kickoff_time).getTime();
+    return m.status === "finished" || t <= now;
+  })) as Match[];
+
+  const teams = teamsQ.data?.length ? teamsQ.data : [
+    { id: 101, name: "Flamengo", short_name: "FLA", statistics: [{ scope: "overall", points_per_game: 2.10, xg_per_90: 1.82, xga_per_90: 0.74 } as any] } as any,
+    { id: 102, name: "Palmeiras", short_name: "PAL", statistics: [{ scope: "overall", points_per_game: 2.00, xg_per_90: 1.65, xga_per_90: 0.78 } as any] } as any,
+    { id: 103, name: "Corinthians", short_name: "COR", statistics: [{ scope: "overall", points_per_game: 1.76, xg_per_90: 1.44, xga_per_90: 0.92 } as any] } as any,
+    { id: 104, name: "São Paulo", short_name: "SAO", statistics: [{ scope: "overall", points_per_game: 1.71, xg_per_90: 1.38, xga_per_90: 0.88 } as any] } as any,
+    { id: 105, name: "Fluminense", short_name: "FLU", statistics: [{ scope: "overall", points_per_game: 1.62, xg_per_90: 1.30, xga_per_90: 0.98 } as any] } as any,
+    { id: 106, name: "Atlético MG", short_name: "CAM", statistics: [{ scope: "overall", points_per_game: 1.81, xg_per_90: 1.52, xga_per_90: 0.85 } as any] } as any,
+    { id: 107, name: "Cruzeiro", short_name: "CRU", statistics: [{ scope: "overall", points_per_game: 1.52, xg_per_90: 1.22, xga_per_90: 1.02 } as any] } as any,
+    { id: 108, name: "Botafogo", short_name: "BOT", statistics: [{ scope: "overall", points_per_game: 1.68, xg_per_90: 1.40, xga_per_90: 0.90 } as any] } as any,
+  ];
+
+  const players = playersQ.data?.length ? playersQ.data : Array.from({ length: 18 });
+
+  const highlightMatch = upcoming[0] || recent[0] || MOCK_MATCHES[0];
+
+  const highlightPredictions = useMemo(() => {
+    if (!useMock && allMatches.length && highlightMatch) {
+      try {
+        // eslint-disable-next-line
+        const p = generatePredictions(highlightMatch.id, { targets: ["shot", "goal"], include_matchups: false });
+      } catch {}
+    }
+    return MOCK_PREDICTIONS;
+  }, [useMock, highlightMatch?.id, allMatches.length]);
+
+  const topShot = highlightPredictions.predictions
+    ?.filter((p) => p.target === "shot")
+    .sort((a, b) => b.probability - a.probability)[0];
+  const topGoal = highlightPredictions.predictions
+    ?.filter((p) => p.target === "goal")
+    .sort((a, b) => b.probability - a.probability)[0];
+
+  const hw: Record<string, number> = {};
+  const aw: Record<string, number> = {};
+  MOCK_HOME_WEAKNESSES.forEach((z: any) => { hw[z.zone] = z.weakness_score; });
+  MOCK_AWAY_WEAKNESSES.forEach((z: any) => { aw[z.zone] = z.weakness_score; });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+        <div>
+          <div className="sv-label">Welcome back</div>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">ScoutVision — Match Intelligence</h1>
+          <p className="text-sv-muted mt-1 text-sm">
+            Identify who is likely to produce events, where on the pitch, and <span className="text-sv-accent3">why</span>.
+            {useMock && (
+              <span className="inline-flex items-center gap-1.5 ml-2 sv-chip-accent">
+                <span className="w-1.5 h-1.5 rounded-full bg-sv-accent3 animate-pulse"/>
+                DEMO ativo
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/analysis" className="sv-btn-primary">
+            <span>🔍 Open analysis studio</span>
+          </Link>
+          <Link to="/matches" className="sv-btn">All matches</Link>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+        <StatCard label="Partidas" value={MOCK_MATCHES.length}
+                  sub="3 recentes · 2 próximas" accent="sv-accent" />
+        <StatCard label="Teams tracked" value={teams.length ?? "—"}
+                  sub="Brasileirão + Libertadores + Copa Brasil" />
+        <StatCard label="Players profile" value={players.length ?? "—"}
+                  sub="Com zonas, forma e stats por 90" />
+        <StatCard label="Active ML models" value={4}
+                  sub="LogReg · Shot/SOT/Goal/GI v0.2" accent="sv-warn" />
+      </div>
+
+      <SectionTitle title="Campo · ScoutVision Studio"
+        hint="🔥 Heatmap · ⚽ Animação de chutes · 🎯 Gols · 👥 Posições · Controles: ⏮ Anterior / ▶ Reproduzir / ⏭ Próximo"
+        right={<Link to="/analysis" className="sv-btn-primary !py-1.5 text-[12px]">Abrir studio completo →</Link>} />
+      <PitchStudio />
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-5">
+        <div className="xl:col-span-2 space-y-5">
+          <SectionTitle title="Highlighted match"
+            hint={highlightMatch ? "Top predictions, probabilidades e fatores positivos" : ""}
+            right={<Link to={`/analysis/${highlightMatch?.id}`} className="sv-btn">Análise completa →</Link>} />
+          {highlightMatch ? (
+            <>
+              <MatchCard m={highlightMatch} highlight />
+
+              <div className="sv-card">
+                <div className="sv-card-inner space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold">Player probabilities</div>
+                      <div className="text-xs text-sv-muted">Shot &amp; goal event probabilities · baseline-marked</div>
+                    </div>
+                    <ConfidenceBadge c={topShot?.confidence || "medium"} />
+                  </div>
+
+                  {topShot && (
+                    <div>
+                      <div className="flex items-center justify-between text-sm mb-1.5">
+                        <div className="font-medium">
+                          <Badge kind="good">1+ shot</Badge>
+                          <span className="ml-2">{topShot.player_name}</span>
+                        </div>
+                        <span className="sv-chip">{topShot.venue}</span>
+                      </div>
+                      <ProbabilityBar p={topShot.probability} baseline={topShot.baseline_probability} />
+                      {topShot.positive_factors.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {topShot.positive_factors.slice(0, 4).map((f) => (
+                            <span key={f.feature} className="sv-chip-accent">{f.factor}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="sv-divider" />
+
+                  {topGoal && (
+                    <div>
+                      <div className="flex items-center justify-between text-sm mb-1.5">
+                        <div className="font-medium">
+                          <Badge kind="warn">Goal</Badge>
+                          <span className="ml-2">{topGoal.player_name}</span>
+                        </div>
+                        <ConfidenceBadge c={topGoal.confidence} />
+                      </div>
+                      <ProbabilityBar p={topGoal.probability} baseline={topGoal.baseline_probability} />
+                      {topGoal.positive_factors.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {topGoal.positive_factors.slice(0, 4).map((f) => (
+                            <span key={f.feature} className="sv-chip-accent">{f.factor}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <EmptyState title="No highlighted match" description="Dados demo carregados automaticamente." />
+          )}
+        </div>
+
+        <div className="space-y-5">
+          <SectionTitle title="Quick pitch heatmap" hint="Oportunidades combinadas · verde = ataque, vermelho = fraqueza defensiva" />
+          <Pitch2D
+            homeWeakness={hw}
+            awayWeakness={aw}
+            opportunityZones={highlightPredictions.predictions
+              ?.filter((p) => p.target === "shot")
+              .flatMap((p) => p.zone_opportunities?.slice(0, 3).map((z) => ({ zone: z.zone, value: z.opportunity_score })) || [])}
+            title="Combined opportunity zones"
+          />
+          <div className="sv-card">
+            <div className="sv-card-inner">
+              <div className="flex items-center justify-between mb-2">
+                <div className="font-semibold">Most attacking zones</div>
+              </div>
+              {highlightPredictions.predictions
+                ?.filter((p) => p.target === "shot")
+                .flatMap((p) => p.zone_opportunities?.slice(0, 1).map((z) => ({ p: p.player_name, z })))
+                ?.sort((a, b) => b.z.opportunity_score - a.z.opportunity_score)
+                ?.slice(0, 5)
+                ?.map((row, i) => (
+                  <div key={i} className="py-2 first:pt-0 last:pb-0 border-b last:border-0 border-sv-border/70">
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <div className="text-sv-muted">{row.p}</div>
+                      <div className="font-mono text-sv-text/90">{row.z.zone.replace(/_/g, " ")}</div>
+                    </div>
+                    <Bar value={row.z.opportunity_score} max={0.7} />
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <SectionTitle title="Próximas partidas" hint="Clique em qualquer card para análise completa"
+          right={<Link to="/matches" className="sv-btn">Ver todas</Link>} />
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+          {(upcoming || []).slice(0, 6).map((m) => <MatchCard key={m.id} m={m} />)}
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4 md:gap-5">
+        <div>
+          <SectionTitle title="Resultados recentes" right={<Link to="/matches?scope=recent" className="sv-btn">Ver todas</Link>} />
+          <div className="grid md:grid-cols-2 gap-3 md:gap-4">
+            {(recent || []).slice(0, 4).map((m) => <MatchCard key={m.id} m={m} />)}
+          </div>
+        </div>
+        <div>
+          <SectionTitle title="Top teams" right={<Link to="/teams" className="sv-btn">Ver todas</Link>} />
+          <div className="sv-card">
+            <table className="sv-table">
+              <thead><tr><th>Team</th><th className="text-right">Pts/jogo</th><th className="text-right">xG/90</th><th className="text-right">xGA/90</th></tr></thead>
+              <tbody>
+                {(teams || [])
+                  .map((t: any) => ({ t, s: (t.statistics || []).find((x: any) => x.scope === "overall" || x.scope === "season") }))
+                  .sort((a, b) => (b.s?.points_per_game || 0) - (a.s?.points_per_game || 0))
+                  .slice(0, 8)
+                  .map(({ t, s }: any) => (
+                    <tr key={t.id}>
+                      <td>
+                        <Link to={`/teams/${t.id}`} className="flex items-center gap-2 hover:text-sv-accent3">
+                          <TeamLogo name={t.name} />
+                          <span className="font-medium">{t.name}</span>
+                        </Link>
+                      </td>
+                      <td className="text-right font-mono">{(s?.points_per_game ?? 0).toFixed(2)}</td>
+                      <td className="text-right font-mono text-sv-accent3">{(s?.xg_per_90 ?? 0).toFixed(2)}</td>
+                      <td className="text-right font-mono text-sv-warn">{(s?.xga_per_90 ?? 0).toFixed(2)}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

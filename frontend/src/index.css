@@ -1,0 +1,188 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(55,180,134,0.08), transparent 60%),
+      radial-gradient(900px 500px at 90% 0%, rgba(63,118,235,0.06), transparent 60%),
+      #0a0f1a;
+    color: #e6eaf2;
+    font-feature-settings: "cv11", "ss01";
+  }
+  * { -webkit-tap-highlight-color: transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: #0b1223; }
+  ::-webkit-scrollbar-thumb { background: #1f2c4a; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: #293a60; }
+}
+
+@layer components {
+  .sv-card {
+    @apply bg-sv-panel border border-sv-border rounded-xl;
+  }
+  .sv-card-inner {
+    @apply p-5;
+  }
+  .sv-label {
+    @apply text-xs uppercase tracking-wider text-sv-muted;
+  }
+  .sv-chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-sv-border bg-sv-panel2 px-2.5 py-1 text-xs text-sv-text/90;
+  }
+  .sv-chip-accent {
+    @apply sv-chip border-sv-accent/40 text-sv-accent3 bg-sv-accent/10;
+  }
+  .sv-btn {
+    @apply inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium border border-sv-border bg-sv-panel hover:bg-sv-panel2 transition;
+  }
+  .sv-btn-primary {
+    @apply inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium border border-sv-accent/40 bg-sv-accent hover:bg-sv-accent2 text-white shadow-glow transition;
+  }
+  .sv-divider {
+    @apply h-px bg-sv-border/80 my-3;
+  }
+  .sv-table {
+    @apply w-full text-sm;
+  }
+  .sv-table th {
+    @apply text-left font-medium text-sv-muted text-xs uppercase tracking-wider px-3 py-2 border-b border-sv-border/80;
+  }
+  .sv-table td {
+    @apply px-3 py-2 border-b border-sv-border/50 align-middle;
+  }
+  .sv-stat-k {
+    @apply text-xs text-sv-muted;
+  }
+  .sv-stat-v {
+    @apply text-lg font-semibold;
+  }
+  .sv-pill {
+    @apply inline-block rounded-full px-2 py-0.5 text-[11px] font-medium;
+  }
+  .sv-bar {
+    @apply relative h-2 rounded-full overflow-hidden bg-sv-panel2;
+  }
+  .sv-bar > span {
+    @apply block h-full bg-gradient-to-r from-sv-accent to-sv-accent3 rounded-full;
+  }
+  .sv-ring {
+    position: relative;
+  }
+  .sv-ring::before {
+    content: "";
+    position: absolute; inset: -2px;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(55,180,134,0.5), transparent 50%, rgba(99,102,241,0.25));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    pointer-events: none; border-radius: inherit;
+  }
+  .skeleton {
+    background: linear-gradient(90deg, #16203a 0%, #1f2d50 50%, #16203a 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.3s infinite linear;
+    border-radius: 8px;
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  .pitch-gradient {
+    background:
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0 40px, rgba(0,0,0,0.05) 40px 80px),
+      linear-gradient(180deg, #1e7b4b, #145e38);
+  }
+
+  /* PitchStudio — campo e overlay de gol estilo SofaScore */
+  .studio-pitch-wrap {
+    background: #3d8f55;
+  }
+  .studio-pitch-svg {
+    display: block;
+    width: 100%;
+    aspect-ratio: 100 / 68;
+  }
+
+  .goal-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(2px);
+    animation: goalOverlayIn 0.35s ease-out;
+  }
+  @keyframes goalOverlayIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .goal-popup {
+    width: min(92%, 340px);
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    overflow: hidden;
+    transition: transform 0.1s linear;
+  }
+  .goal-popup-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 14px 40px 8px;
+  }
+  .goal-popup-score {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #1a1a1a;
+    letter-spacing: 0.04em;
+  }
+  .goal-popup-close {
+    position: absolute;
+    right: 12px;
+    top: 10px;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: #666;
+    font-size: 1rem;
+    cursor: pointer;
+    border-radius: 6px;
+    line-height: 1;
+  }
+  .goal-popup-close:hover {
+    background: #f0f0f0;
+    color: #1a1a1a;
+  }
+  .goal-popup-body {
+    padding: 0 16px 8px;
+  }
+  .goal-popup-label {
+    text-align: center;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #1a1a1a;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+  }
+  .goal-net-svg {
+    display: block;
+    width: 100%;
+    border-radius: 8px;
+  }
+  .goal-popup-footer {
+    padding: 10px 16px 14px;
+    text-align: center;
+    font-size: 12px;
+    color: #444;
+    border-top: 1px solid #eee;
+  }
+}

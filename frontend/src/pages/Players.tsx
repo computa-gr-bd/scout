@@ -1,0 +1,86 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { Badge, EmptyState, SectionTitle } from "../components/ui";
+import { listPlayers, type Player } from "../api/client";
+
+function PlayerRow({ p }: { p: Player }) {
+  const s = p.statistics.find((x) => x.scope === "overall");
+  return (
+    <Link to={`/players/${p.id}`} className="sv-card block hover:bg-sv-panel2 transition">
+      <div className="px-4 py-3 grid grid-cols-[1.2fr_0.6fr_0.8fr_1.5fr] gap-3 items-center">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-full bg-sv-panel2 grid place-items-center text-xs font-semibold border border-sv-border">
+            {(p.display_name || p.last_name).slice(0, 2).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <div className="font-medium truncate">{p.display_name || `${p.first_name || ""} ${p.last_name}`.trim()}</div>
+            <div className="text-[11px] text-sv-muted">{p.country || "—"} · {p.position || "—"}</div>
+          </div>
+        </div>
+        <div><Badge kind="accent">{p.position || "—"}</Badge></div>
+        <div className="grid grid-cols-3 gap-1 text-xs text-center">
+          <div>
+            <div className="sv-stat-k">MP</div><div className="sv-stat-v text-sm">{s?.matches_played ?? 0}</div>
+          </div>
+          <div>
+            <div className="sv-stat-k">Mins</div><div className="sv-stat-v text-sm">{s?.minutes_played ?? 0}</div>
+          </div>
+          <div>
+            <div className="sv-stat-k">G/A</div>
+            <div className="sv-stat-v text-sm text-sv-accent3">{s?.goals ?? 0}/{s?.assists ?? 0}</div>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-xs text-right">
+          <div>
+            <div className="sv-stat-k">Shots/90</div>
+            <div className="font-mono">{(s?.shots_per_90 ?? 0).toFixed(2)}</div>
+          </div>
+          <div>
+            <div className="sv-stat-k">xG/90</div>
+            <div className="font-mono text-sv-accent3">{(s?.xg_per_90 ?? 0).toFixed(2)}</div>
+          </div>
+          <div>
+            <div className="sv-stat-k">xA/90</div>
+            <div className="font-mono">{(s?.xa_per_90 ?? 0).toFixed(2)}</div>
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+export default function PlayersPage() {
+  const [q, setQ] = useState("");
+  const [pos, setPos] = useState("");
+  const qry = useQuery({
+    queryKey: ["players", q, pos],
+    queryFn: () => listPlayers({ q, position: pos }),
+  });
+  return (
+    <div className="space-y-5">
+      <SectionTitle title="Players" hint="~240 scouted profiles with zones, form, and contextual probability APIs">
+        <div className="flex gap-2 flex-wrap">
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search player…" className="sv-btn !py-1.5 md:w-56 text-left" />
+          <select value={pos} onChange={(e) => setPos(e.target.value)}
+            className="sv-btn !py-1.5 bg-sv-panel text-sv-text">
+            <option value="">All positions</option>
+            {["GK", "CB", "LB", "RB", "CDM", "CM", "CAM", "LW", "RW", "ST", "FW", "MID"].map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </div>
+      </SectionTitle>
+
+      {qry.isLoading ? (
+        <div className="space-y-2">{Array.from({ length: 12 }).map((_, i) => <div key={i} className="sv-card h-[72px] skeleton" />)}</div>
+      ) : !qry.data?.length ? (
+        <EmptyState title="No players found" description="Try different filters or run backend seeder." />
+      ) : (
+        <div className="space-y-2">
+          {qry.data.map((p) => <PlayerRow key={p.id} p={p} />)}
+        </div>
+      )}
+    </div>
+  );
+}
