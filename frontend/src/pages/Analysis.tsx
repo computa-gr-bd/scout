@@ -134,9 +134,9 @@ export default function AnalysisPage() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Analysis studio</h1>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Estúdio de análise</h1>
           <p className="text-sv-muted mt-1 text-sm">
-            Pick a match · inspect weaknesses, player probabilities, heatmaps and matchups.
+            Escolha uma partida · inspecione fraquezas, probabilidades por jogador, mapas de calor e confrontos.
             {useMock && (
               <span className="inline-flex items-center gap-1.5 ml-2 sv-chip-accent">
                 <span className="w-1.5 h-1.5 rounded-full bg-sv-accent3 animate-pulse"/>
@@ -155,11 +155,11 @@ export default function AnalysisPage() {
       <div className="grid lg:grid-cols-[320px_1fr] gap-5">
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Matches" hint={useMock ? "5 partidas simuladas" : "Escolha para analisar"}>
+            <SectionTitle title="Partidas" hint={useMock ? `${rawMatches.length} partidas (demo + API)` : "Escolha para analisar"}>
               <div className="flex gap-1">
-                {(["all", "upcoming", "recent"] as const).map((s) => (
-                  <button key={s} onClick={() => setScope(s)}
-                    className={`sv-btn !py-1 text-[11px] capitalize ${scope === s ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>{s}</button>
+                {([["all", "todas"], ["upcoming", "próximas"], ["recent", "recentes"]] as const).map(([s, label]) => (
+                  <button key={s} onClick={() => setScope(s as any)}
+                    className={`sv-btn !py-1 text-[11px] capitalize ${scope === s ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>{label}</button>
                 ))}
               </div>
             </SectionTitle>
@@ -172,7 +172,7 @@ export default function AnalysisPage() {
                     selected === m.id ? "sv-ring !bg-sv-panel2" : "hover:bg-sv-panel2",
                   ].join(" ")}>
                   <div className="text-[10px] text-sv-muted mb-1.5 flex justify-between">
-                    <span>{m.competition_name || "League"}</span>
+                    <span>{m.competition_name || "Liga"}</span>
                     <Badge kind={m.status === "finished" ? "default" : "accent"}>{m.status}</Badge>
                   </div>
                   <div className="flex items-center gap-2">
@@ -197,7 +197,7 @@ export default function AnalysisPage() {
             <>
               <PitchStudio />
               <EmptyState title="Selecione uma partida ao lado para análise detalhada"
-                description="O PitchStudio acima já está funcionando com dados simulados. Clique em qualquer jogo na lista para carregar análises de zona, previsões e matchups." />
+                description="O PitchStudio acima já está funcionando com dados simulados. Clique em qualquer jogo na lista para carregar análises de zona, previsões e confrontos." />
             </>
           ) : (
             <>
@@ -210,7 +210,7 @@ export default function AnalysisPage() {
                       <button onClick={() => setView("3d")} className={`sv-btn !py-1.5 text-[11.5px] ${view === "3d" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>3D</button>
                     </div>
                   } />
-                <PitchStudio />
+                <PitchStudio selectedMatchId={selected} />
               </div>
 
               {view !== "3d" ? (
@@ -230,15 +230,25 @@ export default function AnalysisPage() {
               ) : (
                 <div>
                   <SectionTitle title="Visão 3D do gramado"
-                    hint="Use o mouse para rotacionar, inclinar e dar zoom" />
+                    hint="Clique numa zona para ver as estatísticas · alterne mandante/visitante · use o mouse para rotacionar" />
                   <Pitch3D
                     title=""
                     homeWeakness={hw}
                     awayWeakness={aw}
-                    opportunityZones={
-                      (preds.predictions || []).filter((p: any) => p.target === "shot").flatMap((p: any) =>
-                        (p.zone_opportunities || []).slice(0, 2).map((z: any) => ({ zone: z.zone, value: z.opportunity_score }))).slice(0, 40)
-                    }
+                    homeWeaknessDetails={zones.home_team_weaknesses}
+                    awayWeaknessDetails={zones.away_team_weaknesses}
+                    teamNames={{ home: selMatch.home_team.name, away: selMatch.away_team.name }}
+                    opportunityZones={(preds.predictions || []).filter((p: any) => p.target === "shot")
+                      .flatMap((p: PlayerMatchPrediction) =>
+                        (p.zone_opportunities || []).map((z: ZoneOpportunity) => ({
+                          zone: z.zone,
+                          value: z.opportunity_score,
+                          side: p.venue,
+                          player_name: p.player_name,
+                          offensive_strength: z.offensive_strength,
+                          defensive_weakness: z.defensive_weakness,
+                          player_frequency: z.player_frequency,
+                        })))}
                   />
                 </div>
               )}
@@ -247,20 +257,20 @@ export default function AnalysisPage() {
                 <div className="sv-card-inner space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <div className="font-semibold">Player event probabilities</div>
-                      <div className="text-xs text-sv-muted">Vertical line = baseline probability</div>
+                      <div className="font-semibold">Probabilidades de eventos por jogador</div>
+                      <div className="text-xs text-sv-muted">Linha vertical = probabilidade base</div>
                     </div>
                     <div className="flex gap-1">
-                      {["shot", "shot_on_target", "goal", "goal_involvement"].map((t) => (
+                      {[["shot", "chute"], ["shot_on_target", "no alvo"], ["goal", "gol"], ["goal_involvement", "particip. em gol"]].map(([t, label]) => (
                         <button key={t} onClick={() => setTarget(t)}
                           className={`sv-btn !py-1.5 capitalize ${target === t ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>
-                          {t.replace("_", " ")}
+                          {label}
                         </button>
                       ))}
                     </div>
                   </div>
                   {targetPreds.length === 0 ? (
-                    <EmptyState title="No predictions for this target yet" />
+                    <EmptyState title="Ainda sem previsões para este alvo" />
                   ) : (
                     <div className="space-y-2.5">
                       {targetPreds.slice(0, 20).map((p: any, i: number) => (
@@ -294,20 +304,20 @@ export default function AnalysisPage() {
               <div className="grid lg:grid-cols-2 gap-5">
                 <div className="sv-card">
                   <div className="sv-card-inner">
-                    <SectionTitle title="Opportunity × Frequency scatter"
-                      hint="Each bubble = a player · x = zone frequency · y = probability · size = total opportunity" />
+                    <SectionTitle title="Dispersão Oportunidade × Frequência"
+                      hint="Cada bolha = um jogador · x = frequência de zona · y = probabilidade · tamanho = oportunidade total" />
                     <div className="h-80">
                       <SResponsiveContainer>
                         <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 0 }}>
                           <CartesianGrid stroke="#22314f" />
-                          <SXAxis type="number" dataKey="x" name="Zone freq" stroke="#8794ad" fontSize={10} />
+                          <SXAxis type="number" dataKey="x" name="Freq. zona" stroke="#8794ad" fontSize={10} />
                           <SYAxis type="number" dataKey="y" name="Prob %" stroke="#8794ad" fontSize={10} />
-                          <ZAxis type="number" dataKey="z" range={[40, 400]} name="Opportunity" />
+                          <ZAxis type="number" dataKey="z" range={[40, 400]} name="Oportunidade" />
                           <STooltip cursor={{ strokeDasharray: "3 3" }}
                             contentStyle={{ background: "#111a2b", border: "1px solid #22314f", borderRadius: 8 }} />
                           <SLegend />
-                          <Scatter name="Home" data={scatter.filter((s) => s.venue === "home")} fill="#3b82f6" />
-                          <Scatter name="Away" data={scatter.filter((s) => s.venue === "away")} fill="#e1534e" />
+                          <Scatter name="Casa" data={scatter.filter((s: any) => s.venue === "home")} fill="#3b82f6" />
+                          <Scatter name="Fora" data={scatter.filter((s: any) => s.venue === "away")} fill="#e1534e" />
                         </ScatterChart>
                       </SResponsiveContainer>
                     </div>
@@ -315,7 +325,7 @@ export default function AnalysisPage() {
                 </div>
                 <div className="sv-card">
                   <div className="sv-card-inner">
-                    <SectionTitle title="Matchup engine: top edge matchups" />
+                    <SectionTitle title="Motor de confrontos: principais vantagens" />
                     <div className="space-y-2 max-h-80 overflow-auto pr-1">
                       {(preds.matchups || [] as MatchupScore[]).slice(0, 20).map((mu: any, i: number) => (
                         <div key={i} className="sv-card !p-3">
@@ -325,20 +335,20 @@ export default function AnalysisPage() {
                                 {(mu.score * 100).toFixed(0)}%
                               </Badge>
                               <span className="font-medium truncate">
-                                Att#{mu.attacker_id} vs Def#{mu.defender_id}
+                                Ata#{mu.attacker_id} vs Def#{mu.defender_id}
                               </span>
                             </div>
-                            <span className="sv-chip">{mu.score > 0.55 ? "Attack edge" : "Defend edge"}</span>
+                            <span className="sv-chip">{mu.score > 0.55 ? "Vantagem ataque" : "Vantagem defesa"}</span>
                           </div>
                           <div className="grid grid-cols-2 gap-2 text-xs">
                             <div className="space-y-1">
-                              <div className="sv-label">Attacker strengths</div>
+                              <div className="sv-label">Pontos fortes do atacante</div>
                               {mu.strengths?.length ? mu.strengths.map((s: string, k: number) => (
                                 <div key={k} className="sv-chip-accent">{s}</div>
                               )) : <div className="text-sv-muted">—</div>}
                             </div>
                             <div className="space-y-1 text-right">
-                              <div className="sv-label">Defender weaknesses</div>
+                              <div className="sv-label">Fraquezas do defensor</div>
                               {mu.weaknesses?.length ? mu.weaknesses.map((s: string, k: number) => (
                                 <div key={k} className="sv-chip border-sv-warn/40 text-sv-warn">{s}</div>
                               )) : <div className="text-sv-muted">—</div>}
@@ -346,7 +356,7 @@ export default function AnalysisPage() {
                           </div>
                         </div>
                       ))}
-                      {!preds.matchups?.length && <EmptyState title="No matchup data" />}
+                      {!preds.matchups?.length && <EmptyState title="Sem dados de confrontos" />}
                     </div>
                   </div>
                 </div>
@@ -354,14 +364,14 @@ export default function AnalysisPage() {
 
               <div className="sv-card">
                 <div className="sv-card-inner">
-                  <SectionTitle title="Player × Zone opportunity heatmap"
-                    hint="Rows: top players · Columns: attacking zones · Brighter = higher opportunity (%)" />
-                  {heatRows.length === 0 ? <EmptyState title="No data" /> : (
+                  <SectionTitle title="Mapa de calor de oportunidade Jogador × Zona"
+                    hint="Linhas: principais jogadores · Colunas: zonas de ataque · Mais claro = maior oportunidade (%)" />
+                  {heatRows.length === 0 ? <EmptyState title="Sem dados" /> : (
                     <div className="overflow-auto">
                       <table className="sv-table min-w-[820px]">
                         <thead>
                           <tr>
-                            <th>Player</th>
+                            <th>Jogador</th>
                             {zoneCols.map((z) => (
                               <th key={z} className="text-right !py-3 whitespace-nowrap">
                                 {z.replace(/_/g, " ").slice(0, 14)}
@@ -370,7 +380,7 @@ export default function AnalysisPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {heatRows.map((r, i) => (
+                          {heatRows.map((r: any, i: number) => (
                             <tr key={i}>
                               <td className="font-medium whitespace-nowrap">{r.player}</td>
                               {zoneCols.map((z) => {

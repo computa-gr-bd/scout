@@ -32,27 +32,27 @@ export default function TeamPage() {
                 <Badge>{t.data.code}</Badge>
                 <Badge kind="accent">{t.data.country || "DemoLand"}</Badge>
               </div>
-              <div className="text-sm text-sv-muted mt-1">Founded {t.data.founded || "—"} · Stadium: {t.data.stadium?.name || "—"} ({t.data.stadium?.capacity || "—"})</div>
+              <div className="text-sm text-sv-muted mt-1">Fundado em {t.data.founded || "—"} · Estádio: {(t.data as any).stadium?.name || "—"} ({(t.data as any).stadium?.capacity || "—"})</div>
             </div>
             <div className="flex gap-2">
-              <Link to="/matches" className="sv-btn">Fixtures</Link>
-              <Link to={`/analysis?team=${teamId}`} className="sv-btn-primary">Analyze</Link>
+              <Link to="/matches" className="sv-btn">Jogos</Link>
+              <Link to={`/analysis?team=${teamId}`} className="sv-btn-primary">Analisar</Link>
             </div>
           </div>
         </div>
-      ) : <EmptyState title="Loading team" />}
+      ) : <EmptyState title="Carregando time" />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-        <StatCard label="Matches played" value={s?.matches_played ?? "—"} sub={`${s?.wins ?? 0}W ${s?.draws ?? 0}D ${s?.losses ?? 0}L`} />
-        <StatCard label="Points per game" value={s ? s.points_per_game.toFixed(2) : "—"} accent="sv-accent" sub={`GF ${(s?.goals_for ?? 0).toFixed(0)} · GA ${(s?.goals_against ?? 0).toFixed(0)}`} />
-        <StatCard label="Attack (xG/90)" value={s ? s.xg_per_90.toFixed(2) : "—"} accent="sv-accent" sub={`Shots/90 ${(s?.shots_per_90 ?? 0).toFixed(1)}`} />
-        <StatCard label="Defense (xGA/90)" value={s ? s.xga_per_90.toFixed(2) : "—"} accent="sv-danger" sub={`Conc/90 ${(s?.goals_conceded_per_90 ?? 0).toFixed(2)}`} />
+        <StatCard label="Partidas jogadas" value={s?.matches_played ?? "—"} sub={`${s?.wins ?? 0}V ${s?.draws ?? 0}E ${s?.losses ?? 0}D`} />
+        <StatCard label="Pontos por jogo" value={s ? s.points_per_game.toFixed(2) : "—"} accent="sv-accent" sub={`GP ${(s?.goals_for ?? 0).toFixed(0)} · GC ${(s?.goals_against ?? 0).toFixed(0)}`} />
+        <StatCard label="Ataque (xG/90)" value={s ? s.xg_per_90.toFixed(2) : "—"} accent="sv-accent" sub={`Chutes/90 ${(s?.shots_per_90 ?? 0).toFixed(1)}`} />
+        <StatCard label="Defesa (xGA/90)" value={s ? s.xga_per_90.toFixed(2) : "—"} accent="sv-danger" sub={`Sofridos/90 ${(s?.goals_conceded_per_90 ?? 0).toFixed(2)}`} />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-5">
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Recent form" hint="Last 5 matches · 3 = win, 1 = draw, 0 = loss" />
+            <SectionTitle title="Forma recente" hint="Últimos 5 jogos · 3 = vitória, 1 = empate, 0 = derrota" />
             <div className="h-56">
               <ResponsiveContainer>
                 <BarChart data={formData}>
@@ -73,7 +73,7 @@ export default function TeamPage() {
         </div>
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Upcoming & recent fixtures" />
+            <SectionTitle title="Próximos jogos & recentes" />
             <div className="space-y-2 max-h-80 overflow-auto pr-1">
               {(matches.data || []).slice(0, 10).map((m) => (
                 <Link key={m.id} to={`/matches/${m.id}`} className="sv-card block hover:bg-sv-panel2 transition">
@@ -101,16 +101,16 @@ export default function TeamPage() {
       </div>
 
       <div>
-        <SectionTitle title="Defensive weaknesses by zone" hint="Zones where the team concedes shots, xG and goals more frequently" />
+        <SectionTitle title="Fraquezas defensivas por zona" hint="Zonas onde o time sofre mais chutes, xG e gols" />
         <Pitch2D
           awayWeakness={weaknessMap}
-          title="Team defensive heatmap from the opposition's perspective (right-hand side)"
+          title="Mapa de calor defensivo do time, na perspectiva do adversário (lado direito)"
         />
       </div>
 
       <div className="sv-card">
         <div className="sv-card-inner">
-          <SectionTitle title="Weakness ranking" hint="Higher = more vulnerable" />
+          <SectionTitle title="Ranking de fraquezas" hint="Maior = mais vulnerável" />
           <div className="space-y-2.5">
             {([...(weaknesses.data || [])] as DefensiveWeakness[])
               .sort((a, b) => b.weakness_score - a.weakness_score)
@@ -122,7 +122,7 @@ export default function TeamPage() {
                       <span className="font-medium capitalize">{(w.zone as string).replace(/_/g, " ")}</span>
                     </div>
                     <div className="text-sv-muted">
-                      sample {w.sample_size} · xGA {(w.xga_per_90).toFixed(2)} · goals {(w.goals_conceded_per_90).toFixed(2)}
+                      amostra {w.sample_size} · xGA {(w.xga_per_90).toFixed(2)} · gols {(w.goals_conceded_per_90).toFixed(2)}
                     </div>
                   </div>
                   <ProbabilityBar p={Math.min(1, w.weakness_score)} />

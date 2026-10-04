@@ -1,6 +1,8 @@
 import type { Match, MatchAnalysis, PlayerMatchPrediction, MatchupScore, ZoneOpportunity, DefensiveWeakness } from "./client";
+import { API_MATCHES } from "./studioData";
 
-export const MOCK_MATCHES: Match[] = [
+/** Partidas "demo" (sintéticas) originais. */
+const DEMO_MATCHES: Match[] = [
   {
     id: 1,
     season_id: 1,
@@ -82,6 +84,12 @@ export const MOCK_MATCHES: Match[] = [
     data_source: "scoutvision_demo",
   },
 ];
+
+/**
+ * Lista de partidas usada como fallback/mock em todo o app.
+ * = demo (sintéticas) + dados reais coletados da API football-data.org.
+ */
+export const MOCK_MATCHES: Match[] = [...DEMO_MATCHES, ...API_MATCHES];
 
 export const MOCK_MATCH_ANALYSIS: MatchAnalysis = {
   match_id: 1,

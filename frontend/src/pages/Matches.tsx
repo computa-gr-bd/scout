@@ -4,6 +4,16 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Badge, EmptyState, SectionTitle, TeamLogo } from "../components/ui";
 import { listMatches } from "../api/client";
 import type { Match } from "../api/client";
+import { MOCK_MATCHES } from "../api/mockData";
+
+function filterByScope(list: Match[], scope: "upcoming" | "recent" | "all") {
+  if (scope === "all") return list;
+  const now = Date.now();
+  return list.filter((m) => {
+    const t = new Date(m.kickoff_time).getTime();
+    return scope === "upcoming" ? m.status === "upcoming" || t > now : m.status === "finished" || t <= now;
+  });
+}
 
 function formatDate(s: string) {
   const d = new Date(s);
@@ -28,7 +38,7 @@ function MatchRow({ m }: { m: Match }) {
           <div className="mt-1 font-mono font-semibold">
             {m.status === "finished" ? `${m.home_score}–${m.away_score}` : formatDate(m.kickoff_time)}
           </div>
-          <div className="text-[11px] text-sv-muted truncate">{m.competition_name || ""}{m.matchday ? ` · MD ${m.matchday}` : ""}</div>
+          <div className="text-[11px] text-sv-muted truncate">{m.competition_name || ""}{m.matchday ? ` · Rodada ${m.matchday}` : ""}</div>
         </div>
         <div className="flex items-center gap-2 min-w-0 justify-end">
           <div className="min-w-0 text-right">
@@ -49,19 +59,25 @@ export default function MatchesPage() {
   const q = useQuery({
     queryKey: ["matches", scope],
     queryFn: () => listMatches({ scope }),
+    retry: 1, retryDelay: 600,
   });
 
   const scopes: { key: "upcoming" | "recent" | "all"; label: string }[] = [
-    { key: "upcoming", label: "Upcoming" },
-    { key: "recent", label: "Recent results" },
-    { key: "all", label: "All" },
+    { key: "upcoming", label: "Próximas" },
+    { key: "recent", label: "Resultados recentes" },
+    { key: "all", label: "Todas" },
   ];
 
-  const list = useMemo(() => q.data || [], [q.data]);
+  // Fallback: dados demo + dados reais da API (football-data.org)
+  const list = useMemo(() => {
+    if (q.data && q.data.length) return q.data;
+    if (q.isLoading || q.isFetching) return [];
+    return filterByScope(MOCK_MATCHES, scope);
+  }, [q.data, q.isLoading, q.isFetching, scope]);
 
   return (
     <div className="space-y-5">
-      <SectionTitle title="Matches" hint="Browse fixtures, lineups and generate contextual pre-match predictions">
+      <SectionTitle title="Partidas" hint="Veja jogos, escalações e gere previsões contextuais pré-jogo">
         <div className="flex gap-1">
           {scopes.map((s) => (
             <button key={s.key}
@@ -82,7 +98,7 @@ export default function MatchesPage() {
           ))}
         </div>
       ) : list.length === 0 ? (
-        <EmptyState title="No matches in this scope" />
+        <EmptyState title="Nenhuma partida neste filtro" />
       ) : (
         <div className="space-y-2">
           {list.map((m) => <MatchRow key={m.id} m={m} />)}

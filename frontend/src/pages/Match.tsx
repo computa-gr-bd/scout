@@ -47,25 +47,25 @@ export default function MatchPage() {
     const h = a.home_team_stats; const aw = a.away_team_stats;
     const mapTo100 = (v: number, max: number) => Math.min(100, Math.round((v / max) * 100));
     return [
-      { metric: "Shots/90", home: mapTo100(h?.shots_per_90 || 0, 22), away: mapTo100(aw?.shots_per_90 || 0, 22) },
-      { metric: "xG/90", home: mapTo100(h?.xg_per_90 || 0, 2.5), away: mapTo100(aw?.xg_per_90 || 0, 2.5) },
-      { metric: "SOT/90", home: mapTo100(h?.shots_on_target_per_90 || 0, 10), away: mapTo100(aw?.shots_on_target_per_90 || 0, 10) },
-      { metric: "Corners/90", home: mapTo100(h?.corners_per_90 || 0, 10), away: mapTo100(aw?.corners_per_90 || 0, 10) },
-      { metric: "xGA/90 (inv)", home: mapTo100(Math.max(0, 3 - (h?.xga_per_90 || 0)), 3), away: mapTo100(Math.max(0, 3 - (aw?.xga_per_90 || 0)), 3) },
-      { metric: "Pts/game", home: mapTo100(h?.points_per_game || 0, 3), away: mapTo100(aw?.points_per_game || 0, 3) },
+      { m: "Chutes/90", home: mapTo100(h?.shots_per_90 || 0, 22), away: mapTo100(aw?.shots_per_90 || 0, 22) },
+      { m: "xG/90", home: mapTo100(h?.xg_per_90 || 0, 2.5), away: mapTo100(aw?.xg_per_90 || 0, 2.5) },
+      { m: "Ch.Alvo/90", home: mapTo100(h?.shots_on_target_per_90 || 0, 10), away: mapTo100(aw?.shots_on_target_per_90 || 0, 10) },
+      { m: "Cantos/90", home: mapTo100(h?.corners_per_90 || 0, 10), away: mapTo100(aw?.corners_per_90 || 0, 10) },
+      { m: "xGA/90 (inv)", home: mapTo100(Math.max(0, 3 - (h?.xga_per_90 || 0)), 3), away: mapTo100(Math.max(0, 3 - (aw?.xga_per_90 || 0)), 3) },
+      { m: "Pts/jogo", home: mapTo100(h?.points_per_game || 0, 3), away: mapTo100(aw?.points_per_game || 0, 3) },
     ];
   }, [a]);
 
   const keyStats = useMemo(() => {
     if (!a) return [];
     return [
-      ["Shots /90", a.home_team_stats?.shots_per_90, a.away_team_stats?.shots_per_90],
-      ["Shots on target /90", a.home_team_stats?.shots_on_target_per_90, a.away_team_stats?.shots_on_target_per_90],
+      ["Chutes /90", a.home_team_stats?.shots_per_90, a.away_team_stats?.shots_per_90],
+      ["Chutes no alvo /90", a.home_team_stats?.shots_on_target_per_90, a.away_team_stats?.shots_on_target_per_90],
       ["xG /90", a.home_team_stats?.xg_per_90, a.away_team_stats?.xg_per_90],
       ["xGA /90", a.home_team_stats?.xga_per_90, a.away_team_stats?.xga_per_90],
-      ["Goals conceded /90", a.home_team_stats?.goals_conceded_per_90, a.away_team_stats?.goals_conceded_per_90],
-      ["Corners /90", a.home_team_stats?.corners_per_90, a.away_team_stats?.corners_per_90],
-      ["Points / game", a.home_team_stats?.points_per_game, a.away_team_stats?.points_per_game],
+      ["Gols sofridos /90", a.home_team_stats?.goals_conceded_per_90, a.away_team_stats?.goals_conceded_per_90],
+      ["Cantos /90", a.home_team_stats?.corners_per_90, a.away_team_stats?.corners_per_90],
+      ["Pontos / jogo", a.home_team_stats?.points_per_game, a.away_team_stats?.points_per_game],
     ].map(([k, h, aw]) => [k, h ?? 0, aw ?? 0]) as any;
   }, [a]);
 
@@ -77,7 +77,15 @@ export default function MatchPage() {
   const oppZones = predictions.data?.predictions
     ?.filter((p) => p.target === "shot")
     .flatMap((p: PlayerMatchPrediction) =>
-      (p.zone_opportunities || []).slice(0, 2).map((z: ZoneOpportunity) => ({ zone: z.zone, value: z.opportunity_score }))
+      (p.zone_opportunities || []).slice(0, 2).map((z: ZoneOpportunity) => ({
+        zone: z.zone,
+        value: z.opportunity_score,
+        side: p.venue,
+        player_name: p.player_name,
+        offensive_strength: z.offensive_strength,
+        defensive_weakness: z.defensive_weakness,
+        player_frequency: z.player_frequency,
+      }))
     ) || [];
 
   const playerById: Record<number, { display_name?: string | null; first_name?: string | null; last_name: string }> = {};
@@ -105,43 +113,43 @@ export default function MatchPage() {
               <TeamLogo name={m.home_team.name} className="w-14 h-14" />
               <div className="min-w-0">
                 <div className="text-xl font-bold truncate">{m.home_team.name}</div>
-                <div className="text-sm text-sv-muted">Home · {m.home_team.short_name || ""}</div>
+                <div className="text-sm text-sv-muted">Casa · {m.home_team.short_name || ""}</div>
               </div>
             </div>
             <div className="text-center min-w-[200px]">
-              <div className="sv-chip mb-2">{m.competition_name || "League"} · {m.round_name || `MD ${m.matchday || "—"}`}</div>
+              <div className="sv-chip mb-2">{m.competition_name || "Liga"} · {m.round_name || `Rodada ${m.matchday || "—"}`}</div>
               <div className="font-mono text-2xl md:text-3xl font-bold tabular-nums">
                 {m.status === "finished" ? `${m.home_score}–${m.away_score}` : "VS"}
               </div>
               <div className="mt-1 text-xs text-sv-muted">{formatDateTime(m.kickoff_time)}</div>
-              <div className="mt-0.5 text-[11px] text-sv-muted">Venue: {m.stadium_name || "—"} · Ref: {m.referee || "—"}</div>
+              <div className="mt-0.5 text-[11px] text-sv-muted">Estádio: {m.stadium_name || "—"} · Árbitro: {m.referee || "—"}</div>
               <div className="mt-2 flex items-center justify-center gap-2">
-                <Link to={`/analysis/${matchId}`} className="sv-btn-primary">Open analysis</Link>
-                <Link to={`/teams/${homeId}`} className="sv-btn">Home</Link>
-                <Link to={`/teams/${awayId}`} className="sv-btn">Away</Link>
+                <Link to={`/analysis/${matchId}`} className="sv-btn-primary">Abrir análise</Link>
+                <Link to={`/teams/${homeId}`} className="sv-btn">Casa</Link>
+                <Link to={`/teams/${awayId}`} className="sv-btn">Fora</Link>
               </div>
             </div>
             <div className="flex items-center gap-3 min-w-0 justify-end">
               <div className="min-w-0 text-right">
                 <div className="text-xl font-bold truncate">{m.away_team.name}</div>
-                <div className="text-sm text-sv-muted">Away · {m.away_team.short_name || ""}</div>
+                <div className="text-sm text-sv-muted">Fora · {m.away_team.short_name || ""}</div>
               </div>
               <TeamLogo name={m.away_team.name} className="w-14 h-14" />
             </div>
           </div>
         </div>
       ) : (
-        <EmptyState title="Loading match" />
+        <EmptyState title="Carregando partida" />
       )}
 
       {/* key stats */}
       {keyStats.length > 0 && (
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Statistical comparison" hint="Season aggregates · per 90 minutes" />
+            <SectionTitle title="Comparativo estatístico" hint="Agregados da temporada · por 90 minutos" />
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-3">
-                {keyStats.map(([k, h, aw]) => {
+                {keyStats.map(([k, h, aw]: any[]) => {
                   const sum = (h || 0) + (aw || 0) || 1;
                   return (
                     <div key={k}>
@@ -168,8 +176,8 @@ export default function MatchPage() {
                     <PolarGrid stroke="#22314f" />
                     <PolarAngleAxis dataKey="metric" tick={{ fill: "#8794ad", fontSize: 11 }} />
                     <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: "#8794ad", fontSize: 10 }} axisLine={false} />
-                    <Radar name={m?.home_team?.short_name || "Home"} dataKey="home" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.35} />
-                    <Radar name={m?.away_team?.short_name || "Away"} dataKey="away" stroke="#e1534e" fill="#e1534e" fillOpacity={0.3} />
+                    <Radar name={m?.home_team?.short_name || "Casa"} dataKey="home" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.35} />
+                    <Radar name={m?.away_team?.short_name || "Fora"} dataKey="away" stroke="#e1534e" fill="#e1534e" fillOpacity={0.3} />
                     <Tooltip contentStyle={{ background: "#111a2b", border: "1px solid #22314f", borderRadius: 8 }} labelStyle={{ color: "#e6eaf2" }} />
                   </RadarChart>
                 </ResponsiveContainer>
@@ -183,46 +191,46 @@ export default function MatchPage() {
       <div className="grid lg:grid-cols-2 gap-5">
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Head-to-head" hint="Last 6 meetings" />
+            <SectionTitle title="Confrontos diretos" hint="Últimos 6 encontros" />
             {a?.h2h_recent?.length ? (
               <table className="sv-table">
-                <thead><tr><th>Date</th><th>Home</th><th className="text-center">Score</th><th>Away</th></tr></thead>
+                <thead><tr><th>Data</th><th>Casa</th><th className="text-center">Placar</th><th>Fora</th></tr></thead>
                 <tbody>
                   {a.h2h_recent.map((h) => (
                     <tr key={h.match_id}>
                       <td className="text-xs text-sv-muted">{new Date(h.kickoff).toLocaleDateString()}</td>
                       <td className="font-medium text-right pr-4">
-                        <Link to={`/teams/${h.home_id}`} className="hover:text-sv-accent3">{playersById[h.home_id]?.display_name || "Team " + h.home_id}</Link>
+                        <Link to={`/teams/${h.home_id}`} className="hover:text-sv-accent3">{playerById[h.home_id]?.display_name || "Time " + h.home_id}</Link>
                       </td>
                       <td className="text-center font-mono">{h.home_score}–{h.away_score}</td>
                       <td className="font-medium pl-4">
-                        <Link to={`/teams/${h.away_id}`} className="hover:text-sv-accent3">{playersById[h.away_id]?.display_name || "Team " + h.away_id}</Link>
+                        <Link to={`/teams/${h.away_id}`} className="hover:text-sv-accent3">{playerById[h.away_id]?.display_name || "Time " + h.away_id}</Link>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            ) : <EmptyState title="No H2H data" />}
+            ) : <EmptyState title="Sem dados de confronto direto" />}
           </div>
         </div>
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Matchup ratings" hint="Best attacker vs defender matchups" />
+            <SectionTitle title="Avaliação de confrontos" hint="Melhores duelos atacante × defensor" />
             {tactical.data?.matchups?.length ? (
               <table className="sv-table">
-                <thead><tr><th>Attacker</th><th>Defender</th><th>Score</th><th>Edge</th></tr></thead>
+                <thead><tr><th>Atacante</th><th>Defensor</th><th>Nota</th><th>Vantagem</th></tr></thead>
                 <tbody>
-                  {tactical.data.matchups.slice(0, 10).map((mu: MatchupScore, i) => {
+                  {tactical.data.matchups.slice(0, 10).map((mu: MatchupScore, i: number) => {
                     const a = playerById[mu.attacker_id]; const d = playerById[mu.defender_id];
                     const good = mu.score > 0.55;
                     return (
                       <tr key={i}>
-                        <td>{a?.display_name || a?.last_name || "Att " + mu.attacker_id}</td>
+                        <td>{a?.display_name || a?.last_name || "Ata " + mu.attacker_id}</td>
                         <td>{d?.display_name || d?.last_name || "Def " + mu.defender_id}</td>
                         <td className="font-mono">{(mu.score * 100).toFixed(0)}%</td>
                         <td>
                           <Badge kind={good ? "good" : "default"}>
-                            {good ? "Attacker edge" : "Defender edge"}
+                            {good ? "Vantagem ataque" : "Vantagem defesa"}
                           </Badge>
                         </td>
                       </tr>
@@ -230,15 +238,15 @@ export default function MatchPage() {
                   })}
                 </tbody>
               </table>
-            ) : <EmptyState title="No matchup data yet" description="Generate predictions to calculate matchups." />}
+            ) : <EmptyState title="Ainda sem dados de confrontos" description="Gere previsões para calcular os confrontos." />}
           </div>
         </div>
       </div>
 
       {/* Pitch visualization */}
       <div>
-        <SectionTitle title="Pitch analysis"
-          hint="Visualize defensive vulnerabilities & best opportunity zones"
+        <SectionTitle title="Análise do campo"
+          hint="Visualize vulnerabilidades defensivas e as melhores zonas de oportunidade"
           right={
             <div className="flex gap-1">
               <button onClick={() => setView("2d")} className={`sv-btn !py-1.5 ${view === "2d" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>2D</button>
@@ -251,14 +259,17 @@ export default function MatchPage() {
             homeWeakness={homeWeakness}
             awayWeakness={awayWeakness}
             opportunityZones={oppZones}
-            title="2D heatmap · red = defensive weakness · green = player opportunity"
+            title="Mapa de calor 2D · vermelho = fraqueza defensiva · verde = oportunidade do jogador"
           />
         ) : (
           <Pitch3D
-            title="3D pitch · use mouse to rotate/pan/zoom"
+            title="Campo 3D · clique numa zona para ver as estatísticas"
             homeWeakness={homeWeakness}
             awayWeakness={awayWeakness}
-            opportunityZones={oppZones.slice(0, 24)}
+            homeWeaknessDetails={zones.data?.home_team_weaknesses}
+            awayWeaknessDetails={zones.data?.away_team_weaknesses}
+            teamNames={{ home: m?.home_team?.name, away: m?.away_team?.name }}
+            opportunityZones={oppZones}
           />
         )}
       </div>
@@ -268,15 +279,15 @@ export default function MatchPage() {
         <div className="sv-card-inner space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="font-semibold">Player predictions</div>
-              <div className="text-xs text-sv-muted">Context-dependent, opponent-aware probabilities · select targets</div>
+              <div className="font-semibold">Previsões por jogador</div>
+              <div className="text-xs text-sv-muted">Probabilidades dependentes de contexto e do adversário · selecione os alvos</div>
             </div>
             <div className="flex gap-1">
               {[
-                { k: "shot", label: "1+ shot" },
-                { k: "shot_on_target", label: "1+ SoT" },
-                { k: "goal", label: "Goal" },
-                { k: "goal_involvement", label: "Goal inv." },
+                { k: "shot", label: "1+ chute" },
+                { k: "shot_on_target", label: "1+ no alvo" },
+                { k: "goal", label: "Gol" },
+                { k: "goal_involvement", label: "Part. em gol" },
               ].map((t) => (
                 <button key={t.k}
                   onClick={() => setTargets(targets.includes(t.k) ? targets.filter((x) => x !== t.k) : [...targets, t.k])}
@@ -288,7 +299,7 @@ export default function MatchPage() {
           </div>
 
           {Object.keys(predictionsByTarget).length === 0 ? (
-            <EmptyState title="No predictions yet" />
+            <EmptyState title="Ainda sem previsões" />
           ) : (
             <div className="grid md:grid-cols-2 gap-5">
               {Object.entries(predictionsByTarget).map(([t, arr]) => (

@@ -5,7 +5,7 @@ import { Badge, Bar, EmptyState, SectionTitle, StatCard, TeamLogo } from "../com
 import { listTeams, getTeamWeaknesses, type Team } from "../api/client";
 
 function TeamCard({ t }: { t: Team }) {
-  const s = t.statistics.find((x) => x.scope === "overall");
+  const s = t.statistics.find((x: any) => x.scope === "overall");
   return (
     <Link to={`/teams/${t.id}`} className="sv-card block hover:bg-sv-panel2 transition">
       <div className="sv-card-inner">
@@ -14,17 +14,17 @@ function TeamCard({ t }: { t: Team }) {
           <div className="min-w-0">
             <div className="font-semibold truncate">{t.name}</div>
             <div className="text-xs text-sv-muted">
-              {t.code} · {t.country || "DemoLand"} · Est. {t.founded || "—"}
+              {t.code} · {t.country || "DemoLand"}
             </div>
           </div>
         </div>
         <div className="grid grid-cols-4 gap-2 text-center">
           <div>
-            <div className="sv-stat-k">MP</div>
+            <div className="sv-stat-k">J</div>
             <div className="sv-stat-v">{s?.matches_played ?? 0}</div>
           </div>
           <div>
-            <div className="sv-stat-k">Pts/GM</div>
+            <div className="sv-stat-k">Pts/J</div>
             <div className="sv-stat-v text-sv-accent3">{(s?.points_per_game ?? 0).toFixed(2)}</div>
           </div>
           <div>
@@ -47,10 +47,10 @@ export default function TeamsPage() {
 
   return (
     <div className="space-y-5">
-      <SectionTitle title="Teams" hint="20 teams · 2 leagues · full statistics and defensive weaknesses">
+      <SectionTitle title="Times" hint="20 times · 2 ligas · estatísticas completas e fraquezas defensivas">
         <input
           value={q} onChange={(e) => setQ(e.target.value)}
-          placeholder="Search teams…"
+          placeholder="Buscar times…"
           className="sv-btn !py-1.5 md:w-72 text-left"
         />
       </SectionTitle>
@@ -60,7 +60,7 @@ export default function TeamsPage() {
           {Array.from({ length: 9 }).map((_, i) => <div key={i} className="sv-card h-40 skeleton" />)}
         </div>
       ) : !teams.data?.length ? (
-        <EmptyState title="No teams" />
+        <EmptyState title="Nenhum time" />
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
           {teams.data.map((t) => <TeamCard key={t.id} t={t} />)}

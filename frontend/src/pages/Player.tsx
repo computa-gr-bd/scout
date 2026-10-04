@@ -22,7 +22,7 @@ export default function PlayerPage() {
   const teams = useQuery({ queryKey: ["teams-opp"], queryFn: () => listTeams() });
 
   const pdata = player.data;
-  const s = pdata?.statistics?.find((x) => x.scope === "overall");
+  const s = pdata?.statistics?.find((x: any) => x.scope === "overall");
 
   const shotProb = useQuery({
     queryKey: ["shotProb", playerId, oppId, venue],
@@ -39,14 +39,14 @@ export default function PlayerPage() {
     if (!s) return [];
     const to100 = (v: number, max: number) => Math.min(100, Math.max(0, (v / max) * 100));
     return [
-      { m: "Shots/90", v: to100(s.shots_per_90, 5) },
-      { m: "SoT/90", v: to100(s.shots_on_target_per_90, 3) },
+      { m: "Chutes/90", v: to100(s.shots_per_90, 5) },
+      { m: "Ch.Alvo/90", v: to100(s.shots_on_target_per_90, 3) },
       { m: "xG/90", v: to100(s.xg_per_90, 0.9) },
       { m: "xA/90", v: to100(s.xa_per_90, 0.6) },
-      { m: "KP/90", v: to100(s.key_passes_per_90, 3.5) },
-      { m: "Touches/Box", v: to100(s.touches_in_box_per_90, 10) },
-      { m: "Dribble%", v: s.dribble_success_pct },
-      { m: "PassAcc%", v: s.pass_accuracy_pct },
+      { m: "Passes-chave/90", v: to100(s.key_passes_per_90, 3.5) },
+      { m: "Toques/Área", v: to100(s.touches_in_box_per_90, 10) },
+      { m: "Dribles%", v: s.dribble_success_pct },
+      { m: "Precisão%", v: s.pass_accuracy_pct },
     ];
   }, [s]);
 
@@ -82,27 +82,27 @@ export default function PlayerPage() {
                   {p.display_name || `${p.first_name || ""} ${p.last_name}`.trim()}
                 </h1>
                 <Badge kind="accent">{p.position || "—"}</Badge>
-                <Badge>{p.preferred_foot || "—"} foot</Badge>
+                <Badge>{p.preferred_foot === "left" ? "canhoto" : p.preferred_foot === "right" ? "destro" : (p.preferred_foot || "—")}</Badge>
                 <Badge kind="warn">{p.country || "DemoLand"}</Badge>
               </div>
               <div className="text-sm text-sv-muted mt-1 flex flex-wrap gap-x-4 gap-y-1">
-                {p.date_of_birth && <span>DOB: {new Date(p.date_of_birth).toLocaleDateString()}</span>}
-                {p.height_cm != null && <span>Height: {p.height_cm} cm</span>}
-                {p.weight_kg != null && <span>Weight: {p.weight_kg} kg</span>}
-                <span>Matches: {s?.matches_played ?? 0} · Starts: {s?.starts ?? 0} · Minutes: {s?.minutes_played ?? 0}</span>
+                {p.date_of_birth && <span>Nasc.: {new Date(p.date_of_birth).toLocaleDateString()}</span>}
+                {p.height_cm != null && <span>Altura: {p.height_cm} cm</span>}
+                {p.weight_kg != null && <span>Peso: {p.weight_kg} kg</span>}
+                <span>Jogos: {s?.matches_played ?? 0} · Titular: {s?.starts ?? 0} · Minutos: {s?.minutes_played ?? 0}</span>
               </div>
             </div>
             <div className="flex gap-2">
-              <Link to="/players" className="sv-btn">Back to list</Link>
-              <Link to="/analysis" className="sv-btn-primary">Context analysis</Link>
+              <Link to="/players" className="sv-btn">Voltar à lista</Link>
+              <Link to="/analysis" className="sv-btn-primary">Análise contextual</Link>
             </div>
           </div>
         </div>
-      ) : <EmptyState title="Loading player" />}
+      ) : <EmptyState title="Carregando jogador" />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-        <StatCard label="Goals / 90" value={(s?.goals_per_90 ?? 0).toFixed(2)} sub={`Total: ${s?.goals ?? 0}`} accent="sv-accent" />
-        <StatCard label="Assists / 90" value={(s?.assists_per_90 ?? 0).toFixed(2)} sub={`Total: ${s?.assists ?? 0}`} />
+        <StatCard label="Gols / 90" value={(s?.goals_per_90 ?? 0).toFixed(2)} sub={`Total: ${s?.goals ?? 0}`} accent="sv-accent" />
+        <StatCard label="Assistências / 90" value={(s?.assists_per_90 ?? 0).toFixed(2)} sub={`Total: ${s?.assists ?? 0}`} />
         <StatCard label="xG / 90" value={(s?.xg_per_90 ?? 0).toFixed(2)} sub={`Total: ${(s?.xg_total ?? 0).toFixed(2)}`} accent="sv-accent" />
         <StatCard label="xA / 90" value={(s?.xa_per_90 ?? 0).toFixed(2)} sub={`Total: ${(s?.xa_total ?? 0).toFixed(2)}`} />
       </div>
@@ -110,7 +110,7 @@ export default function PlayerPage() {
       <div className="grid lg:grid-cols-2 gap-5">
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Playing profile radar" hint="Normalized vs. typical maxima" />
+            <SectionTitle title="Radar do perfil de jogo" hint="Normalizado vs. máximos típicos" />
             <div className="h-72">
               <ResponsiveContainer>
                 <RadarChart data={radarData}>
@@ -126,39 +126,39 @@ export default function PlayerPage() {
         </div>
         <div className="sv-card">
           <div className="sv-card-inner space-y-4">
-            <SectionTitle title="Contextual probability vs. opponent"
-              hint="Select an opponent. Prediction is contextualized by team, venue, and opponent weaknesses." />
+            <SectionTitle title="Probabilidade contextual vs. adversário"
+              hint="Escolha um adversário. A previsão é contextualizada por time, local e fraquezas do adversário." />
             <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
               <select
                 value={oppId ?? ""}
                 onChange={(e) => setOppId(e.target.value ? Number(e.target.value) : null)}
                 className="sv-btn w-full !py-1.5 text-left bg-sv-panel text-sv-text">
-                <option value="">Select an opponent…</option>
+                <option value="">Selecione um adversário…</option>
                 {(teams.data || []).map((t) => (
                   <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
                 ))}
               </select>
               <div className="flex gap-1">
-                <button onClick={() => setVenue("home")} className={`sv-btn !py-1.5 ${venue === "home" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>Home</button>
-                <button onClick={() => setVenue("away")} className={`sv-btn !py-1.5 ${venue === "away" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>Away</button>
+                <button onClick={() => setVenue("home")} className={`sv-btn !py-1.5 ${venue === "home" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>Casa</button>
+                <button onClick={() => setVenue("away")} className={`sv-btn !py-1.5 ${venue === "away" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>Fora</button>
               </div>
             </div>
 
             {oppId == null ? (
-              <EmptyState title="Pick an opponent to see probability" />
+              <EmptyState title="Escolha um adversário para ver a probabilidade" />
             ) : (
               <div className="space-y-4">
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <Badge kind="good">P(1+ shot)</Badge>
+                    <Badge kind="good">P(1+ chute)</Badge>
                     <ConfidenceBadge c={shotProb.data?.confidence || "medium"} />
                   </div>
                   {shotProb.data ? (
                     <>
                       <ProbabilityBar p={shotProb.data.probability} baseline={shotProb.data.baseline_probability} />
                       <div className="flex flex-wrap gap-1.5 pt-2">
-                        {(shotProb.data.positive_factors || []).slice(0, 5).map((f) => <span key={f.feature} className="sv-chip-accent">{f.factor}</span>)}
-                        {(shotProb.data.negative_factors || []).slice(0, 4).map((f) => <span key={f.feature} className="sv-chip border-sv-warn/40 text-sv-warn">{f.factor}</span>)}
+                        {(shotProb.data.positive_factors || []).slice(0, 5).map((f: any) => <span key={f.feature} className="sv-chip-accent">{f.factor}</span>)}
+                        {(shotProb.data.negative_factors || []).slice(0, 4).map((f: any) => <span key={f.feature} className="sv-chip border-sv-warn/40 text-sv-warn">{f.factor}</span>)}
                       </div>
                     </>
                   ) : <div className="h-8 skeleton" />}
@@ -166,15 +166,15 @@ export default function PlayerPage() {
                 <div className="sv-divider" />
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <Badge kind="warn">P(Goal)</Badge>
+                    <Badge kind="warn">P(Gol)</Badge>
                     <ConfidenceBadge c={goalProb.data?.confidence || "medium"} />
                   </div>
                   {goalProb.data ? (
                     <>
                       <ProbabilityBar p={goalProb.data.probability} baseline={goalProb.data.baseline_probability} />
                       <div className="flex flex-wrap gap-1.5 pt-2">
-                        {(goalProb.data.positive_factors || []).slice(0, 5).map((f) => <span key={f.feature} className="sv-chip-accent">{f.factor}</span>)}
-                        {(goalProb.data.negative_factors || []).slice(0, 4).map((f) => <span key={f.feature} className="sv-chip border-sv-warn/40 text-sv-warn">{f.factor}</span>)}
+                        {(goalProb.data.positive_factors || []).slice(0, 5).map((f: any) => <span key={f.feature} className="sv-chip-accent">{f.factor}</span>)}
+                        {(goalProb.data.negative_factors || []).slice(0, 4).map((f: any) => <span key={f.feature} className="sv-chip border-sv-warn/40 text-sv-warn">{f.factor}</span>)}
                       </div>
                     </>
                   ) : <div className="h-8 skeleton" />}
@@ -186,13 +186,13 @@ export default function PlayerPage() {
       </div>
 
       <div>
-        <SectionTitle title="Player activity heatmap" hint="Most frequent zones and attacking strength" />
-        <Pitch2D opportunityZones={oppZones} title="Zone frequency × offensive strength" />
+        <SectionTitle title="Mapa de calor de atividade do jogador" hint="Zonas mais frequentes e força ofensiva" />
+        <Pitch2D opportunityZones={oppZones} title="Frequência de zona × força ofensiva" />
       </div>
 
       <div className="sv-card">
         <div className="sv-card-inner">
-          <SectionTitle title="Top zones · frequency, offensive strength, xG/90" />
+          <SectionTitle title="Principais zonas · frequência, força ofensiva, xG/90" />
           <div className="h-72">
             <ResponsiveContainer>
               <BarChart data={zoneBarData}>

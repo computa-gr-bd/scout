@@ -13,8 +13,18 @@ import { PitchStudio } from "../components/PitchStudio";
 
 function formatDate(s: string) {
   const d = new Date(s);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", weekday: "short" })
-    + " · " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", weekday: "short" })
+    + " · " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+const STATUS_PT: Record<string, string> = {
+  upcoming: "Agendado",
+  live: "Ao vivo",
+  finished: "Encerrado",
+};
+function statusPt(s?: string) {
+  if (!s) return "—";
+  return STATUS_PT[s] || s;
 }
 
 function MatchCard({ m, highlight }: { m: Match; highlight?: boolean }) {
@@ -25,8 +35,8 @@ function MatchCard({ m, highlight }: { m: Match; highlight?: boolean }) {
     ].join(" ")}>
       <div className="sv-card-inner">
         <div className="flex items-center justify-between mb-3">
-          <div className="sv-chip">{m.competition_name || "ScoutVision League"} · Matchday {m.matchday ?? "—"}</div>
-          <Badge kind={m.status === "finished" ? "default" : "accent"}>{m.status}</Badge>
+          <div className="sv-chip">{m.competition_name || "Liga ScoutVision"} · Rodada {m.matchday ?? "—"}</div>
+          <Badge kind={m.status === "finished" ? "default" : "accent"}>{statusPt(m.status)}</Badge>
         </div>
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
           <div className="flex items-center gap-2 min-w-0">
@@ -74,7 +84,6 @@ export default function Dashboard() {
   const useMock =
     (!upcomingQ.isFetching && !upcomingQ.data?.length) &&
     (!teamsQ.isFetching && teamsQ.data?.length === 0);
-
   const now = Date.now();
   const allMatches = (upcomingQ.data?.length || recentQ.data?.length)
     ? [...(upcomingQ.data || []), ...(recentQ.data || [])]
@@ -131,10 +140,10 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
         <div>
-          <div className="sv-label">Welcome back</div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">ScoutVision — Match Intelligence</h1>
+          <div className="sv-label">Bem-vindo de volta</div>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">ScoutVision — Inteligência de Partidas</h1>
           <p className="text-sv-muted mt-1 text-sm">
-            Identify who is likely to produce events, where on the pitch, and <span className="text-sv-accent3">why</span>.
+            Identifique quem tende a produzir eventos, onde no campo, e <span className="text-sv-accent3">por quê</span>.
             {useMock && (
               <span className="inline-flex items-center gap-1.5 ml-2 sv-chip-accent">
                 <span className="w-1.5 h-1.5 rounded-full bg-sv-accent3 animate-pulse"/>
@@ -145,32 +154,32 @@ export default function Dashboard() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link to="/analysis" className="sv-btn-primary">
-            <span>🔍 Open analysis studio</span>
+            <span>🔍 Abrir estúdio de análise</span>
           </Link>
-          <Link to="/matches" className="sv-btn">All matches</Link>
+          <Link to="/matches" className="sv-btn">Todas as partidas</Link>
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <StatCard label="Partidas" value={MOCK_MATCHES.length}
-                  sub="3 recentes · 2 próximas" accent="sv-accent" />
-        <StatCard label="Teams tracked" value={teams.length ?? "—"}
+                  sub="demo + dados reais da API" accent="sv-accent" />
+        <StatCard label="Times monitorados" value={teams.length ?? "—"}
                   sub="Brasileirão + Libertadores + Copa Brasil" />
-        <StatCard label="Players profile" value={players.length ?? "—"}
+        <StatCard label="Perfis de jogadores" value={players.length ?? "—"}
                   sub="Com zonas, forma e stats por 90" />
-        <StatCard label="Active ML models" value={4}
-                  sub="LogReg · Shot/SOT/Goal/GI v0.2" accent="sv-warn" />
+        <StatCard label="Modelos de ML ativos" value={4}
+                  sub="LogReg · Chute/Alvo/Gol/PG v0.2" accent="sv-warn" />
       </div>
 
       <SectionTitle title="Campo · ScoutVision Studio"
-        hint="🔥 Heatmap · ⚽ Animação de chutes · 🎯 Gols · 👥 Posições · Controles: ⏮ Anterior / ▶ Reproduzir / ⏭ Próximo"
-        right={<Link to="/analysis" className="sv-btn-primary !py-1.5 text-[12px]">Abrir studio completo →</Link>} />
-      <PitchStudio />
+        hint="🔥 Mapa de calor · ⚽ Chutes · 🎯 Chutes a gol · 🥅 Gols · 👥 Posições · Trajetória/direção na visão geral · Controles: ⏮ Anterior / ▶ Reproduzir / ⏭ Próximo"
+        right={<Link to="/analysis" className="sv-btn-primary !py-1.5 text-[12px]">Abrir estúdio completo →</Link>} />
+      <PitchStudio selectedMatchId={highlightMatch?.id} />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-5">
         <div className="xl:col-span-2 space-y-5">
-          <SectionTitle title="Highlighted match"
-            hint={highlightMatch ? "Top predictions, probabilidades e fatores positivos" : ""}
+          <SectionTitle title="Partida em destaque"
+            hint={highlightMatch ? "Principais previsões, probabilidades e fatores positivos" : ""}
             right={<Link to={`/analysis/${highlightMatch?.id}`} className="sv-btn">Análise completa →</Link>} />
           {highlightMatch ? (
             <>
@@ -180,8 +189,8 @@ export default function Dashboard() {
                 <div className="sv-card-inner space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="font-semibold">Player probabilities</div>
-                      <div className="text-xs text-sv-muted">Shot &amp; goal event probabilities · baseline-marked</div>
+                      <div className="font-semibold">Probabilidades por jogador</div>
+                      <div className="text-xs text-sv-muted">Probabilidades de chute &amp; gol · marcadas pela base</div>
                     </div>
                     <ConfidenceBadge c={topShot?.confidence || "medium"} />
                   </div>
@@ -190,7 +199,7 @@ export default function Dashboard() {
                     <div>
                       <div className="flex items-center justify-between text-sm mb-1.5">
                         <div className="font-medium">
-                          <Badge kind="good">1+ shot</Badge>
+                          <Badge kind="good">1+ chute</Badge>
                           <span className="ml-2">{topShot.player_name}</span>
                         </div>
                         <span className="sv-chip">{topShot.venue}</span>
@@ -212,7 +221,7 @@ export default function Dashboard() {
                     <div>
                       <div className="flex items-center justify-between text-sm mb-1.5">
                         <div className="font-medium">
-                          <Badge kind="warn">Goal</Badge>
+                          <Badge kind="warn">Gol</Badge>
                           <span className="ml-2">{topGoal.player_name}</span>
                         </div>
                         <ConfidenceBadge c={topGoal.confidence} />
@@ -231,24 +240,24 @@ export default function Dashboard() {
               </div>
             </>
           ) : (
-            <EmptyState title="No highlighted match" description="Dados demo carregados automaticamente." />
+            <EmptyState title="Nenhuma partida em destaque" description="Dados demo carregados automaticamente." />
           )}
         </div>
 
         <div className="space-y-5">
-          <SectionTitle title="Quick pitch heatmap" hint="Oportunidades combinadas · verde = ataque, vermelho = fraqueza defensiva" />
+          <SectionTitle title="Mapa de calor rápido do campo" hint="Oportunidades combinadas · verde = ataque, vermelho = fraqueza defensiva" />
           <Pitch2D
             homeWeakness={hw}
             awayWeakness={aw}
             opportunityZones={highlightPredictions.predictions
               ?.filter((p) => p.target === "shot")
               .flatMap((p) => p.zone_opportunities?.slice(0, 3).map((z) => ({ zone: z.zone, value: z.opportunity_score })) || [])}
-            title="Combined opportunity zones"
+            title="Zonas de oportunidade combinadas"
           />
           <div className="sv-card">
             <div className="sv-card-inner">
               <div className="flex items-center justify-between mb-2">
-                <div className="font-semibold">Most attacking zones</div>
+                <div className="font-semibold">Zonas mais atacadas</div>
               </div>
               {highlightPredictions.predictions
                 ?.filter((p) => p.target === "shot")
@@ -285,10 +294,10 @@ export default function Dashboard() {
           </div>
         </div>
         <div>
-          <SectionTitle title="Top teams" right={<Link to="/teams" className="sv-btn">Ver todas</Link>} />
+          <SectionTitle title="Principais times" right={<Link to="/teams" className="sv-btn">Ver todos</Link>} />
           <div className="sv-card">
             <table className="sv-table">
-              <thead><tr><th>Team</th><th className="text-right">Pts/jogo</th><th className="text-right">xG/90</th><th className="text-right">xGA/90</th></tr></thead>
+              <thead><tr><th>Time</th><th className="text-right">Pts/jogo</th><th className="text-right">xG/90</th><th className="text-right">xGA/90</th></tr></thead>
               <tbody>
                 {(teams || [])
                   .map((t: any) => ({ t, s: (t.statistics || []).find((x: any) => x.scope === "overall" || x.scope === "season") }))

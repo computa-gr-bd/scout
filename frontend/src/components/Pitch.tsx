@@ -3,24 +3,24 @@ import type { PitchZone } from "../api/client";
 // Zone geometry on a 100x100 pitch (0-100, 0-100)
 // Pitch orientation: attacking team attacks to the right (x: 50..100)
 export const ZONE_GEOMETRY: Record<PitchZone, { x: number; y: number; w: number; h: number; label: string }> = {
-  own_box:                   { x: 0,   y: 21, w: 16, h: 58, label: "Own 6-yard box" },
-  own_left_channel:          { x: 16,  y: 18, w: 14, h: 20, label: "Own left channel" },
-  own_right_channel:         { x: 16,  y: 62, w: 14, h: 20, label: "Own right channel" },
-  own_central_midfield:      { x: 16,  y: 38, w: 14, h: 24, label: "Own central midfield" },
-  own_left_flank:            { x: 16,  y: 0,  w: 14, h: 18, label: "Own left flank" },
-  own_right_flank:           { x: 16,  y: 82, w: 14, h: 18, label: "Own right flank" },
-  neutral_midfield:          { x: 30,  y: 18, w: 40, h: 64, label: "Neutral midfield" },
-  neutral_left_flank:        { x: 30,  y: 0,  w: 40, h: 18, label: "Neutral left flank" },
-  neutral_right_flank:       { x: 30,  y: 82, w: 40, h: 18, label: "Neutral right flank" },
-  opp_left_flank:            { x: 70,  y: 0,  w: 14, h: 18, label: "Opp. left flank" },
-  opp_right_flank:           { x: 70,  y: 82, w: 14, h: 18, label: "Opp. right flank" },
-  opp_left_channel:          { x: 70,  y: 18, w: 14, h: 20, label: "Opp. left channel" },
-  opp_right_channel:         { x: 70,  y: 62, w: 14, h: 20, label: "Opp. right channel" },
-  opp_central_midfield:      { x: 70,  y: 38, w: 14, h: 24, label: "Opp. central midfield" },
-  outside_box_left:          { x: 84,  y: 21, w: 8,  h: 19, label: "Outside box (L)" },
-  outside_box_right:         { x: 84,  y: 60, w: 8,  h: 19, label: "Outside box (R)" },
-  outside_box_central:       { x: 84,  y: 40, w: 8,  h: 20, label: "Outside box (C)" },
-  central_box:               { x: 92,  y: 29, w: 8,  h: 42, label: "Central box" },
+  own_box:                   { x: 0,   y: 21, w: 16, h: 58, label: "Área própria (6m)" },
+  own_left_channel:          { x: 16,  y: 18, w: 14, h: 20, label: "Corredor esquerdo próprio" },
+  own_right_channel:         { x: 16,  y: 62, w: 14, h: 20, label: "Corredor direito próprio" },
+  own_central_midfield:      { x: 16,  y: 38, w: 14, h: 24, label: "Meio-campo central próprio" },
+  own_left_flank:            { x: 16,  y: 0,  w: 14, h: 18, label: "Ala esquerda própria" },
+  own_right_flank:           { x: 16,  y: 82, w: 14, h: 18, label: "Ala direita própria" },
+  neutral_midfield:          { x: 30,  y: 18, w: 40, h: 64, label: "Meio-campo neutro" },
+  neutral_left_flank:        { x: 30,  y: 0,  w: 40, h: 18, label: "Ala esquerda neutra" },
+  neutral_right_flank:       { x: 30,  y: 82, w: 40, h: 18, label: "Ala direita neutra" },
+  opp_left_flank:            { x: 70,  y: 0,  w: 14, h: 18, label: "Ala esquerda adversária" },
+  opp_right_flank:           { x: 70,  y: 82, w: 14, h: 18, label: "Ala direita adversária" },
+  opp_left_channel:          { x: 70,  y: 18, w: 14, h: 20, label: "Corredor esquerdo adversário" },
+  opp_right_channel:         { x: 70,  y: 62, w: 14, h: 20, label: "Corredor direito adversário" },
+  opp_central_midfield:      { x: 70,  y: 38, w: 14, h: 24, label: "Meio-campo central adversário" },
+  outside_box_left:          { x: 84,  y: 21, w: 8,  h: 19, label: "Fora da área (E)" },
+  outside_box_right:         { x: 84,  y: 60, w: 8,  h: 19, label: "Fora da área (D)" },
+  outside_box_central:       { x: 84,  y: 40, w: 8,  h: 20, label: "Fora da área (C)" },
+  central_box:               { x: 92,  y: 29, w: 8,  h: 42, label: "Área central" },
 };
 
 const ZONE_ORDER: PitchZone[] = [
@@ -98,8 +98,8 @@ export function Pitch2D({
       {title && <div className="px-5 pt-4 pb-2 text-sm font-semibold flex items-center justify-between">
         <div>{title}</div>
         <div className="flex gap-2 text-[10px] text-sv-muted">
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: heatColor(0.7, 1, "good") }} />Opportunity</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: heatColor(0.7, 1, "danger") }} />Defensive weakness</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: heatColor(0.7, 1, "good") }} />Oportunidade</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: heatColor(0.7, 1, "danger") }} />Fraqueza defensiva</span>
         </div>
       </div>}
       <div className="p-3 md:p-5">
@@ -156,7 +156,7 @@ export function Pitch2D({
   );
 }
 
-function flipZone(z: PitchZone): PitchZone {
+export function flipZone(z: PitchZone): PitchZone {
   // Attack direction: right. When viewing an opponent's weakness, we invert left↔right and own↔opp.
   const map: Partial<Record<PitchZone, PitchZone>> = {
     own_box: "central_box",

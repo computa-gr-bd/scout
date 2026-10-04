@@ -166,6 +166,21 @@ The app is fully usable **without any external API key** thanks to a built-in re
 
 Demo data is clearly labeled as `data_source = demo`.
 
+### 🔴 Real API data (football-data.org)
+
+Real Série A data collected from **football-data.org** is integrated in the
+frontend (no key needed at runtime):
+
+- `frontend/src/api/footballDataOrg.ts` — real standings, top scorers and
+  upcoming fixtures (treated data).
+- `frontend/src/api/studioData.ts` — turns those into **real matches**
+  (`API_MATCHES`, `data_source = football-data.org`) that behave exactly like the
+  mocked ones, plus extra **ScoutVision Studio** games (`STUDIO_DATASETS`).
+- The Studio (`PitchStudio`) now has a **match selector** to switch between the
+  demo game and the real API games (heatmap / shots / goals / positions).
+
+See `teste-api/README.md` for the collection → treatment pipeline.
+
 ---
 
 ## 🔐 Authentication (MVP)

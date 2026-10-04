@@ -88,15 +88,15 @@ export function EmptyState({
 }
 
 export function SectionTitle({
-  title, hint, right,
-}: { title: string; hint?: string; right?: React.ReactNode }) {
+  title, hint, right, children,
+}: { title: string; hint?: string; right?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div className="flex items-end justify-between gap-3 mb-3">
       <div>
         <div className="text-lg font-semibold tracking-tight">{title}</div>
         {hint && <div className="text-sm text-sv-muted">{hint}</div>}
       </div>
-      {right}
+      {right ?? children}
     </div>
   );
 }
@@ -118,7 +118,8 @@ export function Badge({ kind = "default", children }: { kind?: "default" | "acce
 
 export function ConfidenceBadge({ c }: { c: "low" | "medium" | "high" | string }) {
   const kind: any = c === "high" ? "good" : c === "medium" ? "accent" : "default";
-  return <Badge kind={kind}>Confidence: {c}</Badge>;
+  const label = c === "high" ? "alta" : c === "medium" ? "média" : c === "low" ? "baixa" : c;
+  return <Badge kind={kind}>Confiança: {label}</Badge>;
 }
 
 export function TeamLogo({ name, className = "w-8 h-8" }: { name?: string; className?: string }) {

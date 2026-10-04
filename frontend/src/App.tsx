@@ -26,7 +26,7 @@ function Logo() {
       </div>
       <div className="leading-tight">
         <div className="font-semibold text-sv-text tracking-tight">ScoutVision</div>
-        <div className="text-[10px] text-sv-muted uppercase tracking-widest">Pre-Match Analytics</div>
+        <div className="text-[10px] text-sv-muted uppercase tracking-widest">Análise Pré-Jogo</div>
       </div>
     </Link>
   );
@@ -34,12 +34,12 @@ function Logo() {
 
 function Sidebar() {
   const nav = [
-    { to: "/", label: "Dashboard", icon: "M3 12l9-9 9 9M5 10v10h14V10" },
-    { to: "/matches", label: "Matches", icon: "M4 6h16v12H4zM4 10h16M10 6v12" },
-    { to: "/teams", label: "Teams", icon: "M4 20v-6a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v6M8 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" },
-    { to: "/players", label: "Players", icon: "M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6" },
-    { to: "/analysis", label: "Analysis", icon: "M4 20h16M7 16V8M12 16V4M17 16v-6" },
-    { to: "/models", label: "Models", icon: "M3 7l9-4 9 4-9 4-9-4zM3 12l9 4 9-4M3 17l9 4 9-4" },
+    { to: "/", label: "Painel", icon: "M3 12l9-9 9 9M5 10v10h14V10" },
+    { to: "/matches", label: "Partidas", icon: "M4 6h16v12H4zM4 10h16M10 6v12" },
+    { to: "/teams", label: "Times", icon: "M4 20v-6a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v6M8 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" },
+    { to: "/players", label: "Jogadores", icon: "M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6" },
+    { to: "/analysis", label: "Análise", icon: "M4 20h16M7 16V8M12 16V4M17 16v-6" },
+    { to: "/models", label: "Modelos", icon: "M3 7l9-4 9 4-9 4-9-4zM3 12l9 4 9-4M3 17l9 4 9-4" },
   ];
   return (
     <aside className="hidden md:flex md:flex-col w-60 shrink-0 border-r border-sv-border bg-sv-panel/40 backdrop-blur-sm">
@@ -68,7 +68,7 @@ function Sidebar() {
         ))}
       </nav>
       <div className="mt-auto p-3 text-[11px] text-sv-muted border-t border-sv-border">
-        <div className="mb-1"><span className="sv-chip">DEMO</span> data visible throughout</div>
+        <div className="mb-1"><span className="sv-chip">DEMO</span> dados simulados em todo o app</div>
         <div className="opacity-80">v0.1.0 · ScoutVision</div>
       </div>
     </aside>
@@ -79,13 +79,13 @@ function Topbar() {
   const auth = useAuth();
   const loc = useLocation();
   const titleMap: Record<string, string> = {
-    "/": "Dashboard",
-    "/matches": "Matches",
-    "/teams": "Teams",
-    "/players": "Players",
-    "/analysis": "Analysis",
-    "/models": "Models",
-    "/login": "Sign in",
+    "/": "Painel",
+    "/matches": "Partidas",
+    "/teams": "Times",
+    "/players": "Jogadores",
+    "/analysis": "Análise",
+    "/models": "Modelos",
+    "/login": "Entrar",
   };
   const title = Object.entries(titleMap).find(([k]) => loc.pathname === k || loc.pathname.startsWith(k + "/"))
     ?.[1] || "ScoutVision";
@@ -101,7 +101,7 @@ function Topbar() {
         <div className="flex items-center gap-2">
           <span className="sv-chip-accent hidden sm:inline-flex">
             <span className="w-1.5 h-1.5 rounded-full bg-sv-accent3 shadow-[0_0_10px_#5ef2b8]"/>
-            Live API
+            API ao vivo
           </span>
           {auth.token ? (
             <div className="flex items-center gap-2">
@@ -110,10 +110,10 @@ function Topbar() {
                 <span className="text-sv-muted">·</span>
                 <span className="truncate max-w-[140px]">{auth.email}</span>
               </div>
-              <button onClick={() => auth.logout()} className="sv-btn !py-1.5">Sign out</button>
+              <button onClick={() => auth.logout()} className="sv-btn !py-1.5">Sair</button>
             </div>
           ) : (
-            <Link to="/login" className="sv-btn-primary !py-1.5">Sign in</Link>
+            <Link to="/login" className="sv-btn-primary !py-1.5">Entrar</Link>
           )}
         </div>
       </div>
@@ -144,7 +144,7 @@ function App() {
     if (existing) {
       me().then((u: any) => {
         auth.setAuth({ token: existing, role: u.role, userId: u.id, email: u.email });
-      }).catch(() => setToken(null)).finally(() => setLoaded(true));
+      }).catch(() => localStorage.removeItem("sv.token")).finally(() => setLoaded(true));
     } else {
       setLoaded(true);
     }

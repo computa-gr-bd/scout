@@ -19,7 +19,7 @@ export default function LoginPage() {
       nav("/", { replace: true });
     },
     onError: (e: any) => {
-      setErr(e?.response?.data?.detail || "Login failed");
+      setErr(e?.response?.data?.detail || "Falha ao entrar");
     },
   });
 
@@ -35,8 +35,8 @@ export default function LoginPage() {
               </svg>
             </div>
             <div>
-              <div className="text-xl font-bold">Sign in to ScoutVision</div>
-              <div className="text-xs text-sv-muted">Pre-match scouting &amp; predictive analytics</div>
+              <div className="text-xl font-bold">Entrar no ScoutVision</div>
+              <div className="text-xs text-sv-muted">Scouting pré-jogo &amp; análise preditiva</div>
             </div>
           </div>
 
@@ -44,14 +44,14 @@ export default function LoginPage() {
 
           <form onSubmit={(e) => { e.preventDefault(); setErr(null); mut.mutate(); }} className="space-y-3">
             <label className="block">
-              <div className="sv-label mb-1">Email</div>
+              <div className="sv-label mb-1">E-mail</div>
               <input
                 type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
                 className="w-full sv-btn !py-2 bg-sv-panel2 text-left"
               />
             </label>
             <label className="block">
-              <div className="sv-label mb-1">Password</div>
+              <div className="sv-label mb-1">Senha</div>
               <input
                 type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
                 className="w-full sv-btn !py-2 bg-sv-panel2 text-left"
@@ -59,16 +59,16 @@ export default function LoginPage() {
             </label>
             <button type="submit" disabled={mut.isPending}
               className="sv-btn-primary w-full justify-center disabled:opacity-60">
-              {mut.isPending ? "Signing in…" : "Sign in"}
+              {mut.isPending ? "Entrando…" : "Entrar"}
             </button>
           </form>
 
           <div className="sv-divider" />
           <div className="sv-card !bg-sv-panel2/60">
             <div className="p-4 text-sm space-y-1">
-              <div className="flex items-center gap-2 mb-1.5"><Badge kind="accent">Demo credentials</Badge></div>
+              <div className="flex items-center gap-2 mb-1.5"><Badge kind="accent">Credenciais de demonstração</Badge></div>
               <div><span className="text-sv-muted">Admin:</span> <code className="font-mono text-xs">admin@scoutvision.local / admin123</code></div>
-              <div><span className="text-sv-muted">User:</span> <code className="font-mono text-xs">user@scoutvision.local / user123</code></div>
+              <div><span className="text-sv-muted">Usuário:</span> <code className="font-mono text-xs">user@scoutvision.local / user123</code></div>
             </div>
           </div>
         </div>
