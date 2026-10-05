@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import bayernLogo from "../bayern_munique.cc.svg";
 
 export function StatCard({
   label, value, sub, icon, accent = "sv-accent",
@@ -122,7 +123,25 @@ export function ConfidenceBadge({ c }: { c: "low" | "medium" | "high" | string }
   return <Badge kind={kind}>Confiança: {label}</Badge>;
 }
 
+/**
+ * Logos reais por nome de time (arquivos em `src/`). Times sem arquivo
+ * continuam usando o logo gerado por hash (iniciais + gradiente).
+ */
+const NAMED_LOGOS: Record<string, string> = {
+  "Bayern Munich": bayernLogo,
+};
+
 export function TeamLogo({ name, className = "w-8 h-8" }: { name?: string; className?: string }) {
+  const realLogo = name ? NAMED_LOGOS[name] : undefined;
+  if (realLogo) {
+    return (
+      <img
+        src={realLogo}
+        alt={`Logo ${name}`}
+        className={clsx("object-contain shrink-0", className)}
+      />
+    );
+  }
   const hash = Array.from(name || "?").reduce((a, c) => a + c.charCodeAt(0), 0);
   const hue = hash % 360;
   const letters = (name || "?").trim().split(/\s+/).map(s => s[0]).slice(0, 2).join("").toUpperCase();

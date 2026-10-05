@@ -1,51 +1,70 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { EmptyState, SectionTitle, TeamLogo } from "../components/ui";
+import { hasTeamDetail } from "../api/bayernData";
 import { LEAGUES, MOCK_TEAMS, leagueTeamCount, type League, type MockTeam } from "../api/teamsData";
 
-/** Card de time — por enquanto NÃO clicável (só hover); depois vira navegação. */
+/**
+ * Card de time — clicável quando existe detalhe mockado (`bayernData`,
+ * hoje só o Bayern); os demais só dão feedback de hover ("em breve").
+ */
 function TeamCard({ t, league }: { t: MockTeam; league: League }) {
   const s = t.statistics.find((x) => x.scope === "overall");
-  return (
-    <div className="sv-card group cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:border-sv-accent/60 hover:bg-sv-panel2 hover:shadow-glow">
-      <div className="sv-card-inner">
-        <div className="flex items-center gap-3 mb-3">
-          <TeamLogo name={t.name} className="w-10 h-10 transition-transform duration-200 group-hover:scale-110" />
-          <div className="min-w-0">
-            <div className="font-semibold truncate">{t.name}</div>
-            <div className="text-xs text-sv-muted">
-              {t.code} · {t.country || "—"}
-            </div>
+  const hasDetail = hasTeamDetail(t.id);
+  const inner = (
+    <div className="sv-card-inner">
+      <div className="flex items-center gap-3 mb-3">
+        <TeamLogo name={t.name} className="w-10 h-10 transition-transform duration-200 group-hover:scale-110" />
+        <div className="min-w-0">
+          <div className="font-semibold truncate">{t.name}</div>
+          <div className="text-xs text-sv-muted">
+            {t.code} · {t.country || "—"}
           </div>
         </div>
-        <div className="grid grid-cols-4 gap-2 text-center">
-          <div>
-            <div className="sv-stat-k">J</div>
-            <div className="sv-stat-v">{s?.matches_played ?? 0}</div>
-          </div>
-          <div>
-            <div className="sv-stat-k">Pts/J</div>
-            <div className="sv-stat-v text-sv-accent3">{(s?.points_per_game ?? 0).toFixed(2)}</div>
-          </div>
-          <div>
-            <div className="sv-stat-k">xG/90</div>
-            <div className="sv-stat-v">{(s?.xg_per_90 ?? 0).toFixed(2)}</div>
-          </div>
-          <div>
-            <div className="sv-stat-k">xGA/90</div>
-            <div className="sv-stat-v text-sv-warn">{(s?.xga_per_90 ?? 0).toFixed(2)}</div>
-          </div>
+      </div>
+      <div className="grid grid-cols-4 gap-2 text-center">
+        <div>
+          <div className="sv-stat-k">J</div>
+          <div className="sv-stat-v">{s?.matches_played ?? 0}</div>
         </div>
-        <div className="mt-3 pt-3 border-t border-sv-border/60 flex items-center justify-between gap-2 text-[11px]">
-          <span className="text-sv-muted truncate">
-            {league.short_name} · {league.season}
-          </span>
-          <span className="sv-chip-accent !py-0 opacity-0 translate-x-1 transition group-hover:opacity-100 group-hover:translate-x-0">
-            em breve
-          </span>
+        <div>
+          <div className="sv-stat-k">Pts/J</div>
+          <div className="sv-stat-v text-sv-accent3">{(s?.points_per_game ?? 0).toFixed(2)}</div>
         </div>
+        <div>
+          <div className="sv-stat-k">xG/90</div>
+          <div className="sv-stat-v">{(s?.xg_per_90 ?? 0).toFixed(2)}</div>
+        </div>
+        <div>
+          <div className="sv-stat-k">xGA/90</div>
+          <div className="sv-stat-v text-sv-warn">{(s?.xga_per_90 ?? 0).toFixed(2)}</div>
+        </div>
+      </div>
+      <div className="mt-3 pt-3 border-t border-sv-border/60 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-sv-muted truncate">
+          {league.short_name} · {league.season}
+        </span>
+        <span
+          className={`sv-chip-accent !py-0 opacity-0 translate-x-1 transition group-hover:opacity-100 group-hover:translate-x-0 ${
+            hasDetail ? "" : "italic"
+          }`}
+        >
+          {hasDetail ? "abrir elenco →" : "em breve"}
+        </span>
       </div>
     </div>
   );
+  const cls = `sv-card group transition-all duration-200 hover:-translate-y-1 hover:border-sv-accent/60 hover:bg-sv-panel2 hover:shadow-glow${
+    hasDetail ? " cursor-pointer" : ""
+  }`;
+  if (hasDetail) {
+    return (
+      <Link to={`/teams/${t.id}`} className={cls}>
+        {inner}
+      </Link>
+    );
+  }
+  return <div className={cls}>{inner}</div>;
 }
 
 export default function TeamsPage() {
