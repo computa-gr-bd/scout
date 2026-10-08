@@ -75,12 +75,12 @@ External football data (API-Football, StatsBomb, Demo)
 # 1. Copy env file
 copy .env.example .env
 
-# 2. Build & start all services
+# 2. Configure DATABASE_URL with the Neon PostgreSQL connection string.
+# No local PostgreSQL container is used.
+# Build & start the backend and frontend.
 docker compose up --build
 
-# 3. Run migrations + seed demo data (first run)
-docker compose exec backend alembic upgrade head
-docker compose exec backend python -m app.seed_demo
+# Migrations run on backend startup. Demo data is NOT loaded automatically.
 
 # 4. Open the app
 # Frontend : http://localhost:5173
@@ -93,7 +93,7 @@ docker compose exec backend python -m app.seed_demo
 ### Requirements
 - Python 3.11+
 - Node.js 20+
-- PostgreSQL 15+
+- Neon PostgreSQL connection string in the root `.env`
 - (Optional) Ollama for LLM explanations
 
 ### Backend
@@ -105,10 +105,8 @@ venv\Scripts\activate           # Windows
 # source venv/bin/activate      # Linux/macOS
 pip install -r requirements.txt
 
-# Create a PostgreSQL database "scoutvision" or adjust DATABASE_URL
-set DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/scoutvision
+# DATABASE_URL is read from the root .env (Neon, with SSL).
 alembic upgrade head
-python -m app.seed_demo
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -180,6 +178,43 @@ frontend (no key needed at runtime):
   demo game and the real API games (heatmap / shots / goals / positions).
 
 See `teste-api/README.md` for the collection → treatment pipeline.
+
+### Neon ingestion
+
+Configure `DATABASE_URL` and `FOOTBALL_DATA_TOKEN` in the root `.env`.
+`API_FOOTBALL_KEY` belongs to a different provider and is not used by this collector.
+From `backend/`:
+
+```powershell
+python -m alembic upgrade head
+python -m app.services.data_sync --competitions BSA
+python -m app.services.statsbomb_importer --competition 43 --season 106 --match-ids 3869685
+```
+
+The daily collector fetches the current season, validates it, and upserts teams,
+available squad members, matches and standings. Corrections are applied without
+duplicating provider IDs. `standing` stores basic league tables separately from
+advanced statistics; missing xG/minutes are not invented. Checkpoints and failures
+are in `collection_state`; standings are served at `/api/seasons/{id}/standings`.
+The frontend's static/demo datasets have not yet been replaced by these endpoints.
+
+StatsBomb Open Data is a limited historical catalog, not a current Brasileirão feed.
+It requires no API key. Only selected JSONs are fetched, and unchanged matches are
+skipped using the provider's update timestamp. Raw events remain in `event.details`;
+coordinates are normalized from 120x80 to 100x100, relative to the attacking team.
+Penalty-shootout events are excluded. Advanced aggregates and playing-time
+calculation are not performed by this importer. Import at most five matches per
+run; a 400 MiB database guard prevents starting further event imports.
+Consult the StatsBomb license and attribution requirements before publishing.
+
+`.github/workflows/data-sync.yml` runs at 06:23 and 18:23 UTC, independently of
+Render's sleeping web service. To activate it, publish it on the default branch and
+configure GitHub Actions secrets `DATABASE_URL` and `FOOTBALL_DATA_TOKEN`.
+The optional repository variable `SYNC_COMPETITIONS` defaults to `BSA`.
+Use standard free runners and do not enable paid overages; private repositories
+share their included Actions minutes with CI. Schedules may be delayed and public
+repository schedules can be disabled after inactivity. Monitor Actions and
+`collection_state.last_success_at`. StatsBomb imports are manual, not daily.
 
 ---
 

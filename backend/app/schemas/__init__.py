@@ -297,7 +297,7 @@ class LineupPlayer(BaseModel):
     is_starter: bool
     position: Optional[str] = None
     shirt_number: Optional[int] = None
-    minutes_played: int = 0
+    minutes_played: Optional[int] = None
 
 
 class MatchOut(BaseModel):
@@ -310,8 +310,8 @@ class MatchOut(BaseModel):
     status: str
     home_team: MatchTeamPreview
     away_team: MatchTeamPreview
-    home_score: int = 0
-    away_score: int = 0
+    home_score: Optional[int] = None
+    away_score: Optional[int] = None
     stadium_name: Optional[str] = None
     referee: Optional[str] = None
     data_source: DataSource

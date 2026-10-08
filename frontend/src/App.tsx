@@ -68,7 +68,7 @@ function Sidebar() {
         ))}
       </nav>
       <div className="mt-auto p-3 text-[11px] text-sv-muted border-t border-sv-border">
-        <div className="mb-1"><span className="sv-chip">DEMO</span> dados simulados em todo o app</div>
+        <div className="mb-1"><span className="sv-chip">INFO</span> backend + banco Neon ao vivo · fallback demo offline</div>
         <div className="opacity-80">v0.1.0 · ScoutVision</div>
       </div>
     </aside>

@@ -68,7 +68,7 @@ def import_data(payload: DataImportRequest,
     if payload.provider == "statsbomb":
         return DataImportResponse(
             provider="statsbomb", status="skipped",
-            message="StatsBomb adapter is stubbed; configure STATSBOMB_LOCAL_DATA_PATH and re-run",
+            message="Run python -m app.services.statsbomb_importer with explicit competition, season and match IDs outside the web service.",
             imported={},
         )
     raise HTTPException(400, "Unknown provider")

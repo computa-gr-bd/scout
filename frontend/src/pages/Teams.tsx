@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { EmptyState, SectionTitle, TeamLogo } from "../components/ui";
 import { hasTeamDetail } from "../api/bayernData";
 import { LEAGUES, MOCK_TEAMS, leagueTeamCount, type League, type MockTeam } from "../api/teamsData";
+import { listTeams, listCompetitions } from "../api/client";
 
 /**
  * Card de time — clicável quando existe detalhe mockado (`bayernData`,
@@ -71,29 +73,94 @@ export default function TeamsPage() {
   const [q, setQ] = useState("");
   const [leagueId, setLeagueId] = useState("all");
 
-  const activeLeague = leagueId === "all" ? null : LEAGUES.find((l) => l.id === leagueId) ?? null;
+  // Descobrir o season_id da liga selecionada.
+  // Quando a ligar for do backend (c.id numérico), usamos a season corrente que já
+  // voltou em competitions[*].current_season_id, senão null.
+  const seasonIdForLeague = useMemo<number | undefined>(() => {
+    if (leagueId === "all") return undefined;
+    const raw = compsQ.data?.find((c: any) => String(c.id) === String(leagueId));
+    return raw?.current_season_id ?? raw?.seasons?.[raw.seasons.length - 1]?.id ?? undefined;
+  }, [leagueId, compsQ.data]);
+
+  const teamsQ = useQuery({
+    queryKey: ["teams-page", leagueId, seasonIdForLeague],
+    queryFn: () => listTeams({ season_id: seasonIdForLeague }),
+    retry: 1, retryDelay: 600,
+  });
+  const compsQ = useQuery({
+    queryKey: ["comps-page"], queryFn: () => listCompetitions(),
+    retry: 1, retryDelay: 600,
+  });
+
+  const comps: League[] = compsQ.data?.length
+    ? compsQ.data.map((c: any) => ({
+        id: String(c.id),
+        name: c.name,
+        short_name: c.code || c.name.slice(0, 12),
+        season: "atual",
+        country: c.country || "",
+      }))
+    : LEAGUES;
+
+  const leagueById: Record<string, League> = useMemo(() => {
+    const r: Record<string, League> = {};
+    for (const l of comps) r[l.id] = l;
+    for (const l of LEAGUES) r[l.id] = l;
+    return r;
+  }, [comps]);
+
+  const activeLeague = leagueId === "all" ? null : leagueById[leagueId] ?? null;
 
   const teams = useMemo(() => {
     const term = q.trim().toLowerCase();
-    return MOCK_TEAMS.filter((t) => {
-      const leagueOk = leagueId === "all" || t.league_id === leagueId;
-      const searchOk = !term || t.name.toLowerCase().includes(term) || (t.code || "").toLowerCase().includes(term);
-      return leagueOk && searchOk;
+    const source: MockTeam[] = (teamsQ.data || []).map((t: any) => {
+      const stats = t.statistics || [];
+      const firstStat = stats[0];
+      const seasonId = String(firstStat?.season_id || "api-all");
+      return {
+        id: t.id,
+        name: t.name,
+        code: t.code || t.short_name || "",
+        short_name: t.short_name || t.name.slice(0, 10),
+        country: t.country || "",
+        logo_url: t.logo_url || null,
+        league_id: seasonId,
+        statistics: stats.map((s: any) => ({
+          ...s,
+          scope: s.scope === "overall" ? "overall" : (s.scope || "overall"),
+          matches_played: s.matches_played ?? (s.wins ?? 0) + (s.draws ?? 0) + (s.losses ?? 0) ?? 0,
+          points_per_game: s.points_per_game ?? 0,
+          xg_per_90: s.xg_per_90 ?? 0,
+          xga_per_90: s.xga_per_90 ?? 0,
+        })),
+      };
     });
-  }, [q, leagueId]);
+    return source.filter((t) => {
+      const searchOk = !term || t.name.toLowerCase().includes(term) || (t.code || "").toLowerCase().includes(term);
+      if (leagueId === "all") return searchOk;
+      // Times já vieram filtrados por season_id do backend.
+      // Só filtra aqui se por algum acaso veio time de outra season com statistics na
+      // season correta.
+      return searchOk;
+    });
+  }, [q, leagueId, teamsQ.data, compsQ.data, comps, leagueById]);
 
-  const emptyTitle = q.trim() ? "Nenhum time encontrado" : "Nenhum time";
-  const emptyDescription = q.trim()
-    ? `Nada para “${q.trim()}”${activeLeague ? ` em ${activeLeague.name}` : ""}. Tente outro nome ou sigla.`
-    : activeLeague
-      ? `${activeLeague.name} ainda não tem times mockados — em breve.`
-      : "Nenhum time cadastrado.";
+  const loading = teamsQ.isPending || compsQ.isPending;
+
+  const emptyTitle = loading ? "Carregando times" : (q.trim() ? "Nenhum time encontrado" : "Nenhum time");
+  const emptyDescription = loading
+    ? "Buscando dados do banco Neon…"
+    : q.trim()
+      ? `Nada para “${q.trim()}”${activeLeague ? ` em ${activeLeague.name}` : ""}. Tente outro nome ou sigla.`
+      : activeLeague
+        ? `${activeLeague.name} ainda não tem times importados — rode a coleta desta liga.`
+        : "Nenhum time cadastrado.";
 
   return (
     <div className="space-y-5">
       <SectionTitle
         title="Times"
-        hint={`${MOCK_TEAMS.length} times · ${LEAGUES.length} ligas · estatísticas completas e fraquezas defensivas`}
+        hint={`${teams.length} times · ${comps.length} ligas · estatísticas completas e fraquezas defensivas`}
       >
         <div className="flex gap-2 flex-wrap">
           <input
@@ -107,18 +174,18 @@ export default function TeamsPage() {
             className="sv-btn !py-1.5 bg-sv-panel text-sv-text"
           >
             <option value="all">Todas as ligas</option>
-            {LEAGUES.map((l) => (
+            {comps.map((l) => (
               <option key={l.id} value={l.id}>{l.name}</option>
             ))}
           </select>
         </div>
       </SectionTitle>
 
-      {/* Lista de ligas selecionável (sincronizada com o <select> acima) */}
+      {/* Lista de ligas selecionável */}
       <div className="flex flex-wrap gap-2">
         {[
-          { id: "all", label: "Todas as ligas", count: MOCK_TEAMS.length },
-          ...LEAGUES.map((l) => ({ id: l.id, label: l.short_name, count: leagueTeamCount(l.id) })),
+          { id: "all", label: "Todas as ligas", count: teams.length },
+          ...comps.map((l) => ({ id: l.id, label: l.short_name, count: 0 })),
         ].map((opt) => {
           const active = leagueId === opt.id;
           return (
@@ -141,7 +208,7 @@ export default function TeamsPage() {
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
           {teams.map((t) => (
-            <TeamCard key={t.id} t={t} league={LEAGUES.find((l) => l.id === t.league_id)!} />
+            <TeamCard key={t.id} t={t} league={leagueById[t.league_id] ?? comps[0] ?? LEAGUES[0]} />
           ))}
         </div>
       )}

@@ -1,8 +1,10 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from app.db import get_db
+from app.db.models import TeamStatistics
 from app.repositories.repositories import (
     TeamRepository, TeamStatisticsRepository, DefensiveWeaknessRepository
 )
@@ -20,11 +22,21 @@ def list_teams(q: Optional[str] = None, skip: int = 0, limit: int = 50,
     if q:
         teams = team_repo.search(db, q, skip=skip, limit=limit)
     else:
-        teams = team_repo.list(db, skip=skip, limit=limit, order_by="name")
+        if season_id is not None:
+            # Só times que têm estatísticas na temporada (times da própria competição)
+            # evita que times do StatsBomb (ex: Argentina) apareçam no filtro BSA
+            sub = select(TeamStatistics.team_id).where(TeamStatistics.season_id == season_id).distinct()
+            teams = list(db.scalars(
+                select(team_repo.model).where(team_repo.model.id.in_(sub))
+                .order_by(team_repo.model.name).offset(skip).limit(limit)
+            ).all())
+        else:
+            teams = team_repo.list(db, skip=skip, limit=limit, order_by="name")
     # attach overall statistics
     for t in teams:
         t.statistics = [s for s in ts_repo.list(db, filters=[
-            ts_repo.model.team_id == t.id
+            ts_repo.model.team_id == t.id,
+            *((ts_repo.model.season_id == season_id,) if season_id is not None else ()),
         ])]
     return teams
 

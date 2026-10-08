@@ -1,6 +1,4 @@
 from contextlib import asynccontextmanager
-from typing import Optional
-
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -84,13 +82,37 @@ def health():
         with engine.connect() as c:
             c.execute(text("SELECT 1"))
         return {"status": "ok", "db": "ok"}
-    except Exception as e:
-        return {"status": "degraded", "db": f"error: {e}"}
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "degraded", "db": "unavailable"})
 
 
 @app.get("/api/health", tags=["meta"])
 def api_health():
     return health()
+
+
+@app.get("/api/stats/counts", tags=["meta"])
+def api_stats_counts():
+    from app.db import SessionLocal
+    from app.db.models import (
+        Competition, Team, Match, Player, Standing, Event,
+        Shot, Pass, TeamStatistics, ModelVersion,
+    )
+    from sqlalchemy import select, func
+    rows = {
+        "competitions": Competition, "teams": Team, "matches": Match,
+        "players": Player, "standings": Standing, "events": Event,
+        "shots": Shot, "passes": Pass, "team_statistics": TeamStatistics,
+        "model_versions": ModelVersion,
+    }
+    out: dict = {}
+    with SessionLocal() as db:
+        for key, model in rows.items():
+            try:
+                out[key] = db.scalar(select(func.count()).select_from(model)) or 0
+            except Exception:
+                out[key] = None
+    return out
 
 
 api_prefix = "/api"

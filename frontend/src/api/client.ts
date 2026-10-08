@@ -208,7 +208,7 @@ export async function login(email: string, password: string) {
 }
 
 export async function listCompetitions() { return api.get<Competition[]>("/competitions").then((r) => r.data); }
-export async function listTeams(params?: { q?: string }) { return api.get<Team[]>("/teams", { params }).then((r) => r.data); }
+export async function listTeams(params?: { q?: string; season_id?: number }) { return api.get<Team[]>("/teams", { params }).then((r) => r.data); }
 export async function getTeam(id: number) { return api.get<Team>(`/teams/${id}`).then((r) => r.data); }
 export async function getTeamStatistics(id: number) { return api.get<TeamStatistics[]>(`/teams/${id}/statistics`).then((r) => r.data); }
 export async function getTeamWeaknesses(id: number) { return api.get<DefensiveWeakness[]>(`/teams/${id}/weaknesses`).then((r) => r.data); }
@@ -242,3 +242,19 @@ export async function generatePredictions(match_id: number, opts?: {
 }
 
 export async function listModels() { return api.get("/models").then((r) => r.data); }
+
+export interface StatsCounts {
+  competitions?: number;
+  teams?: number;
+  matches?: number;
+  players?: number;
+  standings?: number;
+  events?: number;
+  shots?: number;
+  passes?: number;
+  team_statistics?: number;
+  model_versions?: number;
+}
+export async function getStatsCounts() {
+  return api.get<StatsCounts>("/stats/counts").then((r) => r.data);
+}

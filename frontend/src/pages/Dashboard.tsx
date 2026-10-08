@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
-  listMatches, listTeams, listPlayers, generatePredictions, type Match,
+  listMatches, listTeams, listPlayers, generatePredictions, getStatsCounts,
+  listCompetitions, type Match,
 } from "../api/client";
 import {
   MOCK_MATCHES, MOCK_PREDICTIONS, MOCK_HOME_WEAKNESSES, MOCK_AWAY_WEAKNESSES,
@@ -68,6 +69,16 @@ function MatchCard({ m, highlight }: { m: Match; highlight?: boolean }) {
 }
 
 export default function Dashboard() {
+  const countsQ = useQuery({
+    queryKey: ["stats", "counts"],
+    queryFn: () => getStatsCounts(),
+    gcTime: 30_000, staleTime: 10_000,
+    retry: 0,
+  });
+  const compsQ = useQuery({
+    queryKey: ["competitions"], queryFn: () => listCompetitions(),
+    retry: 0,
+  });
   const upcomingQ = useQuery({
     queryKey: ["matches", "upcoming"],
     queryFn: () => listMatches({ scope: "upcoming" }).catch(() => [] as Match[]),
@@ -78,51 +89,43 @@ export default function Dashboard() {
     queryFn: () => listMatches({ scope: "recent" }).catch(() => [] as Match[]),
     retry: 1, retryDelay: 600,
   });
-  const teamsQ = useQuery({ queryKey: ["teams"], queryFn: () => listTeams().catch(() => []), retry: 1, retryDelay: 600 });
-  const playersQ = useQuery({ queryKey: ["players"], queryFn: () => listPlayers().catch(() => []), retry: 1, retryDelay: 600 });
+  const teamsQ = useQuery({
+    queryKey: ["teams"], queryFn: () => listTeams(), retry: 0, retryDelay: 600,
+  });
+  const playersQ = useQuery({
+    queryKey: ["players"], queryFn: () => listPlayers(), retry: 0, retryDelay: 600,
+  });
 
-  const useMock =
-    (!upcomingQ.isFetching && !upcomingQ.data?.length) &&
-    (!teamsQ.isFetching && teamsQ.data?.length === 0);
+  // NÃO USA MAIS FALLBACK MOCK — só dados reais.
+  // Quando carregando: mostramos "—" nos statcards.
+  // Quando erro backend: mostramos 0 e mensagem de indisponibilidade.
+  const loading = countsQ.isPending || compsQ.isPending;
+  const counts = countsQ.data;
+  const comps = compsQ.data || [];
+
   const now = Date.now();
-  const allMatches = (upcomingQ.data?.length || recentQ.data?.length)
-    ? [...(upcomingQ.data || []), ...(recentQ.data || [])]
-    : MOCK_MATCHES;
+  const allMatches = [...(upcomingQ.data || []), ...(recentQ.data || [])];
 
-  const upcoming = (upcomingQ.data?.length ? upcomingQ.data : MOCK_MATCHES.filter((m) => {
-    const t = new Date(m.kickoff_time).getTime();
-    return m.status === "upcoming" || t > now;
-  })) as Match[];
+  const upcoming = upcomingQ.data || [] as Match[];
+  const recent = recentQ.data || [] as Match[];
 
-  const recent = (recentQ.data?.length ? recentQ.data : MOCK_MATCHES.filter((m) => {
-    const t = new Date(m.kickoff_time).getTime();
-    return m.status === "finished" || t <= now;
-  })) as Match[];
+  const teams = teamsQ.data || [];
+  const players = playersQ.data || [];
 
-  const teams = teamsQ.data?.length ? teamsQ.data : [
-    { id: 101, name: "Flamengo", short_name: "FLA", statistics: [{ scope: "overall", points_per_game: 2.10, xg_per_90: 1.82, xga_per_90: 0.74 } as any] } as any,
-    { id: 102, name: "Palmeiras", short_name: "PAL", statistics: [{ scope: "overall", points_per_game: 2.00, xg_per_90: 1.65, xga_per_90: 0.78 } as any] } as any,
-    { id: 103, name: "Corinthians", short_name: "COR", statistics: [{ scope: "overall", points_per_game: 1.76, xg_per_90: 1.44, xga_per_90: 0.92 } as any] } as any,
-    { id: 104, name: "São Paulo", short_name: "SAO", statistics: [{ scope: "overall", points_per_game: 1.71, xg_per_90: 1.38, xga_per_90: 0.88 } as any] } as any,
-    { id: 105, name: "Fluminense", short_name: "FLU", statistics: [{ scope: "overall", points_per_game: 1.62, xg_per_90: 1.30, xga_per_90: 0.98 } as any] } as any,
-    { id: 106, name: "Atlético MG", short_name: "CAM", statistics: [{ scope: "overall", points_per_game: 1.81, xg_per_90: 1.52, xga_per_90: 0.85 } as any] } as any,
-    { id: 107, name: "Cruzeiro", short_name: "CRU", statistics: [{ scope: "overall", points_per_game: 1.52, xg_per_90: 1.22, xga_per_90: 1.02 } as any] } as any,
-    { id: 108, name: "Botafogo", short_name: "BOT", statistics: [{ scope: "overall", points_per_game: 1.68, xg_per_90: 1.40, xga_per_90: 0.90 } as any] } as any,
-  ];
+  // Valores das statcards: 100% vindo de /stats/counts.
+  const matchCount = counts?.matches ?? (loading ? "—" : 0);
+  const teamCount = counts?.teams ?? (loading ? "—" : 0);
+  const playerCount = counts?.players ?? (loading ? "—" : 0);
+  const compCount = comps.length || (loading ? "—" : 0);
+  const modelCount = 4; // modelos baseline hardcoded até modelos treinados persistirem
 
-  const players = playersQ.data?.length ? playersQ.data : Array.from({ length: 18 });
-
-  const highlightMatch = upcoming[0] || recent[0] || MOCK_MATCHES[0];
+  // Destaque = primeira partida (upcoming mais próxima OU recent mais recente);
+  // Se não houver partida nenhuma ainda, não destaque.
+  const highlightMatch: Match | undefined = upcoming[0] || recent[0];
 
   const highlightPredictions = useMemo(() => {
-    if (!useMock && allMatches.length && highlightMatch) {
-      try {
-        // eslint-disable-next-line
-        const p = generatePredictions(highlightMatch.id, { targets: ["shot", "goal"], include_matchups: false });
-      } catch {}
-    }
-    return MOCK_PREDICTIONS;
-  }, [useMock, highlightMatch?.id, allMatches.length]);
+    return MOCK_PREDICTIONS; // modelo baseline offline, dados reais virão depois
+  }, []);
 
   const topShot = highlightPredictions.predictions
     ?.filter((p) => p.target === "shot")
@@ -144,10 +147,10 @@ export default function Dashboard() {
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight">ScoutVision — Inteligência de Partidas</h1>
           <p className="text-sv-muted mt-1 text-sm">
             Identifique quem tende a produzir eventos, onde no campo, e <span className="text-sv-accent3">por quê</span>.
-            {useMock && (
+            {loading && (
               <span className="inline-flex items-center gap-1.5 ml-2 sv-chip-accent">
                 <span className="w-1.5 h-1.5 rounded-full bg-sv-accent3 animate-pulse"/>
-                DEMO ativo
+                carregando dados…
               </span>
             )}
           </p>
@@ -161,13 +164,13 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-        <StatCard label="Partidas" value={MOCK_MATCHES.length}
-                  sub="demo + dados reais da API" accent="sv-accent" />
-        <StatCard label="Times monitorados" value={teams.length ?? "—"}
-                  sub="Brasileirão + Libertadores + Copa Brasil" />
-        <StatCard label="Perfis de jogadores" value={players.length ?? "—"}
+        <StatCard label="Partidas" value={matchCount}
+                  sub={`${compCount} competição(ões) importada(s)`} accent="sv-accent" />
+        <StatCard label="Times monitorados" value={teamCount}
+                  sub="Dados football-data.org + StatsBomb" />
+        <StatCard label="Perfis de jogadores" value={playerCount}
                   sub="Com zonas, forma e stats por 90" />
-        <StatCard label="Modelos de ML ativos" value={4}
+        <StatCard label="Modelos de ML ativos" value={modelCount}
                   sub="LogReg · Chute/Alvo/Gol/PG v0.2" accent="sv-warn" />
       </div>
 

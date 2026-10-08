@@ -1,0 +1,44 @@
+name: Coleta gratuita de futebol
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 03:23 and 15:23 Brasilia. GitHub schedules can be delayed.
+    - cron: "23 6,18 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scout-data-sync
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
+      SYNC_COMPETITIONS: ${{ vars.SYNC_COMPETITIONS || 'BSA' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validar secrets sem exibir valores
+        shell: bash
+        run: |
+          test -n "$DATABASE_URL" || { echo "Configure DATABASE_URL nos Actions secrets"; exit 1; }
+          test -n "$FOOTBALL_DATA_TOKEN" || { echo "Configure FOOTBALL_DATA_TOKEN nos Actions secrets"; exit 1; }
+      - name: Instalar somente dependencias da coleta
+        run: >-
+          pip install SQLAlchemy==2.0.35 alembic==1.13.3
+          "psycopg[binary]==3.2.3" pydantic-settings==2.5.2
+          pydantic==2.9.2 requests==2.32.3
+      - name: Atualizar schema
+        working-directory: backend
+        run: python -m alembic upgrade head
+      - name: Coletar e atualizar Neon
+        working-directory: backend
+        run: python -m app.services.data_sync

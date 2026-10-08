@@ -18,12 +18,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    user_role = postgresql.ENUM("user", "admin", name="userrole")
-    data_source = postgresql.ENUM("demo", "api_football", "statsbomb", "manual", name="datasource")
+    user_role = postgresql.ENUM("user", "admin", name="userrole", create_type=False)
+    data_source = postgresql.ENUM("demo", "api_football", "statsbomb", "manual", name="datasource", create_type=False)
     event_type = postgresql.ENUM(
         "shot", "pass", "goal", "corner", "foul", "card", "substitution",
         "dribble", "duel", "interception", "tackle", "save", "other",
-        name="eventtype"
+        name="eventtype", create_type=False
     )
     pitch_zone = postgresql.ENUM(
         "own_box", "own_left_channel", "own_right_channel", "own_central_midfield",
@@ -31,7 +31,7 @@ def upgrade() -> None:
         "neutral_right_flank", "opp_left_flank", "opp_right_flank", "opp_left_channel",
         "opp_right_channel", "opp_central_midfield", "outside_box_left", "outside_box_right",
         "outside_box_central", "central_box",
-        name="pitchzone"
+        name="pitchzone", create_type=False
     )
     user_role.create(op.get_bind(), checkfirst=True)
     data_source.create(op.get_bind(), checkfirst=True)

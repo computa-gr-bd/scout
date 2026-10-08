@@ -18,6 +18,7 @@ def _uuid():
 class DataSource(str, PyEnum):
     DEMO = "demo"
     API_FOOTBALL = "api_football"
+    FOOTBALL_DATA = "football_data"
     STATSBOMB = "statsbomb"
     MANUAL = "manual"
 
@@ -66,6 +67,10 @@ class PitchZone(str, PyEnum):
 
 ZONE_ORDER = list(PitchZone)
 
+def stored_enum(enum_class):
+    # Alembic stores enum values (e.g. "demo"), not Python member names ("DEMO").
+    return Enum(enum_class, values_callable=lambda cls: [item.value for item in cls])
+
 
 class TimestampMixin:
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -78,27 +83,28 @@ class User(Base, TimestampMixin):
     email = Column(String(255), unique=True, nullable=False, index=True)
     full_name = Column(String(255))
     hashed_password = Column(String(255), nullable=False)
-    role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
+    role = Column(stored_enum(UserRole), default=UserRole.USER, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
 
 
 class DataSourceRecord(Base, TimestampMixin):
     __tablename__ = "data_source"
     id = Column(Integer, primary_key=True)
-    name = Column(Enum(DataSource), unique=True, nullable=False)
+    name = Column(stored_enum(DataSource), unique=True, nullable=False)
     description = Column(Text)
     last_import_at = Column(DateTime)
 
 
 class Competition(Base, TimestampMixin):
     __tablename__ = "competition"
+    __table_args__ = (UniqueConstraint("data_source", "external_id", name="uq_competition_source_external"),)
     id = Column(Integer, primary_key=True)
     external_id = Column(String(128), index=True)
     name = Column(String(255), nullable=False)
     code = Column(String(32))
     country = Column(String(128))
     type = Column(String(32), default="league")
-    data_source = Column(Enum(DataSource), default=DataSource.DEMO, nullable=False)
+    data_source = Column(stored_enum(DataSource), default=DataSource.DEMO, nullable=False)
     seasons = relationship("Season", back_populates="competition", cascade="all, delete-orphan")
 
 
@@ -111,24 +117,26 @@ class Season(Base, TimestampMixin):
     start_date = Column(Date)
     end_date = Column(Date)
     current = Column(Boolean, default=False)
-    data_source = Column(Enum(DataSource), default=DataSource.DEMO, nullable=False)
+    data_source = Column(stored_enum(DataSource), default=DataSource.DEMO, nullable=False)
     competition = relationship("Competition", back_populates="seasons")
     matches = relationship("Match", back_populates="season", cascade="all, delete-orphan")
 
 
 class Stadium(Base, TimestampMixin):
     __tablename__ = "stadium"
+    __table_args__ = (UniqueConstraint("data_source", "external_id", name="uq_stadium_source_external"),)
     id = Column(Integer, primary_key=True)
     external_id = Column(String(128), index=True)
     name = Column(String(255), nullable=False)
     city = Column(String(128))
     country = Column(String(128))
     capacity = Column(Integer)
-    data_source = Column(Enum(DataSource), default=DataSource.DEMO, nullable=False)
+    data_source = Column(stored_enum(DataSource), default=DataSource.DEMO, nullable=False)
 
 
 class Team(Base, TimestampMixin):
     __tablename__ = "team"
+    __table_args__ = (UniqueConstraint("data_source", "external_id", name="uq_team_source_external"),)
     id = Column(Integer, primary_key=True)
     external_id = Column(String(128), index=True)
     name = Column(String(255), nullable=False)
@@ -138,7 +146,7 @@ class Team(Base, TimestampMixin):
     founded = Column(Integer)
     stadium_id = Column(Integer, ForeignKey("stadium.id"))
     logo_url = Column(String(512))
-    data_source = Column(Enum(DataSource), default=DataSource.DEMO, nullable=False)
+    data_source = Column(stored_enum(DataSource), default=DataSource.DEMO, nullable=False)
     stadium = relationship("Stadium")
     home_matches = relationship("Match", foreign_keys="Match.home_team_id", back_populates="home_team")
     away_matches = relationship("Match", foreign_keys="Match.away_team_id", back_populates="away_team")
@@ -148,6 +156,7 @@ class Team(Base, TimestampMixin):
 
 class Player(Base, TimestampMixin):
     __tablename__ = "player"
+    __table_args__ = (UniqueConstraint("data_source", "external_id", name="uq_player_source_external"),)
     id = Column(Integer, primary_key=True)
     external_id = Column(String(128), index=True)
     first_name = Column(String(128))
@@ -160,14 +169,17 @@ class Player(Base, TimestampMixin):
     weight_kg = Column(Float)
     preferred_foot = Column(String(8))
     position = Column(String(32))
-    data_source = Column(Enum(DataSource), default=DataSource.DEMO, nullable=False)
+    data_source = Column(stored_enum(DataSource), default=DataSource.DEMO, nullable=False)
     statistics = relationship("PlayerStatistics", back_populates="player", cascade="all, delete-orphan")
     zone_stats = relationship("PlayerZoneStatistics", back_populates="player", cascade="all, delete-orphan")
 
 
 class Match(Base, TimestampMixin):
     __tablename__ = "match"
-    __table_args__ = (Index("ix_match_date_kickoff", "kickoff_time"),)
+    __table_args__ = (
+        Index("ix_match_date_kickoff", "kickoff_time"),
+        UniqueConstraint("data_source", "external_id", name="uq_match_source_external"),
+    )
     id = Column(Integer, primary_key=True)
     external_id = Column(String(128), index=True)
     season_id = Column(Integer, ForeignKey("season.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -178,13 +190,13 @@ class Match(Base, TimestampMixin):
     round_name = Column(String(64))
     matchday = Column(Integer)
     status = Column(String(32), default="scheduled")
-    home_score = Column(Integer, default=0)
-    away_score = Column(Integer, default=0)
+    home_score = Column(Integer)
+    away_score = Column(Integer)
     home_ht_score = Column(Integer)
     away_ht_score = Column(Integer)
     referee = Column(String(255))
     attendance = Column(Integer)
-    data_source = Column(Enum(DataSource), default=DataSource.DEMO, nullable=False)
+    data_source = Column(stored_enum(DataSource), default=DataSource.DEMO, nullable=False)
     season = relationship("Season", back_populates="matches")
     home_team = relationship("Team", foreign_keys=[home_team_id], back_populates="home_matches")
     away_team = relationship("Team", foreign_keys=[away_team_id], back_populates="away_matches")
@@ -206,7 +218,7 @@ class Lineup(Base, TimestampMixin):
     shirt_number = Column(Integer)
     position = Column(String(32))
     formation_position = Column(String(16))
-    minutes_played = Column(Integer, default=0)
+    minutes_played = Column(Integer)
     match = relationship("Match", back_populates="lineups")
     team = relationship("Team")
     player = relationship("Player")
@@ -214,20 +226,23 @@ class Lineup(Base, TimestampMixin):
 
 class Event(Base, TimestampMixin):
     __tablename__ = "event"
-    __table_args__ = (Index("ix_event_match_type", "match_id", "type"),)
+    __table_args__ = (
+        Index("ix_event_match_type", "match_id", "type"),
+        UniqueConstraint("data_source", "external_id", name="uq_event_source_external"),
+    )
     id = Column(Integer, primary_key=True)
     external_id = Column(String(128), index=True)
     match_id = Column(Integer, ForeignKey("match.id", ondelete="CASCADE"), nullable=False, index=True)
     team_id = Column(Integer, ForeignKey("team.id"), nullable=False, index=True)
     player_id = Column(Integer, ForeignKey("player.id"), index=True)
     secondary_player_id = Column(Integer, ForeignKey("player.id"))
-    type = Column(Enum(EventType), nullable=False)
+    type = Column(stored_enum(EventType), nullable=False)
     minute = Column(Integer, nullable=False)
     second = Column(Integer)
     period = Column(String(32))
     outcome = Column(String(32))
     details = Column(JSON)
-    data_source = Column(Enum(DataSource), default=DataSource.DEMO, nullable=False)
+    data_source = Column(stored_enum(DataSource), default=DataSource.DEMO, nullable=False)
     match = relationship("Match", back_populates="events")
     team = relationship("Team")
     player = relationship("Player", foreign_keys=[player_id])
@@ -247,7 +262,7 @@ class EventPosition(Base, TimestampMixin):
     y = Column(Float, nullable=False)
     end_x = Column(Float)
     end_y = Column(Float)
-    zone = Column(Enum(PitchZone), index=True)
+    zone = Column(stored_enum(PitchZone), index=True)
     event = relationship("Event", back_populates="position")
 
 
@@ -452,7 +467,7 @@ class DefensiveWeakness(Base, TimestampMixin):
     id = Column(Integer, primary_key=True)
     team_id = Column(Integer, ForeignKey("team.id", ondelete="CASCADE"), nullable=False, index=True)
     season_id = Column(Integer, ForeignKey("season.id", ondelete="CASCADE"), index=True)
-    zone = Column(Enum(PitchZone), nullable=False, index=True)
+    zone = Column(stored_enum(PitchZone), nullable=False, index=True)
     weakness_score = Column(Float, default=0, nullable=False)
     shots_conceded_per_90 = Column(Float, default=0)
     xga_per_90 = Column(Float, default=0)
@@ -468,7 +483,7 @@ class PlayerZoneStatistics(Base, TimestampMixin):
     id = Column(Integer, primary_key=True)
     player_id = Column(Integer, ForeignKey("player.id", ondelete="CASCADE"), nullable=False, index=True)
     season_id = Column(Integer, ForeignKey("season.id", ondelete="CASCADE"), index=True)
-    zone = Column(Enum(PitchZone), nullable=False, index=True)
+    zone = Column(stored_enum(PitchZone), nullable=False, index=True)
     sample_size = Column(Integer, default=0)
     touches = Column(Integer, default=0)
     shots = Column(Integer, default=0)
@@ -542,3 +557,34 @@ class PredictionFactor(Base, TimestampMixin):
     weight = Column(Float, nullable=False)
     direction = Column(String(16), nullable=False)
     description = Column(String(512))
+
+
+class CollectionState(Base, TimestampMixin):
+    """One bounded checkpoint per provider/resource, including the last failure."""
+    __tablename__ = "collection_state"
+    __table_args__ = (UniqueConstraint("provider", "resource", name="uq_collection_resource"),)
+    id = Column(Integer, primary_key=True)
+    provider = Column(String(32), nullable=False)
+    resource = Column(String(128), nullable=False)
+    last_success_at = Column(DateTime)
+    status = Column(String(32), nullable=False)
+    summary = Column(JSON)
+
+
+class Standing(Base, TimestampMixin):
+    """Basic standings, kept separate from advanced analytics that need event data."""
+    __tablename__ = "standing"
+    __table_args__ = (UniqueConstraint("season_id", "team_id", "group_name", name="uq_standing_team"),)
+    id = Column(Integer, primary_key=True)
+    season_id = Column(Integer, ForeignKey("season.id", ondelete="CASCADE"), nullable=False)
+    team_id = Column(Integer, ForeignKey("team.id", ondelete="CASCADE"), nullable=False)
+    group_name = Column(String(64), nullable=False, default="")
+    position = Column(Integer)
+    played = Column(Integer)
+    won = Column(Integer)
+    draw = Column(Integer)
+    lost = Column(Integer)
+    points = Column(Integer)
+    goals_for = Column(Integer)
+    goals_against = Column(Integer)
+    goal_difference = Column(Integer)
