@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { EmptyState, SectionTitle, TeamLogo } from "../components/ui";
 import { hasTeamDetail } from "../api/bayernData";
 import { LEAGUES, MOCK_TEAMS, leagueTeamCount, type League, type MockTeam } from "../api/teamsData";
-import { listTeams, listCompetitions } from "../api/client";
+import { listTeams, listCompetitions, listSeasons, type Competition } from "../api/client";
 
 /**
  * Card de time — clicável quando existe detalhe mockado (`bayernData`,
@@ -73,32 +73,52 @@ export default function TeamsPage() {
   const [q, setQ] = useState("");
   const [leagueId, setLeagueId] = useState("all");
 
-  // Descobrir o season_id da liga selecionada.
-  // Quando a ligar for do backend (c.id numérico), usamos a season corrente que já
-  // voltou em competitions[*].current_season_id, senão null.
-  const seasonIdForLeague = useMemo<number | undefined>(() => {
-    if (leagueId === "all") return undefined;
-    const raw = compsQ.data?.find((c: any) => String(c.id) === String(leagueId));
-    return raw?.current_season_id ?? raw?.seasons?.[raw.seasons.length - 1]?.id ?? undefined;
-  }, [leagueId, compsQ.data]);
-
-  const teamsQ = useQuery({
-    queryKey: ["teams-page", leagueId, seasonIdForLeague],
-    queryFn: () => listTeams({ season_id: seasonIdForLeague }),
-    retry: 1, retryDelay: 600,
-  });
+  // IMPORTANTE: as queries precisam ser declaradas ANTES de quem as referencia.
+  // Referenciar compsQ/seasonsQ num useMemo declarado acima quebrava o render com
+  // "Cannot access 'compsQ' before initialization" (ReferenceError em tempo de
+  // execução) e deixava a rota /teams inteira em branco.
   const compsQ = useQuery({
     queryKey: ["comps-page"], queryFn: () => listCompetitions(),
     retry: 1, retryDelay: 600,
   });
+  const seasonsQ = useQuery({
+    queryKey: ["seasons-page"], queryFn: () => listSeasons(),
+    retry: 1, retryDelay: 600,
+  });
+
+  // Descobrir o season_id corrente da liga selecionada.
+  // O /competitions não devolve a season embutida, então consultamos /seasons e
+  // usamos a temporada marcada como current (ou a de finalização mais recente).
+  const seasonIdForLeague = useMemo<number | undefined>(() => {
+    if (leagueId === "all") return undefined;
+    const compId = Number(leagueId);
+    if (!Number.isFinite(compId)) return undefined; // liga mock (id não numérico)
+    const fromComp = (seasonsQ.data ?? []).filter((s) => s.competition_id === compId);
+    if (!fromComp.length) return undefined;
+    const current = fromComp.find((s) => s.current);
+    if (current) return current.id;
+    const byEnd = [...fromComp].sort((a, b) => String(b.end_date ?? "").localeCompare(String(a.end_date ?? "")));
+    return byEnd[0]?.id;
+  }, [leagueId, seasonsQ.data]);
+
+  // Espera a season da liga antes de buscar (evita virar a lista toda e
+  // refiltrar); se /seasons falhar, segue sem season_id mesmo.
+  const seasonsSettled = seasonsQ.isSuccess || seasonsQ.isError;
+  const teamsQ = useQuery({
+    queryKey: ["teams-page", leagueId, seasonIdForLeague],
+    queryFn: () => listTeams({ season_id: seasonIdForLeague, limit: 500 }),
+    enabled: leagueId === "all" || seasonIdForLeague !== undefined || seasonsSettled,
+    retry: 1, retryDelay: 600,
+  });
 
   const comps: League[] = compsQ.data?.length
-    ? compsQ.data.map((c: any) => ({
+    ? compsQ.data.map((c: Competition) => ({
         id: String(c.id),
         name: c.name,
         short_name: c.code || c.name.slice(0, 12),
         season: "atual",
         country: c.country || "",
+        matches_per_season: 38,
       }))
     : LEAGUES;
 
@@ -111,39 +131,44 @@ export default function TeamsPage() {
 
   const activeLeague = leagueId === "all" ? null : leagueById[leagueId] ?? null;
 
+  // season_id → competition_id (para rotular a liga de origem de cada time)
+  const compIdBySeasonId = useMemo(() => {
+    const m: Record<number, number> = {};
+    for (const s of seasonsQ.data ?? []) m[s.id] = s.competition_id;
+    return m;
+  }, [seasonsQ.data]);
+
   const teams = useMemo(() => {
     const term = q.trim().toLowerCase();
     const source: MockTeam[] = (teamsQ.data || []).map((t: any) => {
       const stats = t.statistics || [];
       const firstStat = stats[0];
-      const seasonId = String(firstStat?.season_id || "api-all");
+      const compId = firstStat?.season_id != null ? compIdBySeasonId[firstStat.season_id] : undefined;
       return {
         id: t.id,
         name: t.name,
         code: t.code || t.short_name || "",
         short_name: t.short_name || t.name.slice(0, 10),
         country: t.country || "",
+        founded: t.founded ?? null,
         logo_url: t.logo_url || null,
-        league_id: seasonId,
+        data_source: t.data_source || "api",
+        league_id: compId != null ? String(compId) : "api-all",
         statistics: stats.map((s: any) => ({
           ...s,
           scope: s.scope === "overall" ? "overall" : (s.scope || "overall"),
-          matches_played: s.matches_played ?? (s.wins ?? 0) + (s.draws ?? 0) + (s.losses ?? 0) ?? 0,
+          matches_played: s.matches_played ?? ((s.wins ?? 0) + (s.draws ?? 0) + (s.losses ?? 0)),
           points_per_game: s.points_per_game ?? 0,
           xg_per_90: s.xg_per_90 ?? 0,
           xga_per_90: s.xga_per_90 ?? 0,
         })),
       };
     });
-    return source.filter((t) => {
-      const searchOk = !term || t.name.toLowerCase().includes(term) || (t.code || "").toLowerCase().includes(term);
-      if (leagueId === "all") return searchOk;
-      // Times já vieram filtrados por season_id do backend.
-      // Só filtra aqui se por algum acaso veio time de outra season com statistics na
-      // season correta.
-      return searchOk;
-    });
-  }, [q, leagueId, teamsQ.data, compsQ.data, comps, leagueById]);
+    // A filtragem por liga já veio do backend (season_id); aqui só o busca por texto.
+    return source.filter((t) =>
+      !term || t.name.toLowerCase().includes(term) || (t.code || "").toLowerCase().includes(term)
+    );
+  }, [q, teamsQ.data, compIdBySeasonId]);
 
   const loading = teamsQ.isPending || compsQ.isPending;
 
@@ -185,7 +210,11 @@ export default function TeamsPage() {
       <div className="flex flex-wrap gap-2">
         {[
           { id: "all", label: "Todas as ligas", count: teams.length },
-          ...comps.map((l) => ({ id: l.id, label: l.short_name, count: 0 })),
+          ...comps.map((l) => ({
+            id: l.id,
+            label: l.short_name,
+            count: teams.filter((t) => t.league_id === l.id).length,
+          })),
         ].map((opt) => {
           const active = leagueId === opt.id;
           return (

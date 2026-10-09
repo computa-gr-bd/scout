@@ -56,6 +56,7 @@ export interface Team {
 export interface TeamStatistics {
   id: number;
   team_id: number;
+  season_id?: number | null;
   scope: string;
   matches_played: number;
   wins: number; draws: number; losses: number;
@@ -120,6 +121,16 @@ export interface PlayerZoneStat {
 export interface Competition {
   id: number; external_id: string | null; name: string; code: string | null;
   country: string | null; type: string | null; data_source: string;
+}
+
+export interface Season {
+  id: number;
+  competition_id: number;
+  name: string;
+  start_date: string | null;
+  end_date: string | null;
+  current: boolean;
+  data_source: string;
 }
 
 export type PitchZone =
@@ -208,7 +219,8 @@ export async function login(email: string, password: string) {
 }
 
 export async function listCompetitions() { return api.get<Competition[]>("/competitions").then((r) => r.data); }
-export async function listTeams(params?: { q?: string; season_id?: number }) { return api.get<Team[]>("/teams", { params }).then((r) => r.data); }
+export async function listSeasons(params?: { competition_id?: number }) { return api.get<Season[]>("/seasons", { params }).then((r) => r.data); }
+export async function listTeams(params?: { q?: string; season_id?: number; limit?: number }) { return api.get<Team[]>("/teams", { params }).then((r) => r.data); }
 export async function getTeam(id: number) { return api.get<Team>(`/teams/${id}`).then((r) => r.data); }
 export async function getTeamStatistics(id: number) { return api.get<TeamStatistics[]>(`/teams/${id}/statistics`).then((r) => r.data); }
 export async function getTeamWeaknesses(id: number) { return api.get<DefensiveWeakness[]>(`/teams/${id}/weaknesses`).then((r) => r.data); }
