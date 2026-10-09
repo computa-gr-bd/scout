@@ -476,7 +476,7 @@ export default function MockTeamDetail({ team }: { team: MockTeam }) {
       <EmptyState
         title="Detalhes em breve"
         description={`Ainda não temos elenco, jogos e estatísticas mockados para ${team.name}.`}
-        action={<Link to="/times" className="sv-btn">← Voltar para Times</Link>}
+        action={<Link to="/teams" className="sv-btn">← Voltar para Times</Link>}
       />
     );
   }
@@ -485,9 +485,9 @@ export default function MockTeamDetail({ team }: { team: MockTeam }) {
     <div className="space-y-5">
       <div className="sv-card sv-ring">
         <div className="sv-card-inner">
-          <Link to="/times" className="sv-chip hover:bg-sv-panel2 transition mb-4 inline-flex">← Times</Link>
+          <Link to="/teams" className="sv-chip hover:bg-sv-panel2 transition mb-4 inline-flex">← Times</Link>
           <div className="flex items-center gap-4">
-            <TeamLogo name={team.name} className="w-14 h-14 md:w-16 md:h-16 shrink-0" />
+            <TeamLogo name={team.name} src={team.logo_url} className="w-14 h-14 md:w-16 md:h-16 shrink-0" />
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl md:text-2xl font-bold tracking-tight">{detail.display_name}</h1>

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -32,12 +32,19 @@ def list_teams(q: Optional[str] = None, skip: int = 0, limit: int = 50,
             ).all())
         else:
             teams = team_repo.list(db, skip=skip, limit=limit, order_by="name")
-    # attach overall statistics
+    # Batch load statistics — one query for the page instead of one per team.
+    ids = [t.id for t in teams]
+    stats_by_team: Dict[int, list] = {}
+    if ids:
+        from sqlalchemy import and_
+        from sqlalchemy import select as _select
+        filters = [TeamStatistics.team_id.in_(ids)]
+        if season_id is not None:
+            filters.append(TeamStatistics.season_id == season_id)
+        for s in db.scalars(_select(TeamStatistics).where(and_(*filters))).all():
+            stats_by_team.setdefault(s.team_id, []).append(s)
     for t in teams:
-        t.statistics = [s for s in ts_repo.list(db, filters=[
-            ts_repo.model.team_id == t.id,
-            *((ts_repo.model.season_id == season_id,) if season_id is not None else ()),
-        ])]
+        t.statistics = stats_by_team.get(t.id, [])
     return teams
 
 

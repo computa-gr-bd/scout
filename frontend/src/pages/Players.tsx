@@ -1,4 +1,4 @@
-import { useState } from "react";
+ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Badge, EmptyState, SectionTitle } from "../components/ui";
@@ -53,16 +53,23 @@ function PlayerRow({ p }: { p: Player }) {
 export default function PlayersPage() {
   const [q, setQ] = useState("");
   const [pos, setPos] = useState("");
+  // Paginação incremental: 50 por vez (limite do backend), "Carregar mais" acrescenta.
+  const [pages, setPages] = useState(1);
+  const PAGE_SIZE = 50;
   const qry = useQuery({
-    queryKey: ["players", q, pos],
-    queryFn: () => listPlayers({ q, position: pos }),
+    queryKey: ["players", q, pos, pages],
+    queryFn: () => listPlayers({ q, position: pos, skip: 0, limit: pages * PAGE_SIZE }),
   });
+
+  const resetAnd = (fn: () => void) => { setPages(1); fn(); };
+  const hasMore = (qry.data?.length ?? 0) >= pages * PAGE_SIZE;
+
   return (
     <div className="space-y-5">
-      <SectionTitle title="Jogadores" hint="~240 perfis scoutados com zonas, forma e APIs de probabilidade contextual">
+      <SectionTitle title="Jogadores" hint={`${qry.data?.length ?? 0} perfis scoutados com zonas, forma e APIs de probabilidade contextual`}>
         <div className="flex gap-2 flex-wrap">
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar jogador…" className="sv-btn !py-1.5 md:w-56 text-left" />
-          <select value={pos} onChange={(e) => setPos(e.target.value)}
+          <input value={q} onChange={(e) => resetAnd(() => setQ(e.target.value))} placeholder="Buscar jogador…" className="sv-btn !py-1.5 md:w-56 text-left" />
+          <select value={pos} onChange={(e) => resetAnd(() => setPos(e.target.value))}
             className="sv-btn !py-1.5 bg-sv-panel text-sv-text">
             <option value="">Todas as posições</option>
             {["GK", "CB", "LB", "RB", "CDM", "CM", "CAM", "LW", "RW", "ST", "FW", "MID"].map((p) => (
@@ -77,9 +84,22 @@ export default function PlayersPage() {
       ) : !qry.data?.length ? (
         <EmptyState title="Nenhum jogador encontrado" description="Tente outros filtros ou rode o seeder do backend." />
       ) : (
-        <div className="space-y-2">
-          {qry.data.map((p) => <PlayerRow key={p.id} p={p} />)}
-        </div>
+        <>
+          <div className="space-y-2">
+            {qry.data.map((p) => <PlayerRow key={p.id} p={p} />)}
+          </div>
+          <div className="flex justify-center pt-1">
+            {qry.isFetching ? (
+              <div className="sv-card h-10 w-48 skeleton" />
+            ) : hasMore ? (
+              <button className="sv-btn" onClick={() => setPages((n) => n + 1)}>
+                Carregar mais ({qry.data.length} exibidos)
+              </button>
+            ) : (
+              <span className="sv-chip">Fim da lista · {qry.data.length} jogadores</span>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

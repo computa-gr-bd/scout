@@ -194,6 +194,8 @@ def ingest_competition(db, payload):
                 "last_name": player["name"], "display_name": player["name"],
                 "position": player.get("position"), "nationality": player.get("nationality"),
                 "date_of_birth": date.fromisoformat(player["dateOfBirth"]) if player.get("dateOfBirth") else None,
+                # Clube atual — habilita /players?team_id= (elenco na tela de time).
+                "team_id": result.id,
             })
         return result
 

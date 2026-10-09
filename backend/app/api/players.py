@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 
@@ -23,15 +23,21 @@ pzs_repo = PlayerZoneStatsRepository()
 def list_players(q: Optional[str] = None, position: Optional[str] = None,
                  team_id: Optional[int] = None, skip: int = 0, limit: int = 50,
                  db: Session = Depends(get_db)):
-    if q or position:
+    if q or position or team_id:
         players = player_repo.search(db, q or "", position=position, team_id=team_id,
                                      skip=skip, limit=limit)
     else:
         players = player_repo.list(db, skip=skip, limit=limit, order_by="last_name")
+    # Batch load statistics — one query for the page instead of one per player.
+    ids = [p.id for p in players]
+    stats_by_player: Dict[int, list] = {}
+    if ids:
+        from sqlalchemy import select
+        from app.db.models import PlayerStatistics
+        for s in db.scalars(select(PlayerStatistics).where(PlayerStatistics.player_id.in_(ids))).all():
+            stats_by_player.setdefault(s.player_id, []).append(s)
     for p in players:
-        p.statistics = [s for s in ps_repo.list(db, filters=[
-            ps_repo.model.player_id == p.id
-        ])]
+        p.statistics = stats_by_player.get(p.id, [])
     return players
 
 

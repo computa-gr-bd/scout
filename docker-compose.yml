@@ -12,6 +12,7 @@ services:
       MODEL_PATH: ${MODEL_PATH:-/app/data/models}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      FOOTBALL_DATA_TOKEN: ${FOOTBALL_DATA_TOKEN:?Configure o token do football-data.org no .env}
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:

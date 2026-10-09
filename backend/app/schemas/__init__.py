@@ -190,6 +190,7 @@ class PlayerBase(BaseModel):
     weight_kg: Optional[float] = None
     preferred_foot: Optional[str] = None
     position: Optional[str] = None
+    team_id: Optional[int] = None
     data_source: DataSource
     model_config = ConfigDict(from_attributes=True)
 

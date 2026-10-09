@@ -26,7 +26,7 @@ function MatchRow({ m }: { m: Match }) {
     <Link to={`/matches/${m.id}`} className="sv-card block hover:bg-sv-panel2 transition">
       <div className="px-4 py-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          <TeamLogo name={m.home_team.name} />
+          <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} />
           <div className="min-w-0">
             <div className="font-medium truncate">{m.home_team.name}</div>
           </div>
@@ -44,7 +44,7 @@ function MatchRow({ m }: { m: Match }) {
           <div className="min-w-0 text-right">
             <div className="font-medium truncate">{m.away_team.name}</div>
           </div>
-          <TeamLogo name={m.away_team.name} />
+          <TeamLogo name={m.away_team.name} src={m.away_team.logo_url} />
         </div>
       </div>
     </Link>

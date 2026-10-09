@@ -49,7 +49,8 @@ def list_matches(scope: str = Query("upcoming", pattern="^(upcoming|recent|all)$
                  skip: int = 0, limit: int = 50,
                  db: Session = Depends(get_db)):
     if scope == "upcoming":
-        matches = match_repo.upcoming(db, skip=skip, limit=limit, competition_id=competition_id)
+        matches = match_repo.upcoming(db, skip=skip, limit=limit,
+                                      competition_id=competition_id, team_id=team_id)
     elif scope == "recent":
         matches = match_repo.recent(db, skip=skip, limit=limit, team_id=team_id)
     else:
@@ -59,8 +60,11 @@ def list_matches(scope: str = Query("upcoming", pattern="^(upcoming|recent|all)$
             from sqlalchemy import select, and_
             sub = select(Season.id).where(Season.competition_id == competition_id)
             filters.append(Match.season_id.in_(sub))
+        if team_id:
+            from sqlalchemy import or_
+            filters.append(or_(Match.home_team_id == team_id, Match.away_team_id == team_id))
         matches = match_repo.list(db, skip=skip, limit=limit, filters=filters,
-                                   order_by=Match.kickoff_time.desc())
+                                  order_by=Match.kickoff_time.desc())
         # eager-load teams for display
         from sqlalchemy.orm import selectinload
         from sqlalchemy import select as _s
@@ -112,6 +116,13 @@ def get_match_analysis(match_id: int, db: Session = Depends(get_db)):
             "kickoff": x.kickoff_time,
             "home_id": x.home_team_id,
             "away_id": x.away_team_id,
+            # Nomes/escudos: sem eles a tela caía em "Time <id>" genérico.
+            "home_name": x.home_team.name if x.home_team else None,
+            "away_name": x.away_team.name if x.away_team else None,
+            "home_short_name": x.home_team.short_name if x.home_team else None,
+            "away_short_name": x.away_team.short_name if x.away_team else None,
+            "home_logo_url": x.home_team.logo_url if x.home_team else None,
+            "away_logo_url": x.away_team.logo_url if x.away_team else None,
             "home_score": x.home_score,
             "away_score": x.away_score,
         } for x in h2h
@@ -200,6 +211,27 @@ def get_match_zones(match_id: int, db: Session = Depends(get_db)):
         "opportunities_against_home": home_attack_zones,
         "opportunities_against_away": away_attack_zones,
     }
+
+
+@router.get("/matches/{match_id}/lineups")
+def get_match_lineups(match_id: int, db: Session = Depends(get_db)):
+    """Escalação da partida (oficial quando existe, provável XI pelo elenco) + gols."""
+    from app.services.lineups import match_lineups
+    m = match_repo.get(db, match_id)
+    if not m:
+        raise HTTPException(404, "Match not found")
+    payload = match_lineups(db, match_id)
+    payload["home_team"] = {
+        "id": m.home_team_id,
+        "name": m.home_team.name if m.home_team else None,
+        "logo_url": m.home_team.logo_url if m.home_team else None,
+    }
+    payload["away_team"] = {
+        "id": m.away_team_id,
+        "name": m.away_team.name if m.away_team else None,
+        "logo_url": m.away_team.logo_url if m.away_team else None,
+    }
+    return payload
 
 
 @router.get("/matches/{match_id}/tactical-analysis")

@@ -2,13 +2,14 @@ import { Link, useParams } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  getMatch, getMatchAnalysis, getMatchZones, getMatchTactical,
+  getMatch, getMatchAnalysis, getMatchZones, getMatchTactical, getMatchLineups,
   generatePredictions, type MatchAnalysis, type ZoneOpportunity, type PlayerMatchPrediction, type MatchupScore,
   listPlayers, getPlayerZones, getTeamWeaknesses,
 } from "../api/client";
 import { Badge, ConfidenceBadge, EmptyState, ProbabilityBar, SectionTitle, TeamLogo } from "../components/ui";
 import { Pitch2D } from "../components/Pitch";
 import { Pitch3D } from "../components/Pitch3D";
+import { GoalList, LineupLists, LineupPitch, type MatchLineups } from "../components/LineupPitch";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from "recharts";
 
 function formatDateTime(s: string) {
@@ -29,6 +30,8 @@ export default function MatchPage() {
   const analysis = useQuery({ queryKey: ["match-analysis", matchId], queryFn: () => getMatchAnalysis(matchId) });
   const zones = useQuery({ queryKey: ["match-zones", matchId], queryFn: () => getMatchZones(matchId) });
   const tactical = useQuery({ queryKey: ["match-tactical", matchId], queryFn: () => getMatchTactical(matchId) });
+  const lineups = useQuery({ queryKey: ["match-lineups", matchId], queryFn: () => getMatchLineups(matchId) });
+  const lineupData = lineups.data as MatchLineups | undefined;
   const players = useQuery({
     queryKey: ["players"], queryFn: () => listPlayers(),
   });
@@ -110,7 +113,7 @@ export default function MatchPage() {
         <div className="sv-card sv-ring">
           <div className="px-5 py-5 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              <TeamLogo name={m.home_team.name} className="w-14 h-14" />
+              <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} className="w-14 h-14" />
               <div className="min-w-0">
                 <div className="text-xl font-bold truncate">{m.home_team.name}</div>
                 <div className="text-sm text-sv-muted">Casa · {m.home_team.short_name || ""}</div>
@@ -134,7 +137,7 @@ export default function MatchPage() {
                 <div className="text-xl font-bold truncate">{m.away_team.name}</div>
                 <div className="text-sm text-sv-muted">Fora · {m.away_team.short_name || ""}</div>
               </div>
-              <TeamLogo name={m.away_team.name} className="w-14 h-14" />
+              <TeamLogo name={m.away_team.name} src={m.away_team.logo_url} className="w-14 h-14" />
             </div>
           </div>
         </div>
@@ -200,11 +203,17 @@ export default function MatchPage() {
                     <tr key={h.match_id}>
                       <td className="text-xs text-sv-muted">{new Date(h.kickoff).toLocaleDateString()}</td>
                       <td className="font-medium text-right pr-4">
-                        <Link to={`/teams/${h.home_id}`} className="hover:text-sv-accent3">{playerById[h.home_id]?.display_name || "Time " + h.home_id}</Link>
+                        <Link to={`/teams/${h.home_id}`} className="hover:text-sv-accent3 inline-flex items-center gap-1.5 justify-end">
+                          <span className="truncate">{h.home_name || `Time ${h.home_id}`}</span>
+                          <TeamLogo name={h.home_name || undefined} src={h.home_logo_url} className="w-4 h-4" />
+                        </Link>
                       </td>
                       <td className="text-center font-mono">{h.home_score}–{h.away_score}</td>
                       <td className="font-medium pl-4">
-                        <Link to={`/teams/${h.away_id}`} className="hover:text-sv-accent3">{playerById[h.away_id]?.display_name || "Time " + h.away_id}</Link>
+                        <Link to={`/teams/${h.away_id}`} className="hover:text-sv-accent3 inline-flex items-center gap-1.5">
+                          <TeamLogo name={h.away_name || undefined} src={h.away_logo_url} className="w-4 h-4" />
+                          <span className="truncate">{h.away_name || `Time ${h.away_id}`}</span>
+                        </Link>
                       </td>
                     </tr>
                   ))}
@@ -241,6 +250,44 @@ export default function MatchPage() {
             ) : <EmptyState title="Ainda sem dados de confrontos" description="Gere previsões para calcular os confrontos." />}
           </div>
         </div>
+      </div>
+
+      {/* Escalação no campo + gols da partida */}
+      <div className="space-y-4">
+        <SectionTitle title="Escalação"
+          hint={
+            lineupData?.source === "official"
+              ? "Escalação oficial da partida"
+              : lineupData?.source === "estimated"
+                ? `Provável XI (${lineupData.formation}) · estimativa pelo elenco e minutos jogados`
+                : "Sem elenco sincronizado para estimar a escalação"
+          }
+          right={lineupData?.formation ? <span className="sv-chip">{lineupData.formation}</span> : undefined}
+        />
+        {lineups.isLoading ? (
+          <div className="sv-card h-64 skeleton" />
+        ) : lineupData && lineupData.source !== "none" ? (
+          <>
+            {lineupData.source === "estimated" && (
+              <div className="sv-card">
+                <div className="sv-card-inner text-xs text-sv-muted">
+                  O provedor de dados não entrega escalação oficial, então este é o
+                  provável XI montado a partir do elenco sincronizado (1 goleiro,
+                  4 defensores, 3 meio-campistas e 3 atacantes, priorizando quem tem
+                  mais minutos na temporada).
+                </div>
+              </div>
+            )}
+            <div className="grid lg:grid-cols-2 gap-4">
+              <LineupPitch data={lineupData} />
+              <LineupLists data={lineupData} />
+            </div>
+            <GoalList data={lineupData} />
+          </>
+        ) : (
+          <EmptyState title="Escalação indisponível"
+            description="Rode a coleta das ligas para importar os elencos dos times." />
+        )}
       </div>
 
       {/* Pitch visualization */}

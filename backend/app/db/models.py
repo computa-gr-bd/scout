@@ -169,7 +169,11 @@ class Player(Base, TimestampMixin):
     weight_kg = Column(Float)
     preferred_foot = Column(String(8))
     position = Column(String(32))
+    # Clube atual — vem do squad da football-data; None quando o provedor
+    # não informa (ex.: StatsBomb sem lineup importado).
+    team_id = Column(Integer, ForeignKey("team.id", ondelete="SET NULL"), index=True)
     data_source = Column(stored_enum(DataSource), default=DataSource.DEMO, nullable=False)
+    team = relationship("Team")
     statistics = relationship("PlayerStatistics", back_populates="player", cascade="all, delete-orphan")
     zone_stats = relationship("PlayerZoneStatistics", back_populates="player", cascade="all, delete-orphan")
 

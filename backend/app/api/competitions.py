@@ -37,6 +37,7 @@ def standings(season_id: int, db: Session = Depends(get_db)):
     ).order_by(Standing.group_name, Standing.position)).all()
     return [{
         "team_id": team.id, "team_name": team.name,
+        "team_logo": team.logo_url, "team_code": team.code,
         "data_source": team.data_source, "updated_at": standing.updated_at,
         **{field: getattr(standing, field) for field in (
             "position", "group_name", "played", "won", "draw", "lost",

@@ -1,22 +1,34 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { EmptyState, SectionTitle, TeamLogo } from "../components/ui";
 import { hasTeamDetail } from "../api/bayernData";
-import { LEAGUES, MOCK_TEAMS, leagueTeamCount, type League, type MockTeam } from "../api/teamsData";
-import { listTeams, listCompetitions, listSeasons, type Competition } from "../api/client";
+import { LEAGUES, MOCK_TEAMS, type League, type MockTeam } from "../api/teamsData";
+import { listTeams, listCompetitions, listSeasons, type Competition, type Season } from "../api/client";
+
+/** Rótulo de temporada ("2026/27" quando cruza anos, "2026" quando não cruza). */
+function seasonLabel(s: Season | undefined): string {
+  if (!s) return "atual";
+  const y1 = s.start_date ? new Date(s.start_date).getFullYear() : NaN;
+  const y2 = s.end_date ? new Date(s.end_date).getFullYear() : NaN;
+  if (y1 && y2 && y2 !== y1) return `${y1}/${String(y2).slice(-2)}`;
+  if (y1) return String(y1);
+  return "atual";
+}
 
 /**
- * Card de time — clicável quando existe detalhe mockado (`bayernData`,
- * hoje só o Bayern); os demais só dão feedback de hover ("em breve").
+ * Card de time — mesmo template da versão antiga (mock). Times da API são
+ * clicáveis e abrem a página de detalhe real; os mock só abrem quando existe
+ * conteúdo em `bayernData` (hoje só o Bayern), senão mostram "em breve".
  */
 function TeamCard({ t, league }: { t: MockTeam; league: League }) {
   const s = t.statistics.find((x) => x.scope === "overall");
   const hasDetail = hasTeamDetail(t.id);
+  const clickable = hasDetail || t.data_source !== "scoutvision_mock";
   const inner = (
     <div className="sv-card-inner">
       <div className="flex items-center gap-3 mb-3">
-        <TeamLogo name={t.name} className="w-10 h-10 transition-transform duration-200 group-hover:scale-110" />
+        <TeamLogo name={t.name} src={t.logo_url} className="w-10 h-10 transition-transform duration-200 group-hover:scale-110" />
         <div className="min-w-0">
           <div className="font-semibold truncate">{t.name}</div>
           <div className="text-xs text-sv-muted">
@@ -48,18 +60,18 @@ function TeamCard({ t, league }: { t: MockTeam; league: League }) {
         </span>
         <span
           className={`sv-chip-accent !py-0 opacity-0 translate-x-1 transition group-hover:opacity-100 group-hover:translate-x-0 ${
-            hasDetail ? "" : "italic"
+            clickable ? "" : "italic"
           }`}
         >
-          {hasDetail ? "abrir elenco →" : "em breve"}
+          {hasDetail ? "abrir elenco →" : clickable ? "abrir time →" : "em breve"}
         </span>
       </div>
     </div>
   );
   const cls = `sv-card group transition-all duration-200 hover:-translate-y-1 hover:border-sv-accent/60 hover:bg-sv-panel2 hover:shadow-glow${
-    hasDetail ? " cursor-pointer" : ""
+    clickable ? " cursor-pointer" : ""
   }`;
-  if (hasDetail) {
+  if (clickable) {
     return (
       <Link to={`/teams/${t.id}`} className={cls}>
         {inner}
@@ -111,12 +123,29 @@ export default function TeamsPage() {
     retry: 1, retryDelay: 600,
   });
 
-  const comps: League[] = compsQ.data?.length
+  // Fallback offline: se a API cair (ou não tiver nada importado ainda), a
+  // lista volta pro template antigo (mock) — igual à tela de Partidas.
+  const usingMockFallback = teamsQ.isError
+    || (leagueId === "all" && (teamsQ.isSuccess || teamsQ.isError) && !teamsQ.data?.length);
+
+  // Se caimos no fallback mock com uma liga da API selecionada, volta pra
+  // "all" — senão o filtro não acha nenhuma liga e a lista fica vazia.
+  useEffect(() => {
+    if (usingMockFallback && leagueId !== "all" && !LEAGUES.some((l) => l.id === leagueId)) {
+      setLeagueId("all");
+    }
+  }, [usingMockFallback, leagueId]);
+
+  const comps: League[] = usingMockFallback
+    ? LEAGUES
+    : compsQ.data?.length
     ? compsQ.data.map((c: Competition) => ({
         id: String(c.id),
         name: c.name,
         short_name: c.code || c.name.slice(0, 12),
-        season: "atual",
+        season: seasonLabel((seasonsQ.data ?? []).find((s) => s.competition_id === c.id && s.current)
+          ?? (seasonsQ.data ?? []).filter((s) => s.competition_id === c.id)
+            .sort((a, b) => String(b.end_date ?? "").localeCompare(String(a.end_date ?? "")))[0]),
         country: c.country || "",
         matches_per_season: 38,
       }))
@@ -140,7 +169,9 @@ export default function TeamsPage() {
 
   const teams = useMemo(() => {
     const term = q.trim().toLowerCase();
-    const source: MockTeam[] = (teamsQ.data || []).map((t: any) => {
+    // API viva → mapeia o payload do backend pro shape do template antigo;
+    // API fora → usa MOCK_TEAMS (o template antigo original) sem quebrar a tela.
+    const source: MockTeam[] = (usingMockFallback ? MOCK_TEAMS : (teamsQ.data || []).map((t: any) => {
       const stats = t.statistics || [];
       const firstStat = stats[0];
       const compId = firstStat?.season_id != null ? compIdBySeasonId[firstStat.season_id] : undefined;
@@ -163,14 +194,19 @@ export default function TeamsPage() {
           xga_per_90: s.xga_per_90 ?? 0,
         })),
       };
+    }));
+    // API viva: filtragem por liga já veio do backend (season_id).
+    // Fallback mock: filtra por league_id no cliente (igual à versão antiga).
+    return source.filter((t) => {
+      const leagueOk = usingMockFallback
+        ? leagueId === "all" || t.league_id === leagueId
+        : true;
+      const searchOk = !term || t.name.toLowerCase().includes(term) || (t.code || "").toLowerCase().includes(term);
+      return leagueOk && searchOk;
     });
-    // A filtragem por liga já veio do backend (season_id); aqui só o busca por texto.
-    return source.filter((t) =>
-      !term || t.name.toLowerCase().includes(term) || (t.code || "").toLowerCase().includes(term)
-    );
-  }, [q, teamsQ.data, compIdBySeasonId]);
+  }, [q, teamsQ.data, compIdBySeasonId, usingMockFallback, leagueId]);
 
-  const loading = teamsQ.isPending || compsQ.isPending;
+  const loading = !usingMockFallback && (teamsQ.isPending || compsQ.isPending);
 
   const emptyTitle = loading ? "Carregando times" : (q.trim() ? "Nenhum time encontrado" : "Nenhum time");
   const emptyDescription = loading

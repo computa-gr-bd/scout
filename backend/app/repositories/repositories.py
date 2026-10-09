@@ -61,7 +61,8 @@ class PlayerRepository(BaseRepository[Player]):
         ]
         if position:
             filters.append(Player.position.ilike(f"%{position}%"))
-        # team_id requires join through lineups - skip direct filter for now
+        if team_id:
+            filters.append(Player.team_id == team_id)
         q = select(Player).where(and_(*filters)).order_by(Player.last_name).offset(skip).limit(limit)
         return list(db.scalars(q).all())
 
@@ -76,13 +77,16 @@ class PlayerRepository(BaseRepository[Player]):
 class MatchRepository(BaseRepository[Match]):
     def __init__(self): super().__init__(Match)
 
-    def upcoming(self, db: Session, skip=0, limit=20, competition_id: Optional[int] = None):
+    def upcoming(self, db: Session, skip=0, limit=20, competition_id: Optional[int] = None,
+                 team_id: Optional[int] = None):
         now = datetime.utcnow()
         q = select(Match).options(selectinload(Match.home_team), selectinload(Match.away_team),
                                   selectinload(Match.season), selectinload(Match.stadium))
         q = q.where(Match.kickoff_time >= now).order_by(Match.kickoff_time)
         if competition_id:
             q = q.join(Season).where(Season.competition_id == competition_id)
+        if team_id:
+            q = q.where(or_(Match.home_team_id == team_id, Match.away_team_id == team_id))
         q = q.offset(skip).limit(limit)
         return list(db.scalars(q).all())
 

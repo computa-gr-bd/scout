@@ -90,12 +90,15 @@ export interface Player {
   weight_kg: number | null;
   preferred_foot: string | null;
   position: string | null;
+  team_id: number | null;
   data_source: string;
   statistics: PlayerStatistics[];
 }
 
 export interface PlayerStatistics {
   id: number; player_id: number;
+  season_id?: number | null;
+  scope: string;
   matches_played: number; minutes_played: number; starts: number;
   goals: number; assists: number; shots: number; shots_on_target: number;
   xg_total: number; xa_total: number;
@@ -163,7 +166,13 @@ export interface MatchAnalysis {
   match_id: number;
   home_team_stats: TeamStatistics | null;
   away_team_stats: TeamStatistics | null;
-  h2h_recent: { match_id: number; kickoff: string; home_id: number; away_id: number; home_score: number; away_score: number }[];
+  h2h_recent: {
+    match_id: number; kickoff: string; home_id: number; away_id: number;
+    home_name?: string | null; away_name?: string | null;
+    home_short_name?: string | null; away_short_name?: string | null;
+    home_logo_url?: string | null; away_logo_url?: string | null;
+    home_score: number; away_score: number;
+  }[];
   form: { home: any[]; away: any[] };
   key_stats: Record<string, number | null>;
 }
@@ -225,7 +234,7 @@ export async function getTeam(id: number) { return api.get<Team>(`/teams/${id}`)
 export async function getTeamStatistics(id: number) { return api.get<TeamStatistics[]>(`/teams/${id}/statistics`).then((r) => r.data); }
 export async function getTeamWeaknesses(id: number) { return api.get<DefensiveWeakness[]>(`/teams/${id}/weaknesses`).then((r) => r.data); }
 
-export async function listPlayers(params?: { q?: string; position?: string }) { return api.get<Player[]>("/players", { params }).then((r) => r.data); }
+export async function listPlayers(params?: { q?: string; position?: string; team_id?: number; skip?: number; limit?: number }) { return api.get<Player[]>("/players", { params }).then((r) => r.data); }
 export async function getPlayer(id: number) { return api.get<Player>(`/players/${id}`).then((r) => r.data); }
 export async function getPlayerStatistics(id: number) { return api.get<PlayerStatistics[]>(`/players/${id}/statistics`).then((r) => r.data); }
 export async function getPlayerZones(id: number) { return api.get<PlayerZoneStat[]>(`/players/${id}/zones`).then((r) => r.data); }
@@ -236,13 +245,67 @@ export async function getGoalProbability(playerId: number, opponentTeamId: numbe
   return api.get(`/players/${playerId}/goal-probability`, { params: { opponent_team_id: opponentTeamId, venue } }).then((r) => r.data);
 }
 
-export async function listMatches(params?: { scope?: "upcoming" | "recent" | "all"; team_id?: number }) {
+export async function listMatches(params?: { scope?: "upcoming" | "recent" | "all"; team_id?: number; skip?: number; limit?: number }) {
   return api.get<Match[]>("/matches", { params }).then((r) => r.data);
+}
+
+/** Linha da classificação de uma temporada (com escudo vindo do backend). */
+export interface StandingRow {
+  team_id: number;
+  team_name: string;
+  team_logo?: string | null;
+  team_code?: string | null;
+  position: number;
+  group_name: string;
+  played: number;
+  won: number; draw: number; lost: number;
+  points: number;
+  goals_for: number; goals_against: number; goal_difference: number;
+  updated_at?: string | null;
+}
+export async function getStandings(seasonId: number) {
+  return api.get<StandingRow[]>(`/seasons/${seasonId}/standings`).then((r) => r.data);
 }
 export async function getMatch(id: number) { return api.get(`/matches/${id}`).then((r) => r.data); }
 export async function getMatchAnalysis(id: number) { return api.get<MatchAnalysis>(`/matches/${id}/analysis`).then((r) => r.data); }
 export async function getMatchPredictions(id: number) { return api.get(`/matches/${id}/predictions`).then((r) => r.data); }
 export async function getMatchZones(id: number) { return api.get(`/matches/${id}/zones`).then((r) => r.data); }
+
+/** Escalação da partida: oficial quando existe no banco, provável XI pelo elenco. */
+export interface LineupPlayer {
+  player_id: number;
+  player_name: string | null;
+  position: string | null;
+  shirt_number?: number | null;
+  minutes_played?: number | null;
+  line?: string | null;
+  pitch_x?: number | null;
+  pitch_y?: number | null;
+  estimated?: boolean;
+}
+export interface MatchGoal {
+  minute: number | null;
+  team_id: number | null;
+  scorer_player_id: number;
+  scorer_name: string | null;
+  assist_player_id?: number | null;
+  assist_name?: string | null;
+  is_penalty: boolean;
+  is_own_goal: boolean;
+}
+export interface MatchLineups {
+  match_id: number;
+  source: "official" | "estimated" | "none";
+  formation: string | null;
+  home: LineupPlayer[];
+  away: LineupPlayer[];
+  goals: MatchGoal[];
+  home_team?: { id: number; name: string | null; logo_url: string | null } | null;
+  away_team?: { id: number; name: string | null; logo_url: string | null } | null;
+}
+export async function getMatchLineups(id: number) {
+  return api.get<MatchLineups>(`/matches/${id}/lineups`).then((r) => r.data);
+}
 export async function getMatchTactical(id: number) { return api.get(`/matches/${id}/tactical-analysis`).then((r) => r.data); }
 
 export async function generatePredictions(match_id: number, opts?: {

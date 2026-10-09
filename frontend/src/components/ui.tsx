@@ -1,3 +1,4 @@
+import { useState } from "react";
 import clsx from "clsx";
 import bayernLogo from "../bayern_munique.cc.svg";
 
@@ -131,13 +132,16 @@ const NAMED_LOGOS: Record<string, string> = {
   "Bayern Munich": bayernLogo,
 };
 
-export function TeamLogo({ name, className = "w-8 h-8" }: { name?: string; className?: string }) {
-  const realLogo = name ? NAMED_LOGOS[name] : undefined;
+export function TeamLogo({ name, src, className = "w-8 h-8" }: { name?: string; src?: string | null; className?: string }) {
+  const [broken, setBroken] = useState(false);
+  // Prioridade: escudo real da API (logo_url) → arquivo local → logo por hash.
+  const realLogo = broken ? undefined : src || (name ? NAMED_LOGOS[name] : undefined);
   if (realLogo) {
     return (
       <img
         src={realLogo}
-        alt={`Logo ${name}`}
+        alt={`Logo ${name ?? ""}`}
+        onError={() => setBroken(true)}
         className={clsx("object-contain shrink-0", className)}
       />
     );
