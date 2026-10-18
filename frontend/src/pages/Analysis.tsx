@@ -136,7 +136,7 @@ export default function AnalysisPage() {
         <div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Estúdio de análise</h1>
           <p className="text-sv-muted mt-1 text-sm">
-            Escolha uma partida · inspecione fraquezas, probabilidades por jogador, mapas de calor e confrontos.
+            Escolha uma partida para consultar indicadores e visualizações. Probabilidades são estimativas baseline experimentais, não previsões validadas.
             {useMock && (
               <span className="inline-flex items-center gap-1.5 ml-2 sv-chip-accent">
                 <span className="w-1.5 h-1.5 rounded-full bg-sv-accent3 animate-pulse"/>
@@ -258,7 +258,7 @@ export default function AnalysisPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <div className="font-semibold">Probabilidades de eventos por jogador</div>
-                      <div className="text-xs text-sv-muted">Linha vertical = probabilidade base</div>
+                      <div className="text-xs text-sv-muted">Linha vertical = referência do baseline; estimativas não validadas.</div>
                     </div>
                     <div className="flex gap-1">
                       {[["shot", "chute"], ["shot_on_target", "no alvo"], ["goal", "gol"], ["goal_involvement", "particip. em gol"]].map(([t, label]) => (

@@ -3,13 +3,12 @@ import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { login } from "../api/client";
 import { useAuth } from "../store/auth";
-import { Badge } from "../components/ui";
 
 export default function LoginPage() {
   const auth = useAuth();
   const nav = useNavigate();
-  const [email, setEmail] = useState("admin@scoutvision.local");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
   const mut = useMutation({
@@ -36,7 +35,7 @@ export default function LoginPage() {
             </div>
             <div>
               <div className="text-xl font-bold">Entrar no ScoutVision</div>
-              <div className="text-xs text-sv-muted">Scouting pré-jogo &amp; análise preditiva</div>
+              <div className="text-xs text-sv-muted">Acesse com sua conta do ScoutVision</div>
             </div>
           </div>
 
@@ -63,14 +62,7 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="sv-divider" />
-          <div className="sv-card !bg-sv-panel2/60">
-            <div className="p-4 text-sm space-y-1">
-              <div className="flex items-center gap-2 mb-1.5"><Badge kind="accent">Credenciais de demonstração</Badge></div>
-              <div><span className="text-sv-muted">Admin:</span> <code className="font-mono text-xs">admin@scoutvision.local / admin123</code></div>
-              <div><span className="text-sv-muted">Usuário:</span> <code className="font-mono text-xs">user@scoutvision.local / user123</code></div>
-            </div>
-          </div>
+          <p className="text-xs text-sv-muted">Se você não tiver uma conta, solicite acesso ao responsável pela instalação.</p>
         </div>
       </div>
     </div>

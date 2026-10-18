@@ -121,7 +121,7 @@ export function Badge({ kind = "default", children }: { kind?: "default" | "acce
 export function ConfidenceBadge({ c }: { c: "low" | "medium" | "high" | string }) {
   const kind: any = c === "high" ? "good" : c === "medium" ? "accent" : "default";
   const label = c === "high" ? "alta" : c === "medium" ? "média" : c === "low" ? "baixa" : c;
-  return <Badge kind={kind}>Confiança: {label}</Badge>;
+  return <Badge kind={kind}>Diferença vs. base: {label}</Badge>;
 }
 
 /**

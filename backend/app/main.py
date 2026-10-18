@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status
+from datetime import datetime, timezone
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.core.logging import get_logger
@@ -12,6 +14,9 @@ from app.api.teams import router as teams_router
 from app.api.players import router as players_router
 from app.api.matches import router as matches_router
 from app.api.models import router as models_router
+from app.db.models import CollectionState
+from app.db import get_db
+from sqlalchemy import select
 
 settings = get_settings()
 logger = get_logger("scoutvision.api")
@@ -113,6 +118,45 @@ def api_stats_counts():
             except Exception:
                 out[key] = None
     return out
+
+
+@app.get("/api/data/status", tags=["meta"])
+def api_data_status(db: Session = Depends(get_db)):
+    states = db.scalars(
+        select(CollectionState).order_by(CollectionState.provider, CollectionState.resource)
+    ).all()
+    now = datetime.now(timezone.utc)
+    stale_after = settings.SYNC_INTERVAL_HOURS * 2
+
+    def as_utc(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    def checkpoint_payload(state: CollectionState) -> dict[str, object]:
+        last_success_at = as_utc(state.last_success_at)
+        return {
+            "provider": state.provider,
+            "resource": state.resource,
+            "status": state.status,
+            "last_success_at": last_success_at,
+            "updated_at": as_utc(state.updated_at),
+            "summary": state.summary,
+            "is_stale": (
+                state.provider == "football_data"
+                and (
+                    last_success_at is None
+                    or (now - last_success_at).total_seconds() > stale_after * 3600
+                )
+            ),
+        }
+
+    return {
+        "sync_interval_hours": settings.SYNC_INTERVAL_HOURS,
+        "competitions": [checkpoint_payload(state) for state in states],
+    }
 
 
 api_prefix = "/api"

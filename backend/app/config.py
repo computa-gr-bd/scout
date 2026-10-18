@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 from typing import List
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     API_FOOTBALL_KEY: str = ""
     FOOTBALL_DATA_TOKEN: str = ""
     SYNC_COMPETITIONS: str = "BSA,PL,BL1,PD,SA,FL1,CL"
+    SYNC_INTERVAL_HOURS: int = Field(default=12, ge=1, le=168)
     STATSBOMB_LOCAL_DATA_PATH: str = ""
 
     MODEL_PATH: str = "./data/models"

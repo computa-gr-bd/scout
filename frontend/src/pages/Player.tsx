@@ -83,13 +83,13 @@ export default function PlayerPage() {
                 </h1>
                 <Badge kind="accent">{p.position || "—"}</Badge>
                 <Badge>{p.preferred_foot === "left" ? "canhoto" : p.preferred_foot === "right" ? "destro" : (p.preferred_foot || "—")}</Badge>
-                <Badge kind="warn">{p.country || "DemoLand"}</Badge>
+                {p.country && <Badge kind="warn">{p.country}</Badge>}
               </div>
               <div className="text-sm text-sv-muted mt-1 flex flex-wrap gap-x-4 gap-y-1">
                 {p.date_of_birth && <span>Nasc.: {new Date(p.date_of_birth).toLocaleDateString()}</span>}
                 {p.height_cm != null && <span>Altura: {p.height_cm} cm</span>}
                 {p.weight_kg != null && <span>Peso: {p.weight_kg} kg</span>}
-                <span>Jogos: {s?.matches_played ?? 0} · Titular: {s?.starts ?? 0} · Minutos: {s?.minutes_played ?? 0}</span>
+                <span>Jogos: {s?.matches_played ?? "—"} · Titular: {s?.starts ?? "—"} · Minutos: {s?.minutes_played ?? "—"}</span>
               </div>
             </div>
             <div className="flex gap-2">
@@ -101,10 +101,10 @@ export default function PlayerPage() {
       ) : <EmptyState title="Carregando jogador" />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-        <StatCard label="Gols / 90" value={(s?.goals_per_90 ?? 0).toFixed(2)} sub={`Total: ${s?.goals ?? 0}`} accent="sv-accent" />
-        <StatCard label="Assistências / 90" value={(s?.assists_per_90 ?? 0).toFixed(2)} sub={`Total: ${s?.assists ?? 0}`} />
-        <StatCard label="xG / 90" value={(s?.xg_per_90 ?? 0).toFixed(2)} sub={`Total: ${(s?.xg_total ?? 0).toFixed(2)}`} accent="sv-accent" />
-        <StatCard label="xA / 90" value={(s?.xa_per_90 ?? 0).toFixed(2)} sub={`Total: ${(s?.xa_total ?? 0).toFixed(2)}`} />
+        <StatCard label="Gols / 90" value={s?.goals_per_90?.toFixed(2) ?? "—"} sub={`Total: ${s?.goals ?? "—"}`} accent="sv-accent" />
+        <StatCard label="Assistências / 90" value={s?.assists_per_90?.toFixed(2) ?? "—"} sub={`Total: ${s?.assists ?? "—"}`} />
+        <StatCard label="xG / 90" value={s?.xg_per_90?.toFixed(2) ?? "—"} sub={`Total: ${s?.xg_total?.toFixed(2) ?? "—"}`} accent="sv-accent" />
+        <StatCard label="xA / 90" value={s?.xa_per_90?.toFixed(2) ?? "—"} sub={`Total: ${s?.xa_total?.toFixed(2) ?? "—"}`} />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-5">
@@ -126,8 +126,8 @@ export default function PlayerPage() {
         </div>
         <div className="sv-card">
           <div className="sv-card-inner space-y-4">
-            <SectionTitle title="Probabilidade contextual vs. adversário"
-              hint="Escolha um adversário. A previsão é contextualizada por time, local e fraquezas do adversário." />
+            <SectionTitle title="Estimativa experimental vs. adversário"
+              hint="Estimativa baseline, não validada como previsão confiável. A qualidade depende das estatísticas disponíveis." />
             <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
               <select
                 value={oppId ?? ""}

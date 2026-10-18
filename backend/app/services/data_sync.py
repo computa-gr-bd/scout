@@ -251,16 +251,17 @@ def ingest_competition(db, payload):
             mp = w + d + l
             gf = float(row.get("goalsFor") or 0); ga = float(row.get("goalsAgainst") or 0)
             pts = float(row.get("points") or 0)
-            # Derive per-90 estimates assuming 90 min standard match (sem extra time)
-            minutes_est = max(mp, 1) * 90.0
             upsert(db, TeamStatistics, {"team_id": team.id, "season_id": season.id, "scope": "overall"}, {
                 "matches_played": mp, "wins": w, "draws": d, "losses": l,
                 "goals_for": gf, "goals_against": ga,
-                "xg_per_90": (gf * 90.0) / minutes_est if mp else 0.0,
-                "xga_per_90": (ga * 90.0) / minutes_est if mp else 0.0,
-                "goals_conceded_per_90": (ga * 90.0) / minutes_est if mp else 0.0,
+                "shots": None, "shots_on_target": None,
+                "xg_total": None, "xga_total": None, "corners_total": None,
+                "shots_per_90": None, "shots_on_target_per_90": None,
+                "xg_per_90": None, "xga_per_90": None,
+                "shots_conceded_per_90": None, "corners_per_90": None,
+                "goals_conceded_per_90": ga / mp if mp else None,
                 "points_per_game": pts / mp if mp else 0.0,
-                "recent_form": [],
+                "recent_form": None,
             })
             standings += 1
     upsert_entities(db, Player, player_rows)
@@ -284,6 +285,7 @@ def sync_football_data_for_competitions(codes=None, *, client=None, factory=Sess
     owned_client = client is None
     client = client or FootballDataClient(settings.FOOTBALL_DATA_TOKEN)
     summary = {}
+    failures = []
     try:
         for code in codes:
             try:
@@ -297,7 +299,11 @@ def sync_football_data_for_competitions(codes=None, *, client=None, factory=Sess
                 summary[code] = {"error": error}
                 with ingestion_session(factory) as db:
                     checkpoint(db, SOURCE.value, code, "failed", {"error": error})
-                raise RuntimeError(f"Falha na coleta {code} ({error}); lote revertido.") from None
+                failures.append(f"{code} ({error})")
+        if failures:
+            raise RuntimeError(
+                f"Falha na coleta de {', '.join(failures)}; demais competições foram processadas."
+            )
     finally:
         if owned_client:
             client.close()

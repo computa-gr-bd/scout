@@ -1,5 +1,6 @@
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Dashboard from "./pages/Dashboard";
 import MatchesPage from "./pages/Matches";
 import MatchPage from "./pages/Match";
@@ -9,9 +10,10 @@ import PlayersPage from "./pages/Players";
 import PlayerPage from "./pages/Player";
 import AnalysisPage from "./pages/Analysis";
 import ModelsPage from "./pages/Models";
+import AboutPage from "./pages/About";
 import LoginPage from "./pages/Login";
 import { useAuth } from "./store/auth";
-import { me } from "./api/client";
+import { getDataStatus, me } from "./api/client";
 
 function Logo() {
   return (
@@ -40,6 +42,7 @@ function Sidebar() {
     { to: "/players", label: "Jogadores", icon: "M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6" },
     { to: "/analysis", label: "Análise", icon: "M4 20h16M7 16V8M12 16V4M17 16v-6" },
     { to: "/models", label: "Modelos", icon: "M3 7l9-4 9 4-9 4-9-4zM3 12l9 4 9-4M3 17l9 4 9-4" },
+    { to: "/about", label: "Sobre e como usar", icon: "M12 16v-4m0-4h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z" },
   ];
   return (
     <aside className="hidden md:flex md:flex-col w-60 shrink-0 border-r border-sv-border bg-sv-panel/40 backdrop-blur-sm">
@@ -68,7 +71,9 @@ function Sidebar() {
         ))}
       </nav>
       <div className="mt-auto p-3 text-[11px] text-sv-muted border-t border-sv-border">
-        <div className="mb-1"><span className="sv-chip">INFO</span> backend + banco Neon ao vivo · fallback demo offline</div>
+        <div className="mb-1">
+          <Link to="/about" className="hover:text-sv-text transition">Fontes, limites e guia de uso</Link>
+        </div>
         <div className="opacity-80">v0.1.0 · ScoutVision</div>
       </div>
     </aside>
@@ -78,6 +83,12 @@ function Sidebar() {
 function Topbar() {
   const auth = useAuth();
   const loc = useLocation();
+  const connection = useQuery({
+    queryKey: ["data", "status"],
+    queryFn: getDataStatus,
+    staleTime: 30_000,
+    retry: 0,
+  });
   const titleMap: Record<string, string> = {
     "/": "Painel",
     "/matches": "Partidas",
@@ -85,6 +96,7 @@ function Topbar() {
     "/players": "Jogadores",
     "/analysis": "Análise",
     "/models": "Modelos",
+    "/about": "Sobre e como usar",
     "/login": "Entrar",
   };
   const title = Object.entries(titleMap).find(([k]) => loc.pathname === k || loc.pathname.startsWith(k + "/"))
@@ -99,9 +111,10 @@ function Topbar() {
           <div className="hidden md:block font-medium">{title}</div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="sv-chip-accent hidden sm:inline-flex">
-            <span className="w-1.5 h-1.5 rounded-full bg-sv-accent3 shadow-[0_0_10px_#5ef2b8]"/>
-            API ao vivo
+          <Link to="/about" className="sv-btn !py-1.5 md:hidden">Sobre</Link>
+          <span className={connection.isError ? "sv-chip hidden sm:inline-flex text-sv-danger" : "sv-chip-accent hidden sm:inline-flex"}>
+            <span className={`w-1.5 h-1.5 rounded-full ${connection.isError ? "bg-sv-danger" : connection.isSuccess ? "bg-sv-accent3 shadow-[0_0_10px_#5ef2b8]" : "bg-sv-warn animate-pulse"}`}/>
+            {connection.isError ? "API indisponível" : connection.isSuccess ? "API conectada" : "Verificando API"}
           </span>
           {auth.token ? (
             <div className="flex items-center gap-2">
@@ -169,6 +182,7 @@ function App() {
             <Route path="/analysis" element={<AnalysisPage />} />
             <Route path="/analysis/:matchId" element={<AnalysisPage />} />
             <Route path="/models" element={<ModelsPage />} />
+            <Route path="/about" element={<AboutPage />} />
             <Route path="*" element={<Dashboard />} />
           </Routes>
         </Shell>
