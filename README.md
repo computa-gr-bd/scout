@@ -1,27 +1,26 @@
-# ScoutVision — Pre-Match Football Scouting & Predictive Analytics
+# ScoutVision — Dados e análise exploratória de futebol
 
-ScoutVision is a data-driven football (soccer) scouting platform that answers:
+ScoutVision reúne calendário, resultados, clubes, elencos e classificações das
+competições disponíveis no provedor conectado. Também permite importar eventos
+históricos de competições selecionadas do StatsBomb Open Data.
 
-> **"Which player is most likely to produce a specific event against this opponent, in which area of the pitch, and why?"**
-
-It combines historical event data, statistical analysis, machine learning, contextual predictions, defensive weakness analysis, player matchup scoring, and 2D/3D pitch visualization into one professional platform.
+Os dados variam por fonte. O provedor atual não entrega xG nem estatísticas
+avançadas individuais; as probabilidades exibidas são baselines experimentais,
+não previsões treinadas e validadas com partidas reais. As visualizações de
+demonstração são sintéticas e não representam lances reais.
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-External football data (API-Football, StatsBomb, Demo)
-  → Data ingestion / ETL  (provider adapters)
-  → Normalization & validation
-  → PostgreSQL            (SQLAlchemy + Alembic)
-  → Statistics & analytics
-  → Feature engineering
-  → Statistical / ML models (LogReg, RandomForest, XGBoost + SHAP)
-  → Predictions + explanation factors
-  → FastAPI backend
-  → React frontend + TanStack Query + Zustand
-  → 2D/3D pitch (Three.js / React Three Fiber / Drei)
+football-data.org + StatsBomb Open Data (importação histórica) + demo opcional
+  → Coleta, validação e normalização
+  → PostgreSQL (SQLAlchemy + Alembic)
+  → Estatísticas disponíveis e estimativas baseline experimentais
+  → FastAPI
+  → React + TypeScript
+  → Visualizações 2D/3D, com exemplos sintéticos claramente identificados
 ```
 
 ---
@@ -75,10 +74,10 @@ External football data (API-Football, StatsBomb, Demo)
 # 1. Copy env file
 copy .env.example .env
 
-# 2. Configure DATABASE_URL with the Neon PostgreSQL connection string.
+# 2. Set DATABASE_URL and FOOTBALL_DATA_TOKEN in .env.
 # No local PostgreSQL container is used.
-# Build & start the backend and frontend.
-docker compose up --build
+# Build & start the backend and frontend with the local recurring collector.
+docker compose --profile local-collector up --build
 
 # Migrations run on backend startup. Demo data is NOT loaded automatically.
 
@@ -122,19 +121,18 @@ npm run dev
 
 ## 🧠 Prediction System
 
-Predictions are **probabilities** (not certainties), based on:
-- Player recent form (shots/90, xG/90, minutes)
-- Team attacking volume & style
-- Opponent defensive strength, incl. zone-level weaknesses
-- Venue (home/away)
-- Historical head-to-head where samples are sufficient
-- Player zone frequency + offensive strength × defensive weakness
+The prediction endpoints currently use manually defined baseline coefficients.
+They are experimental estimates, not a trained and validated model for current
+matches. Data gaps, including the absence of current xG and individual match
+statistics, limit what they can support.
 
-**Explainability** — every prediction exposes:
-- Predicted probability
-- Positive / negative factors with SHAP-like weights
-- Model + version
-- Feature names involved
+The “difference vs. baseline” label describes the distance from a reference
+value; it is not a statistical confidence score. Factor labels explain which
+inputs affect the baseline calculation and are not SHAP explanations.
+
+The model catalog exposes built-in baselines. Its evaluation figures come from
+a synthetic demonstration dataset and do not measure performance on the Neon
+database or real matches.
 
 Prediction targets include:
 - 1+ shot
@@ -151,31 +149,30 @@ Prediction targets include:
 cd backend
 pytest
 
-# Frontend
+# Frontend type-check and production build
 cd frontend
-npm run test
+npm run build
 ```
 
 ---
 
 ## 📦 Demo Mode
 
-The app is fully usable **without any external API key** thanks to a built-in realistic demo dataset covering 2 fictional leagues, 20 teams, ~240 players, several matches with events, and computed statistics/weaknesses/zones.
+An optional synthetic dataset is available for interface demonstrations without
+an external provider. It is not current football data and must not be presented
+as a real competition, match, roster, or statistic.
 
 Demo data is clearly labeled as `data_source = demo`.
 
-### 🔴 Real API data (football-data.org)
+### football-data.org data
 
-Real Série A data collected from **football-data.org** is integrated in the
-frontend (no key needed at runtime):
-
-- `frontend/src/api/footballDataOrg.ts` — real standings, top scorers and
-  upcoming fixtures (treated data).
-- `frontend/src/api/studioData.ts` — turns those into **real matches**
-  (`API_MATCHES`, `data_source = football-data.org`) that behave exactly like the
-  mocked ones, plus extra **ScoutVision Studio** games (`STUDIO_DATASETS`).
-- The Studio (`PitchStudio`) now has a **match selector** to switch between the
-  demo game and the real API games (heatmap / shots / goals / positions).
+The database is refreshed by the backend collector. `/api/matches` is the source
+for the live match list; an empty API response is no longer replaced by old
+fixtures. `frontend/src/api/footballDataOrg.ts` is a checked-in historical
+snapshot used by demo/Studio examples, not a live feed. Its fixture metadata is
+real but static, and the Studio's shots, heatmaps, lineups and player actions are
+simulated—not provider play-by-play. Do not use those visualizations as current
+match statistics.
 
 See `teste-api/README.md` for the collection → treatment pipeline.
 
@@ -191,12 +188,13 @@ python -m app.services.data_sync --competitions BSA
 python -m app.services.statsbomb_importer --competition 43 --season 106 --match-ids 3869685
 ```
 
-The daily collector fetches the current season, validates it, and upserts teams,
+The scheduled collector fetches the current season, validates it, and upserts teams,
 available squad members, matches and standings. Corrections are applied without
 duplicating provider IDs. `standing` stores basic league tables separately from
 advanced statistics; missing xG/minutes are not invented. Checkpoints and failures
 are in `collection_state`; standings are served at `/api/seasons/{id}/standings`.
-The frontend's static/demo datasets have not yet been replaced by these endpoints.
+Match list and standings data are served by backend endpoints; Studio event
+visualizations remain illustrative only.
 
 StatsBomb Open Data is a limited historical catalog, not a current Brasileirão feed.
 It requires no API key. Only selected JSONs are fetched, and unchanged matches are
@@ -207,14 +205,22 @@ calculation are not performed by this importer. Import at most five matches per
 run; a 400 MiB database guard prevents starting further event imports.
 Consult the StatsBomb license and attribution requirements before publishing.
 
-`.github/workflows/data-sync.yml` runs at 06:23 and 18:23 UTC, independently of
-Render's sleeping web service. To activate it, publish it on the default branch and
-configure GitHub Actions secrets `DATABASE_URL` and `FOOTBALL_DATA_TOKEN`.
-The optional repository variable `SYNC_COMPETITIONS` defaults to `BSA`.
-Use standard free runners and do not enable paid overages; private repositories
-share their included Actions minutes with CI. Schedules may be delayed and public
-repository schedules can be disabled after inactivity. Monitor Actions and
-`collection_state.last_success_at`. StatsBomb imports are manual, not daily.
+O perfil local `local-collector` inicia um coletor separado, que sincroniza
+imediatamente e repete a cada 12 horas (`SYNC_INTERVAL_HOURS`). Se uma execução
+falhar, ele registra o erro e tenta novamente em até 15 minutos. O advisory lock
+no banco evita gravações concorrentes; `/api/data/status` e o dashboard mostram
+o horário da última coleta e indicam dados atrasados.
+
+O workflow `.github/workflows/data-sync.yml` também coleta às 06:23 e 18:23 UTC,
+independentemente de serviços web que possam dormir. Para esse modo, configure os
+secrets `DATABASE_URL` e `FOOTBALL_DATA_TOKEN` e a variável opcional
+`SYNC_COMPETITIONS` nas configurações do GitHub Actions. **Use o workflow ou o
+perfil local, não os dois contra o mesmo banco**, para evitar chamadas duplicadas
+e consumo desnecessário da cota do provedor. No Windows sem Docker, o Agendador de
+Tarefas pode executar `python -m app.services.data_sync` a partir da pasta `backend`,
+repetindo a cada `SYNC_INTERVAL_HOURS` e usando a conta que tem acesso ao `.env` da
+raiz. Configure a tarefa para iniciar quando estiver disponível após suspensão.
+Mantenha apenas um coletor agendado ativo. StatsBomb permanece manual.
 
 ---
 
@@ -223,10 +229,6 @@ repository schedules can be disabled after inactivity. Monitor Actions and
 JWT-based. Roles:
 - `USER` — view, analyze, predict
 - `ADMIN` — import data, manage users/models, view logs
-
-Seeded default admin in demo mode:
-- Email: `admin@scoutvision.local`
-- Password: `admin123`
 
 ---
 
@@ -245,8 +247,8 @@ Seeded default admin in demo mode:
 3. **No future data leakage** — temporal train/val/test split only.
 4. **LLMs do not replace statistical/ML models** — they explain, not predict.
 5. **Predictions are probabilities, never certainties.**
-6. **Demo data is clearly labeled.**
-7. **3D visualization is tied to actual analytical output.**
+6. **Demo data and simulated visualizations are clearly labeled.**
+7. **Do not interpret baselines or simulated 3D views as validated analysis of real matches.**
 
 ---
 

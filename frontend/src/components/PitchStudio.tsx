@@ -584,7 +584,7 @@ export function PitchStudio({
             <div className="font-semibold tracking-tight text-[15px]">{matchInfo.title}</div>
             <div className="sv-chip">{matchInfo.date}</div>
             <div className={`sv-chip ${matchInfo.source === "api" ? "!border-sv-accent3/50 !text-sv-accent3" : ""}`}>
-              {matchInfo.source === "api" ? "● API real" : "● demo"}
+              {matchInfo.source === "api" ? "● jogo da API · visualização simulada" : "● exemplo simulado"}
             </div>
           </div>
           <div className="flex items-center gap-4 mt-1">
@@ -621,7 +621,7 @@ export function PitchStudio({
               <button key={d.match.id} onClick={() => setActiveId(d.match.id)} title={d.match.competition}
                 className={`sv-btn !py-1 !px-2.5 text-[12px] whitespace-nowrap shrink-0 ${active ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>
                 <span className={`mr-1.5 text-[10px] font-semibold ${d.match.source === "api" ? "text-sv-accent3" : "text-sv-muted"}`}>
-                  {d.match.source === "api" ? "API" : "DEMO"}
+                  {d.match.source === "api" ? "API · visual simulado" : "SIMULADO"}
                 </span>
                 {d.match.home} <span className="text-sv-muted mx-0.5">×</span> {d.match.away}
               </button>

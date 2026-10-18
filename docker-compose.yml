@@ -13,6 +13,8 @@ services:
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
       FOOTBALL_DATA_TOKEN: ${FOOTBALL_DATA_TOKEN:?Configure o token do football-data.org no .env}
+      SYNC_COMPETITIONS: ${SYNC_COMPETITIONS:-BSA}
+      SYNC_INTERVAL_HOURS: ${SYNC_INTERVAL_HOURS:-12}
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:
@@ -23,6 +25,30 @@ services:
         alembic upgrade head &&
         uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
       "
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  collector:
+    profiles: ["local-collector"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Configure a conexao PostgreSQL do Neon no .env}
+      FOOTBALL_DATA_TOKEN: ${FOOTBALL_DATA_TOKEN:?Configure o token do football-data.org no .env}
+      SYNC_COMPETITIONS: ${SYNC_COMPETITIONS:-BSA}
+      SYNC_INTERVAL_HOURS: ${SYNC_INTERVAL_HOURS:-12}
+    volumes:
+      - ./backend:/app
+    command: python -m app.services.data_sync_worker
 
   frontend:
     build:

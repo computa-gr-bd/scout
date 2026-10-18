@@ -419,7 +419,7 @@ export function buildApiStudioDataset(f: FixtureRow): StudioDataset {
       date: formatKickoff(f.utc_date),
       formationHome: "4-3-3",
       formationAway: "4-2-3-1",
-      dataSourceLabel: FOOTBALL_DATA_SOURCE.provider,
+      dataSourceLabel: `${FOOTBALL_DATA_SOURCE.provider} · eventos simulados`,
     },
     shots,
     heatmapHome: buildHeat(HOME_SLOTS, homeSt, 0, rnd),

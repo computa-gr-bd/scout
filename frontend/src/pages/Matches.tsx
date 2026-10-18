@@ -1,24 +1,21 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { Badge, EmptyState, SectionTitle, TeamLogo } from "../components/ui";
 import { listMatches } from "../api/client";
 import type { Match } from "../api/client";
-import { MOCK_MATCHES } from "../api/mockData";
-
-function filterByScope(list: Match[], scope: "upcoming" | "recent" | "all") {
-  if (scope === "all") return list;
-  const now = Date.now();
-  return list.filter((m) => {
-    const t = new Date(m.kickoff_time).getTime();
-    return scope === "upcoming" ? m.status === "upcoming" || t > now : m.status === "finished" || t <= now;
-  });
-}
 
 function formatDate(s: string) {
   const d = new Date(s);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", weekday: "short" })
-    + " · " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString("pt-BR", { month: "short", day: "numeric", weekday: "short" })
+    + " · " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function statusLabel(status: string) {
+  if (status === "finished") return "Encerrada";
+  if (status === "in_progress") return "Em andamento";
+  if (status === "scheduled" || status === "upcoming") return "Agendada";
+  return status;
 }
 
 function MatchRow({ m }: { m: Match }) {
@@ -33,7 +30,7 @@ function MatchRow({ m }: { m: Match }) {
         </div>
         <div className="text-center min-w-[140px]">
           <div className="flex items-center justify-center gap-2">
-            <Badge kind={m.status === "finished" ? "default" : "accent"}>{m.status}</Badge>
+            <Badge kind={m.status === "finished" ? "default" : "accent"}>{statusLabel(m.status)}</Badge>
           </div>
           <div className="mt-1 font-mono font-semibold">
             {m.status === "finished" ? `${m.home_score}–${m.away_score}` : formatDate(m.kickoff_time)}
@@ -53,7 +50,9 @@ function MatchRow({ m }: { m: Match }) {
 
 export default function MatchesPage() {
   const [params] = useSearchParams();
-  const initialScope: any = params.get("scope") || "upcoming";
+  const requestedScope = params.get("scope");
+  const initialScope: "upcoming" | "recent" | "all" =
+    requestedScope === "recent" || requestedScope === "all" ? requestedScope : "upcoming";
   const [scope, setScope] = useState<"upcoming" | "recent" | "all">(initialScope);
 
   const q = useQuery({
@@ -68,16 +67,11 @@ export default function MatchesPage() {
     { key: "all", label: "Todas" },
   ];
 
-  // Fallback: dados demo + dados reais da API (football-data.org)
-  const list = useMemo(() => {
-    if (q.data && q.data.length) return q.data;
-    if (q.isLoading || q.isFetching) return [];
-    return filterByScope(MOCK_MATCHES, scope);
-  }, [q.data, q.isLoading, q.isFetching, scope]);
+  const list = q.data || [];
 
   return (
     <div className="space-y-5">
-      <SectionTitle title="Partidas" hint="Veja jogos, escalações e gere previsões contextuais pré-jogo">
+      <SectionTitle title="Partidas" hint="Consulte calendário e resultados importados. A disponibilidade varia por competição.">
         <div className="flex gap-1">
           {scopes.map((s) => (
             <button key={s.key}
@@ -97,8 +91,12 @@ export default function MatchesPage() {
             <div key={i} className="sv-card h-[72px] skeleton" />
           ))}
         </div>
+      ) : q.isError ? (
+        <EmptyState title="Não foi possível carregar as partidas"
+          description="A API está indisponível no momento. Tente novamente em instantes." />
       ) : list.length === 0 ? (
-        <EmptyState title="Nenhuma partida neste filtro" />
+        <EmptyState title="Nenhuma partida neste filtro"
+          description="A API não retornou partidas para este filtro. Dados de demonstração não são exibidos como dados atuais." />
       ) : (
         <div className="space-y-2">
           {list.map((m) => <MatchRow key={m.id} m={m} />)}

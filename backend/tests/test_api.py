@@ -1,9 +1,12 @@
+from datetime import datetime, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, get_db
+from app.db.models import CollectionState
 from app.main import app as fastapi_app
 
 SQLITE_URL = "sqlite:///./test_api.db"
@@ -24,7 +27,7 @@ def _setup():
             pass
 
     fastapi_app.dependency_overrides[get_db] = override
-    yield
+    yield sess
     sess.close()
     Base.metadata.drop_all(engine)
 
@@ -45,6 +48,36 @@ def test_competitions_seasons_teams_players_endpoints_empty():
         r = client.get(path)
         assert r.status_code == 200, f"{path}: {r.status_code}"
         assert isinstance(r.json(), list)
+
+
+def test_data_status_endpoint_returns_empty_checkpoint_list():
+    response = client.get("/api/data/status")
+    assert response.status_code == 200
+    assert response.json()["competitions"] == []
+    assert response.json()["sync_interval_hours"] >= 1
+
+
+def test_data_status_does_not_mark_manual_statsbomb_import_as_stale(_setup):
+    from app.main import settings
+
+    db = _setup
+    db.add_all([
+        CollectionState(
+            provider="football_data", resource="BSA", status="success",
+            last_success_at=datetime.now() - timedelta(hours=settings.SYNC_INTERVAL_HOURS * 3),
+        ),
+        CollectionState(
+            provider="statsbomb", resource="3869685", status="success",
+            last_success_at=datetime.now() - timedelta(days=30),
+        ),
+    ])
+    db.commit()
+    response = client.get("/api/data/status")
+    assert response.status_code == 200
+    checkpoints = response.json()["competitions"]
+    stale_by_provider = {item["provider"]: item["is_stale"] for item in checkpoints}
+    assert stale_by_provider == {"football_data": True, "statsbomb": False}
+    assert all(item["last_success_at"].endswith("+00:00") for item in checkpoints)
 
 
 def test_team_player_detail_404():

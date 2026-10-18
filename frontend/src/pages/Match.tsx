@@ -49,19 +49,28 @@ export default function MatchPage() {
     if (!a) return [];
     const h = a.home_team_stats; const aw = a.away_team_stats;
     const mapTo100 = (v: number, max: number) => Math.min(100, Math.round((v / max) * 100));
-    return [
-      { m: "Chutes/90", home: mapTo100(h?.shots_per_90 || 0, 22), away: mapTo100(aw?.shots_per_90 || 0, 22) },
-      { m: "xG/90", home: mapTo100(h?.xg_per_90 || 0, 2.5), away: mapTo100(aw?.xg_per_90 || 0, 2.5) },
-      { m: "Ch.Alvo/90", home: mapTo100(h?.shots_on_target_per_90 || 0, 10), away: mapTo100(aw?.shots_on_target_per_90 || 0, 10) },
-      { m: "Cantos/90", home: mapTo100(h?.corners_per_90 || 0, 10), away: mapTo100(aw?.corners_per_90 || 0, 10) },
-      { m: "xGA/90 (inv)", home: mapTo100(Math.max(0, 3 - (h?.xga_per_90 || 0)), 3), away: mapTo100(Math.max(0, 3 - (aw?.xga_per_90 || 0)), 3) },
-      { m: "Pts/jogo", home: mapTo100(h?.points_per_game || 0, 3), away: mapTo100(aw?.points_per_game || 0, 3) },
+    const metrics = [
+      { m: "Chutes/90", home: h?.shots_per_90, away: aw?.shots_per_90, max: 22 },
+      { m: "xG/90", home: h?.xg_per_90, away: aw?.xg_per_90, max: 2.5 },
+      { m: "Ch.Alvo/90", home: h?.shots_on_target_per_90, away: aw?.shots_on_target_per_90, max: 10 },
+      { m: "Cantos/90", home: h?.corners_per_90, away: aw?.corners_per_90, max: 10 },
+      { m: "xGA/90 (inv)", home: h?.xga_per_90, away: aw?.xga_per_90, max: 3, inverse: true },
+      { m: "Pts/jogo", home: h?.points_per_game, away: aw?.points_per_game, max: 3 },
     ];
+    return metrics
+      .filter((metric): metric is {
+        m: string; home: number; away: number; max: number; inverse?: boolean;
+      } => metric.home != null && metric.away != null)
+      .map((metric) => ({
+        m: metric.m,
+        home: mapTo100(metric.inverse ? Math.max(0, metric.max - metric.home) : metric.home, metric.max),
+        away: mapTo100(metric.inverse ? Math.max(0, metric.max - metric.away) : metric.away, metric.max),
+      }));
   }, [a]);
 
   const keyStats = useMemo(() => {
     if (!a) return [];
-    return [
+    const metrics: [string, number | null | undefined, number | null | undefined][] = [
       ["Chutes /90", a.home_team_stats?.shots_per_90, a.away_team_stats?.shots_per_90],
       ["Chutes no alvo /90", a.home_team_stats?.shots_on_target_per_90, a.away_team_stats?.shots_on_target_per_90],
       ["xG /90", a.home_team_stats?.xg_per_90, a.away_team_stats?.xg_per_90],
@@ -69,7 +78,10 @@ export default function MatchPage() {
       ["Gols sofridos /90", a.home_team_stats?.goals_conceded_per_90, a.away_team_stats?.goals_conceded_per_90],
       ["Cantos /90", a.home_team_stats?.corners_per_90, a.away_team_stats?.corners_per_90],
       ["Pontos / jogo", a.home_team_stats?.points_per_game, a.away_team_stats?.points_per_game],
-    ].map(([k, h, aw]) => [k, h ?? 0, aw ?? 0]) as any;
+    ];
+    return metrics.filter((entry): entry is [string, number, number] =>
+      entry[1] != null && entry[2] != null
+    );
   }, [a]);
 
   const homeWeakness: Record<string, number> = {};
@@ -327,7 +339,7 @@ export default function MatchPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="font-semibold">Previsões por jogador</div>
-              <div className="text-xs text-sv-muted">Probabilidades dependentes de contexto e do adversário · selecione os alvos</div>
+              <div className="text-xs text-sv-muted">Estimativas baseline experimentais, não validadas como previsões confiáveis · selecione os alvos</div>
             </div>
             <div className="flex gap-1">
               {[

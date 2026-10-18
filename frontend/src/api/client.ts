@@ -61,10 +61,10 @@ export interface TeamStatistics {
   matches_played: number;
   wins: number; draws: number; losses: number;
   goals_for: number; goals_against: number;
-  shots_per_90: number; shots_on_target_per_90: number;
-  xg_per_90: number; xga_per_90: number;
-  goals_conceded_per_90: number; shots_conceded_per_90: number;
-  corners_per_90: number; points_per_game: number;
+  shots_per_90: number | null; shots_on_target_per_90: number | null;
+  xg_per_90: number | null; xga_per_90: number | null;
+  goals_conceded_per_90: number | null; shots_conceded_per_90: number | null;
+  corners_per_90: number | null; points_per_game: number;
   recent_form: { result: "W" | "D" | "L"; opponent_id: number }[] | null;
 }
 
@@ -332,4 +332,20 @@ export interface StatsCounts {
 }
 export async function getStatsCounts() {
   return api.get<StatsCounts>("/stats/counts").then((r) => r.data);
+}
+
+export interface DataCollectionStatus {
+  sync_interval_hours: number;
+  competitions: {
+    provider: string;
+    resource: string;
+    status: string;
+    last_success_at: string | null;
+    updated_at: string;
+    summary: Record<string, unknown> | null;
+    is_stale: boolean;
+  }[];
+}
+export async function getDataStatus() {
+  return api.get<DataCollectionStatus>("/data/status").then((r) => r.data);
 }

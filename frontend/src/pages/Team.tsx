@@ -78,9 +78,9 @@ function SquadRow({ p }: { p: Player }) {
         </div>
       </div>
       <div className="flex gap-3 text-xs font-mono text-right shrink-0">
-        <div><div className="sv-stat-k">J</div><div>{s?.matches_played ?? 0}</div></div>
-        <div><div className="sv-stat-k">G</div><div className="text-sv-accent3">{s?.goals ?? 0}</div></div>
-        <div><div className="sv-stat-k">A</div><div>{s?.assists ?? 0}</div></div>
+        <div><div className="sv-stat-k">J</div><div>{s?.matches_played ?? "—"}</div></div>
+        <div><div className="sv-stat-k">G</div><div className="text-sv-accent3">{s?.goals ?? "—"}</div></div>
+        <div><div className="sv-stat-k">A</div><div>{s?.assists ?? "—"}</div></div>
       </div>
     </div>
   );
@@ -198,7 +198,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
                 <div className="flex items-center gap-2 flex-wrap">
                   <h1 className="text-2xl font-bold tracking-tight">{t.data.name}</h1>
                   <Badge>{t.data.code}</Badge>
-                  <Badge kind="accent">{t.data.country || "DemoLand"}</Badge>
+                  {t.data.country && <Badge kind="accent">{t.data.country}</Badge>}
                   {myStanding && <Badge kind="warn">{myStanding.position}º · {myStanding.points} pts</Badge>}
                 </div>
                 <div className="text-sm text-sv-muted mt-1">Fundado em {t.data.founded || "—"} · Estádio: {(t.data as any).stadium?.name || "—"} ({(t.data as any).stadium?.capacity || "—"})</div>
@@ -215,8 +215,8 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <StatCard label="Partidas jogadas" value={s?.matches_played ?? "—"} sub={`${s?.wins ?? 0}V ${s?.draws ?? 0}E ${s?.losses ?? 0}D`} />
         <StatCard label="Pontos por jogo" value={s ? s.points_per_game.toFixed(2) : "—"} accent="sv-accent" sub={`GP ${(s?.goals_for ?? 0).toFixed(0)} · GC ${(s?.goals_against ?? 0).toFixed(0)}`} />
-        <StatCard label="Ataque (xG/90)" value={s ? s.xg_per_90.toFixed(2) : "—"} accent="sv-accent" sub={`Chutes/90 ${(s?.shots_per_90 ?? 0).toFixed(1)}`} />
-        <StatCard label="Defesa (xGA/90)" value={s ? s.xga_per_90.toFixed(2) : "—"} accent="sv-danger" sub={`Sofridos/90 ${(s?.goals_conceded_per_90 ?? 0).toFixed(2)}`} />
+        <StatCard label="Ataque (xG/90)" value={s?.xg_per_90 != null ? s.xg_per_90.toFixed(2) : "—"} accent="sv-accent" sub={`Chutes/90 ${s?.shots_per_90 != null ? s.shots_per_90.toFixed(1) : "—"}`} />
+        <StatCard label="Defesa (xGA/90)" value={s?.xga_per_90 != null ? s.xga_per_90.toFixed(2) : "—"} accent="sv-danger" sub={`Sofridos/90 ${s?.goals_conceded_per_90 != null ? s.goals_conceded_per_90.toFixed(2) : "—"}`} />
       </div>
 
       {/* Próximos confrontos e resultados recentes — filtrados por este time */}
@@ -263,7 +263,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
         </div>
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Elenco" hint={`${squad.length} atletas · jogos, gols e assistências`} />
+            <SectionTitle title="Elenco" hint={`${squad.length} atletas cadastrados; estatísticas individuais podem não estar disponíveis`} />
             {squadQ.isPending ? (
               <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="sv-card h-12 skeleton" />)}</div>
             ) : squad.length === 0 ? (
@@ -364,4 +364,3 @@ export default function TeamPage() {
   if (mockTeam) return <MockTeamDetail team={mockTeam} />;
   return <ApiTeamPage teamId={teamId} />;
 }
-

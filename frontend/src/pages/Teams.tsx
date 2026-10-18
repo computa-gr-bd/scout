@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { EmptyState, SectionTitle, TeamLogo } from "../components/ui";
-import { hasTeamDetail } from "../api/bayernData";
-import { LEAGUES, MOCK_TEAMS, type League, type MockTeam } from "../api/teamsData";
-import { listTeams, listCompetitions, listSeasons, type Competition, type Season } from "../api/client";
+import type { League } from "../api/teamsData";
+import { listTeams, listCompetitions, listSeasons, type Competition, type Season, type Team } from "../api/client";
 
 /** Rótulo de temporada ("2026/27" quando cruza anos, "2026" quando não cruza). */
 function seasonLabel(s: Season | undefined): string {
@@ -17,14 +16,10 @@ function seasonLabel(s: Season | undefined): string {
 }
 
 /**
- * Card de time — mesmo template da versão antiga (mock). Times da API são
- * clicáveis e abrem a página de detalhe real; os mock só abrem quando existe
- * conteúdo em `bayernData` (hoje só o Bayern), senão mostram "em breve".
+ * Card for teams returned by the backend.
  */
-function TeamCard({ t, league }: { t: MockTeam; league: League }) {
+function TeamCard({ t, league }: { t: Team & { league_id: string }; league?: League }) {
   const s = t.statistics.find((x) => x.scope === "overall");
-  const hasDetail = hasTeamDetail(t.id);
-  const clickable = hasDetail || t.data_source !== "scoutvision_mock";
   const inner = (
     <div className="sv-card-inner">
       <div className="flex items-center gap-3 mb-3">
@@ -32,53 +27,43 @@ function TeamCard({ t, league }: { t: MockTeam; league: League }) {
         <div className="min-w-0">
           <div className="font-semibold truncate">{t.name}</div>
           <div className="text-xs text-sv-muted">
-            {t.code} · {t.country || "—"}
+            {t.code || t.short_name || "—"} · {t.country || "—"}
           </div>
         </div>
       </div>
       <div className="grid grid-cols-4 gap-2 text-center">
         <div>
           <div className="sv-stat-k">J</div>
-          <div className="sv-stat-v">{s?.matches_played ?? 0}</div>
+          <div className="sv-stat-v">{s?.matches_played ?? "—"}</div>
         </div>
         <div>
           <div className="sv-stat-k">Pts/J</div>
-          <div className="sv-stat-v text-sv-accent3">{(s?.points_per_game ?? 0).toFixed(2)}</div>
+          <div className="sv-stat-v text-sv-accent3">{s?.points_per_game != null ? s.points_per_game.toFixed(2) : "—"}</div>
         </div>
         <div>
           <div className="sv-stat-k">xG/90</div>
-          <div className="sv-stat-v">{(s?.xg_per_90 ?? 0).toFixed(2)}</div>
+          <div className="sv-stat-v">{s?.xg_per_90 != null ? s.xg_per_90.toFixed(2) : "—"}</div>
         </div>
         <div>
           <div className="sv-stat-k">xGA/90</div>
-          <div className="sv-stat-v text-sv-warn">{(s?.xga_per_90 ?? 0).toFixed(2)}</div>
+          <div className="sv-stat-v text-sv-warn">{s?.xga_per_90 != null ? s.xga_per_90.toFixed(2) : "—"}</div>
         </div>
       </div>
       <div className="mt-3 pt-3 border-t border-sv-border/60 flex items-center justify-between gap-2 text-[11px]">
         <span className="text-sv-muted truncate">
-          {league.short_name} · {league.season}
+          {league ? `${league.short_name} · ${league.season}` : "Competição indisponível"}
         </span>
-        <span
-          className={`sv-chip-accent !py-0 opacity-0 translate-x-1 transition group-hover:opacity-100 group-hover:translate-x-0 ${
-            clickable ? "" : "italic"
-          }`}
-        >
-          {hasDetail ? "abrir elenco →" : clickable ? "abrir time →" : "em breve"}
+        <span className="sv-chip-accent !py-0 opacity-0 translate-x-1 transition group-hover:opacity-100 group-hover:translate-x-0">
+          abrir time →
         </span>
       </div>
     </div>
   );
-  const cls = `sv-card group transition-all duration-200 hover:-translate-y-1 hover:border-sv-accent/60 hover:bg-sv-panel2 hover:shadow-glow${
-    clickable ? " cursor-pointer" : ""
-  }`;
-  if (clickable) {
-    return (
-      <Link to={`/teams/${t.id}`} className={cls}>
-        {inner}
-      </Link>
-    );
-  }
-  return <div className={cls}>{inner}</div>;
+  return (
+    <Link to={`/teams/${t.id}`} className="sv-card group cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:border-sv-accent/60 hover:bg-sv-panel2 hover:shadow-glow">
+      {inner}
+    </Link>
+  );
 }
 
 export default function TeamsPage() {
@@ -104,7 +89,7 @@ export default function TeamsPage() {
   const seasonIdForLeague = useMemo<number | undefined>(() => {
     if (leagueId === "all") return undefined;
     const compId = Number(leagueId);
-    if (!Number.isFinite(compId)) return undefined; // liga mock (id não numérico)
+    if (!Number.isFinite(compId)) return undefined;
     const fromComp = (seasonsQ.data ?? []).filter((s) => s.competition_id === compId);
     if (!fromComp.length) return undefined;
     const current = fromComp.find((s) => s.current);
@@ -113,48 +98,27 @@ export default function TeamsPage() {
     return byEnd[0]?.id;
   }, [leagueId, seasonsQ.data]);
 
-  // Espera a season da liga antes de buscar (evita virar a lista toda e
-  // refiltrar); se /seasons falhar, segue sem season_id mesmo.
-  const seasonsSettled = seasonsQ.isSuccess || seasonsQ.isError;
   const teamsQ = useQuery({
     queryKey: ["teams-page", leagueId, seasonIdForLeague],
     queryFn: () => listTeams({ season_id: seasonIdForLeague, limit: 500 }),
-    enabled: leagueId === "all" || seasonIdForLeague !== undefined || seasonsSettled,
+    enabled: leagueId === "all" || seasonIdForLeague !== undefined,
     retry: 1, retryDelay: 600,
   });
 
-  // Fallback offline: se a API cair (ou não tiver nada importado ainda), a
-  // lista volta pro template antigo (mock) — igual à tela de Partidas.
-  const usingMockFallback = teamsQ.isError
-    || (leagueId === "all" && (teamsQ.isSuccess || teamsQ.isError) && !teamsQ.data?.length);
-
-  // Se caimos no fallback mock com uma liga da API selecionada, volta pra
-  // "all" — senão o filtro não acha nenhuma liga e a lista fica vazia.
-  useEffect(() => {
-    if (usingMockFallback && leagueId !== "all" && !LEAGUES.some((l) => l.id === leagueId)) {
-      setLeagueId("all");
-    }
-  }, [usingMockFallback, leagueId]);
-
-  const comps: League[] = usingMockFallback
-    ? LEAGUES
-    : compsQ.data?.length
-    ? compsQ.data.map((c: Competition) => ({
-        id: String(c.id),
-        name: c.name,
-        short_name: c.code || c.name.slice(0, 12),
-        season: seasonLabel((seasonsQ.data ?? []).find((s) => s.competition_id === c.id && s.current)
-          ?? (seasonsQ.data ?? []).filter((s) => s.competition_id === c.id)
-            .sort((a, b) => String(b.end_date ?? "").localeCompare(String(a.end_date ?? "")))[0]),
-        country: c.country || "",
-        matches_per_season: 38,
-      }))
-    : LEAGUES;
+  const comps: League[] = (compsQ.data ?? []).map((c: Competition) => ({
+    id: String(c.id),
+    name: c.name,
+    short_name: c.code || c.name.slice(0, 12),
+    season: seasonLabel((seasonsQ.data ?? []).find((s) => s.competition_id === c.id && s.current)
+      ?? (seasonsQ.data ?? []).filter((s) => s.competition_id === c.id)
+        .sort((a, b) => String(b.end_date ?? "").localeCompare(String(a.end_date ?? "")))[0]),
+    country: c.country || "",
+    matches_per_season: 38,
+  }));
 
   const leagueById: Record<string, League> = useMemo(() => {
     const r: Record<string, League> = {};
     for (const l of comps) r[l.id] = l;
-    for (const l of LEAGUES) r[l.id] = l;
     return r;
   }, [comps]);
 
@@ -169,59 +133,42 @@ export default function TeamsPage() {
 
   const teams = useMemo(() => {
     const term = q.trim().toLowerCase();
-    // API viva → mapeia o payload do backend pro shape do template antigo;
-    // API fora → usa MOCK_TEAMS (o template antigo original) sem quebrar a tela.
-    const source: MockTeam[] = (usingMockFallback ? MOCK_TEAMS : (teamsQ.data || []).map((t: any) => {
-      const stats = t.statistics || [];
-      const firstStat = stats[0];
-      const compId = firstStat?.season_id != null ? compIdBySeasonId[firstStat.season_id] : undefined;
-      return {
-        id: t.id,
-        name: t.name,
-        code: t.code || t.short_name || "",
-        short_name: t.short_name || t.name.slice(0, 10),
-        country: t.country || "",
-        founded: t.founded ?? null,
-        logo_url: t.logo_url || null,
-        data_source: t.data_source || "api",
-        league_id: compId != null ? String(compId) : "api-all",
-        statistics: stats.map((s: any) => ({
-          ...s,
-          scope: s.scope === "overall" ? "overall" : (s.scope || "overall"),
-          matches_played: s.matches_played ?? ((s.wins ?? 0) + (s.draws ?? 0) + (s.losses ?? 0)),
-          points_per_game: s.points_per_game ?? 0,
-          xg_per_90: s.xg_per_90 ?? 0,
-          xga_per_90: s.xga_per_90 ?? 0,
-        })),
-      };
-    }));
-    // API viva: filtragem por liga já veio do backend (season_id).
-    // Fallback mock: filtra por league_id no cliente (igual à versão antiga).
-    return source.filter((t) => {
-      const leagueOk = usingMockFallback
-        ? leagueId === "all" || t.league_id === leagueId
-        : true;
-      const searchOk = !term || t.name.toLowerCase().includes(term) || (t.code || "").toLowerCase().includes(term);
-      return leagueOk && searchOk;
-    });
-  }, [q, teamsQ.data, compIdBySeasonId, usingMockFallback, leagueId]);
+    return (teamsQ.data ?? []).map((team) => {
+      const seasonId = team.statistics[0]?.season_id;
+      const competitionId = seasonId != null ? compIdBySeasonId[seasonId] : undefined;
+      return { ...team, league_id: competitionId != null ? String(competitionId) : "api-all" };
+    }).filter((team) =>
+      !term || team.name.toLowerCase().includes(term)
+      || (team.code || "").toLowerCase().includes(term)
+    );
+  }, [q, teamsQ.data, compIdBySeasonId]);
 
-  const loading = !usingMockFallback && (teamsQ.isPending || compsQ.isPending);
+  const loading = compsQ.isPending
+    || (leagueId !== "all" && seasonsQ.isPending)
+    || (teamsQ.isPending && teamsQ.fetchStatus !== "idle");
 
-  const emptyTitle = loading ? "Carregando times" : (q.trim() ? "Nenhum time encontrado" : "Nenhum time");
+  const requestFailed = compsQ.isError || teamsQ.isError
+    || (leagueId !== "all" && seasonsQ.isError);
+  const emptyTitle = loading
+    ? "Carregando times"
+    : requestFailed
+      ? "Não foi possível carregar os times"
+      : (q.trim() ? "Nenhum time encontrado" : "Nenhum time");
   const emptyDescription = loading
-    ? "Buscando dados do banco Neon…"
-    : q.trim()
-      ? `Nada para “${q.trim()}”${activeLeague ? ` em ${activeLeague.name}` : ""}. Tente outro nome ou sigla.`
-      : activeLeague
-        ? `${activeLeague.name} ainda não tem times importados — rode a coleta desta liga.`
-        : "Nenhum time cadastrado.";
+    ? "Buscando dados da API…"
+    : requestFailed
+      ? "A API está indisponível no momento. Tente novamente em instantes."
+      : q.trim()
+        ? `Nada para “${q.trim()}”${activeLeague ? ` em ${activeLeague.name}` : ""}. Tente outro nome ou sigla.`
+        : activeLeague
+          ? `${activeLeague.name} ainda não tem times importados — rode a coleta desta liga.`
+          : "Nenhum time cadastrado pela API.";
 
   return (
     <div className="space-y-5">
       <SectionTitle
         title="Times"
-        hint={`${teams.length} times · ${comps.length} ligas · estatísticas completas e fraquezas defensivas`}
+        hint={`${teams.length} times · ${comps.length} ligas · estatísticas disponíveis na API`}
       >
         <div className="flex gap-2 flex-wrap">
           <input
@@ -273,7 +220,7 @@ export default function TeamsPage() {
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
           {teams.map((t) => (
-            <TeamCard key={t.id} t={t} league={leagueById[t.league_id] ?? comps[0] ?? LEAGUES[0]} />
+            <TeamCard key={t.id} t={t} league={leagueById[t.league_id]} />
           ))}
         </div>
       )}

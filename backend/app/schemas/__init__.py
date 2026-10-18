@@ -145,13 +145,13 @@ class TeamStatisticsOut(BaseModel):
     losses: int
     goals_for: float
     goals_against: float
-    shots_per_90: float
-    shots_on_target_per_90: float
-    xg_per_90: float
-    xga_per_90: float
-    goals_conceded_per_90: float
-    shots_conceded_per_90: float
-    corners_per_90: float
+    shots_per_90: Optional[float] = None
+    shots_on_target_per_90: Optional[float] = None
+    xg_per_90: Optional[float] = None
+    xga_per_90: Optional[float] = None
+    goals_conceded_per_90: Optional[float] = None
+    shots_conceded_per_90: Optional[float] = None
+    corners_per_90: Optional[float] = None
     points_per_game: float
     recent_form: Optional[List[Any]] = None
     model_config = ConfigDict(from_attributes=True)

@@ -9,7 +9,8 @@ from sqlalchemy.orm import sessionmaker
 from app.config import Settings
 from app.db import Base
 from app.db.models import (
-    CollectionState, Competition, DataSource, Event, Match, Player, Season, Standing, Team,
+    CollectionState, Competition, DataSource, Event, Match, Player, Season, Standing,
+    Team, TeamStatistics,
 )
 from app.services.data_sync import (
     FootballDataClient, entity, ingest_competition, ingestion_session,
@@ -62,6 +63,10 @@ def test_import_repeated_and_corrected(factory, payload):
         assert db.scalar(select(Match)).home_score is None
         assert db.scalar(select(Team).where(Team.external_id == "1")).short_name == "AA"
         assert db.scalar(select(Standing)).points == 0
+        stats = db.scalar(select(TeamStatistics))
+        assert stats.xg_per_90 is None
+        assert stats.xga_per_90 is None
+        assert stats.shots_per_90 is None
         assert db.scalar(select(CollectionState)).last_success_at is not None
     payload["matches"]["matches"][0].update(
         status="FINISHED", score={"fullTime": {"home": 2, "away": 0}})
@@ -97,6 +102,19 @@ def test_invalid_data_rolls_back_and_failure_is_recorded(factory, payload):
         state = db.scalar(select(CollectionState))
         assert state.status == "failed"
         assert state.last_success_at == previous
+
+
+def test_sync_continues_after_a_competition_failure(factory, payload):
+    second_competition = deepcopy(payload)
+    second_competition["competition"]["code"] = "PL"
+    client = Mock()
+    client.fetch_competition.side_effect = [RuntimeError("provider unavailable"), second_competition]
+    with pytest.raises(RuntimeError, match="BSA.*demais competições"):
+        sync_football_data_for_competitions(["BSA", "PL"], client=client, factory=factory)
+    assert client.fetch_competition.call_args_list[1].args == ("PL",)
+    with factory() as db:
+        states = {state.resource: state.status for state in db.scalars(select(CollectionState))}
+        assert states == {"BSA": "failed", "PL": "success"}
 
 
 def test_season_validation_and_undefined_teams(factory, payload):

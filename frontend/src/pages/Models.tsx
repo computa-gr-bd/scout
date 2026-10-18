@@ -6,13 +6,22 @@ export default function ModelsPage() {
   const q = useQuery({ queryKey: ["models"], queryFn: () => listModels() });
   return (
     <div className="space-y-5">
-      <SectionTitle title="Catálogo de modelos" hint="Modelos baseline com coeficientes treinados em divisões temporais (avaliação com dados de demonstração). Os pipelines LogReg, RandomForest e XGBoost estão definidos no backend." />
+      <SectionTitle title="Baselines experimentais" hint="Referências matemáticas embutidas no sistema; não são modelos treinados e validados com os dados atuais." />
+      {!q.isError && q.data?.length ? (
+        <div className="sv-card border-sv-warn/30">
+          <div className="sv-card-inner text-sm text-sv-text/90">
+            As métricas abaixo foram calculadas em uma avaliação com dados sintéticos de demonstração. Elas não medem o desempenho com os dados reais do Neon e não devem ser interpretadas como garantia de previsão.
+          </div>
+        </div>
+      ) : null}
       {q.isLoading ? (
         <div className="grid md:grid-cols-2 gap-4">
           {Array.from({ length: 4 }).map((_, i) => <div key={i} className="sv-card h-64 skeleton" />)}
         </div>
+      ) : q.isError ? (
+        <EmptyState title="Não foi possível carregar os modelos" description="Verifique a conexão com a API e tente novamente." />
       ) : !q.data?.length ? (
-        <EmptyState title="Nenhum modelo" />
+        <EmptyState title="Nenhum baseline disponível" description="Esta instalação não retornou modelos de referência." />
       ) : (
         <div className="grid md:grid-cols-2 gap-4">
           {q.data.map((m: any) => (
@@ -23,16 +32,17 @@ export default function ModelsPage() {
                     <div className="text-lg font-semibold">{m.name} <span className="sv-chip ml-2">{m.version}</span></div>
                     <div className="text-sm text-sv-muted">Alvo: <span className="sv-chip-accent">{m.target}</span> · Algoritmo: <Badge>{m.algorithm}</Badge></div>
                   </div>
-                  {m.is_active && <Badge kind="good">Ativo</Badge>}
+                  {m.is_active && <Badge kind="warn">Baseline</Badge>}
                 </div>
+                <div className="sv-label">Avaliação sintética de demonstração — não representa desempenho em partidas reais</div>
                 <div className="grid grid-cols-4 gap-2 text-center">
-                  <div><div className="sv-stat-k">Acurácia</div><div className="sv-stat-v">{(m.accuracy ?? 0).toFixed(2)}</div></div>
-                  <div><div className="sv-stat-k">Precisão</div><div className="sv-stat-v">{(m.precision ?? 0).toFixed(2)}</div></div>
-                  <div><div className="sv-stat-k">Revocação</div><div className="sv-stat-v">{(m.recall ?? 0).toFixed(2)}</div></div>
-                  <div><div className="sv-stat-k">F1</div><div className="sv-stat-v">{(m.f1 ?? 0).toFixed(2)}</div></div>
-                  <div><div className="sv-stat-k">ROC-AUC</div><div className="sv-stat-v text-sv-accent3">{(m.roc_auc ?? 0).toFixed(2)}</div></div>
-                  <div><div className="sv-stat-k">Log loss</div><div className="sv-stat-v text-sv-warn">{(m.log_loss ?? 0).toFixed(2)}</div></div>
-                  <div><div className="sv-stat-k">Brier</div><div className="sv-stat-v">{(m.brier_score ?? 0).toFixed(3)}</div></div>
+                  <div><div className="sv-stat-k">Acurácia</div><div className="sv-stat-v">{m.accuracy != null ? m.accuracy.toFixed(2) : "—"}</div></div>
+                  <div><div className="sv-stat-k">Precisão</div><div className="sv-stat-v">{m.precision != null ? m.precision.toFixed(2) : "—"}</div></div>
+                  <div><div className="sv-stat-k">Revocação</div><div className="sv-stat-v">{m.recall != null ? m.recall.toFixed(2) : "—"}</div></div>
+                  <div><div className="sv-stat-k">F1</div><div className="sv-stat-v">{m.f1 != null ? m.f1.toFixed(2) : "—"}</div></div>
+                  <div><div className="sv-stat-k">ROC-AUC</div><div className="sv-stat-v text-sv-accent3">{m.roc_auc != null ? m.roc_auc.toFixed(2) : "—"}</div></div>
+                  <div><div className="sv-stat-k">Log loss</div><div className="sv-stat-v text-sv-warn">{m.log_loss != null ? m.log_loss.toFixed(2) : "—"}</div></div>
+                  <div><div className="sv-stat-k">Brier</div><div className="sv-stat-v">{m.brier_score != null ? m.brier_score.toFixed(3) : "—"}</div></div>
                   <div><div className="sv-stat-k">Variáveis</div><div className="sv-stat-v">{(m.feature_names || []).length}</div></div>
                 </div>
                 <div className="sv-divider" />

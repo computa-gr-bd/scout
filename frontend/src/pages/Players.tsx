@@ -21,28 +21,28 @@ function PlayerRow({ p }: { p: Player }) {
         <div><Badge kind="accent">{p.position || "—"}</Badge></div>
         <div className="grid grid-cols-3 gap-1 text-xs text-center">
           <div>
-            <div className="sv-stat-k">J</div><div className="sv-stat-v text-sm">{s?.matches_played ?? 0}</div>
+            <div className="sv-stat-k">J</div><div className="sv-stat-v text-sm">{s?.matches_played ?? "—"}</div>
           </div>
           <div>
-            <div className="sv-stat-k">Min</div><div className="sv-stat-v text-sm">{s?.minutes_played ?? 0}</div>
+            <div className="sv-stat-k">Min</div><div className="sv-stat-v text-sm">{s?.minutes_played ?? "—"}</div>
           </div>
           <div>
             <div className="sv-stat-k">G/A</div>
-            <div className="sv-stat-v text-sm text-sv-accent3">{s?.goals ?? 0}/{s?.assists ?? 0}</div>
+            <div className="sv-stat-v text-sm text-sv-accent3">{s ? `${s.goals}/${s.assists}` : "—"}</div>
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2 text-xs text-right">
           <div>
             <div className="sv-stat-k">Chutes/90</div>
-            <div className="font-mono">{(s?.shots_per_90 ?? 0).toFixed(2)}</div>
+            <div className="font-mono">{s?.shots_per_90?.toFixed(2) ?? "—"}</div>
           </div>
           <div>
             <div className="sv-stat-k">xG/90</div>
-            <div className="font-mono text-sv-accent3">{(s?.xg_per_90 ?? 0).toFixed(2)}</div>
+            <div className="font-mono text-sv-accent3">{s?.xg_per_90?.toFixed(2) ?? "—"}</div>
           </div>
           <div>
             <div className="sv-stat-k">xA/90</div>
-            <div className="font-mono">{(s?.xa_per_90 ?? 0).toFixed(2)}</div>
+            <div className="font-mono">{s?.xa_per_90?.toFixed(2) ?? "—"}</div>
           </div>
         </div>
       </div>
@@ -66,7 +66,7 @@ export default function PlayersPage() {
 
   return (
     <div className="space-y-5">
-      <SectionTitle title="Jogadores" hint={`${qry.data?.length ?? 0} perfis scoutados com zonas, forma e APIs de probabilidade contextual`}>
+      <SectionTitle title="Jogadores" hint={`${qry.data?.length ?? 0} atletas no resultado atual. Cadastro não significa que existam estatísticas individuais.`}>
         <div className="flex gap-2 flex-wrap">
           <input value={q} onChange={(e) => resetAnd(() => setQ(e.target.value))} placeholder="Buscar jogador…" className="sv-btn !py-1.5 md:w-56 text-left" />
           <select value={pos} onChange={(e) => resetAnd(() => setPos(e.target.value))}
@@ -81,8 +81,10 @@ export default function PlayersPage() {
 
       {qry.isLoading ? (
         <div className="space-y-2">{Array.from({ length: 12 }).map((_, i) => <div key={i} className="sv-card h-[72px] skeleton" />)}</div>
+      ) : qry.isError ? (
+        <EmptyState title="Não foi possível carregar os jogadores" description="Verifique a conexão com a API e tente novamente." />
       ) : !qry.data?.length ? (
-        <EmptyState title="Nenhum jogador encontrado" description="Tente outros filtros ou rode o seeder do backend." />
+        <EmptyState title="Nenhum jogador encontrado" description="Tente outros filtros ou confira se há elencos importados para esta competição." />
       ) : (
         <>
           <div className="space-y-2">
