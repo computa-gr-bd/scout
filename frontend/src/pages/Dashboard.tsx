@@ -36,7 +36,7 @@ function MatchCard({ m, highlight }: { m: Match; highlight?: boolean }) {
         </div>
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
           <div className="flex items-center gap-2 min-w-0">
-            <TeamLogo name={m.home_team.name} className="w-10 h-10" />
+            <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} className="w-10 h-10" />
             <div className="min-w-0">
               <div className="font-semibold truncate">{m.home_team.name}</div>
               <div className="text-xs text-sv-muted truncate">{m.home_team.short_name || "—"}</div>
@@ -55,7 +55,7 @@ function MatchCard({ m, highlight }: { m: Match; highlight?: boolean }) {
               <div className="font-semibold truncate">{m.away_team.name}</div>
               <div className="text-xs text-sv-muted truncate">{m.away_team.short_name || "—"}</div>
             </div>
-            <TeamLogo name={m.away_team.name} className="w-10 h-10" />
+            <TeamLogo name={m.away_team.name} src={m.away_team.logo_url} className="w-10 h-10" />
           </div>
         </div>
       </div>
@@ -242,7 +242,7 @@ export default function Dashboard() {
                     <tr key={t.id}>
                       <td>
                         <Link to={`/teams/${t.id}`} className="flex items-center gap-2 hover:text-sv-accent3">
-                          <TeamLogo name={t.name} />
+                          <TeamLogo name={t.name} src={t.logo_url} className="w-7 h-7" />
                           <span className="font-medium">{t.name}</span>
                         </Link>
                       </td>

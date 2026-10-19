@@ -1,6 +1,7 @@
 import { useState } from "react";
 import clsx from "clsx";
 import bayernLogo from "../bayern_munique.cc.svg";
+import { crestFor } from "../api/footballDataOrg";
 
 export function StatCard({
   label, value, sub, icon, accent = "sv-accent",
@@ -128,14 +129,18 @@ export function ConfidenceBadge({ c }: { c: "low" | "medium" | "high" | string }
  * Logos reais por nome de time (arquivos em `src/`). Times sem arquivo
  * continuam usando o logo gerado por hash (iniciais + gradiente).
  */
-const NAMED_LOGOS: Record<string, string> = {
+/* Team visual identity tokens — darker, deeper palette */
+const TEAM_NAMED_LOGOS: Record<string, string> = {
   "Bayern Munich": bayernLogo,
 };
 
 export function TeamLogo({ name, src, className = "w-8 h-8" }: { name?: string; src?: string | null; className?: string }) {
   const [broken, setBroken] = useState(false);
-  // Prioridade: escudo real da API (logo_url) → arquivo local → logo por hash.
-  const realLogo = broken ? undefined : src || (name ? NAMED_LOGOS[name] : undefined);
+  // Prioridade: escudo real da API (logo_url) → arquivo local → escudo do
+  // catálogo football-data (por nome) → logo por hash.
+  const realLogo = broken
+    ? undefined
+    : src || (name ? TEAM_NAMED_LOGOS[name] : undefined) || (name ? crestFor(name) ?? undefined : undefined);
   if (realLogo) {
     return (
       <img

@@ -36,8 +36,8 @@ export interface MatchGoal {
 
 const HOME_COLOR = "#2563eb";
 const AWAY_COLOR = "#e1534e";
-const STROKE = "rgba(255,255,255,0.9)";
-const SW = 0.28;
+const STROKE = "rgba(255,255,255,0.88)";
+const SW = 0.18;
 
 /** Campo em pé, proporções alongadas de um campo real (68 x 105 m). */
 const FIELD_W = 76;

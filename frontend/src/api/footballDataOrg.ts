@@ -146,6 +146,18 @@ export const BSA_TEAMS: Record<string, TeamMeta> = {
   "Chapecoense AF": { id: 1772, name: "Chapecoense AF", short_name: "Chapecoense", tla: "CHA", crest: "https://crests.football-data.org/1772_large.png" },
 };
 
+/**
+ * Escudo do time para exibição — casa por nome completo, nome curto ou chave do
+ * catálogo. Retorna `null` quando não há escudo conhecido (o `TeamLogo` usa o
+ * logo por hash como fallback).
+ */
+export function crestFor(name?: string | null): string | null {
+  if (!name) return null;
+  const hit = BSA_TEAMS[name]
+    ?? Object.values(BSA_TEAMS).find((t) => t.name === name || t.short_name === name);
+  return hit?.crest ?? null;
+}
+
 export function standingFor(team: string): StandingRow | undefined {
   return BSA_STANDINGS.find((s) => s.team === team);
 }

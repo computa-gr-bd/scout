@@ -64,9 +64,10 @@ export function Pitch2D({
   awayPlayers?: { x: number; y: number; label: string; pos?: string }[];
   title?: string;
 }) {
-  const vb = "0 0 100 100";
-  const stroke = "rgba(255,255,255,0.9)";
-  const sw = 0.25;
+  const vb = "-2 0 104 100";
+  const stroke = "rgba(255,255,255,0.88)";
+  // Linhas finas e nítidas (referência visual: traço delicado sobre o gramado).
+  const sw = 0.16;
   const opp = (weakness: Record<string, number> | undefined, flip: boolean) => {
     if (!weakness) return null;
     const maxV = Math.max(0.001, ...Object.values(weakness));
@@ -127,9 +128,11 @@ export function Pitch2D({
             {/* penalty arc Ds */}
             <path d={`M16,${50 - 7.3} A9.15 9.15 0 0 1 16,${50 + 7.3}`} fill="none" stroke={stroke} strokeWidth={sw} />
             <path d={`M84,${50 - 7.3} A9.15 9.15 0 0 0 84,${50 + 7.3}`} fill="none" stroke={stroke} strokeWidth={sw} />
-            {/* goal boxes */}
-            <rect x="0.5" y="44" width="2" height="12" fill="none" stroke={stroke} strokeWidth={sw * 1.5} />
-            <rect x="97.5" y="44" width="2" height="12" fill="none" stroke={stroke} strokeWidth={sw * 1.5} />
+            {/* gols: boca na linha de fundo, rede para fora do campo */}
+            <rect x="-1" y="44" width="2" height="12" fill="none" stroke={stroke} strokeWidth={sw * 1.4} />
+            <line x1="1" y1="44" x2="1" y2="56" stroke={stroke} strokeWidth={sw * 1.8} strokeLinecap="round" />
+            <rect x="99" y="44" width="2" height="12" fill="none" stroke={stroke} strokeWidth={sw * 1.4} />
+            <line x1="99" y1="44" x2="99" y2="56" stroke={stroke} strokeWidth={sw * 1.8} strokeLinecap="round" />
             {/* corner arcs */}
             <path d="M1,1 A2,2 0 0 0 3,3" fill="none" stroke={stroke} strokeWidth={sw} />
             <path d="M99,1 A2,2 0 0 1 97,3" fill="none" stroke={stroke} strokeWidth={sw} />

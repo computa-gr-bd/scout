@@ -176,7 +176,7 @@ export default function AnalysisPage() {
                     <Badge kind={m.status === "finished" ? "default" : "accent"}>{m.status}</Badge>
                   </div>
                   <div className="flex items-center gap-2">
-                    <TeamLogo name={m.home_team.name} className="w-8 h-8" />
+                    <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} className="w-8 h-8" />
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium truncate">{m.home_team.name}</div>
                       <div className="text-sm font-medium truncate">{m.away_team.name}</div>
@@ -184,7 +184,7 @@ export default function AnalysisPage() {
                     <div className="text-right font-mono text-xs">
                       {m.status === "finished" ? `${m.home_score}–${m.away_score}` : new Date(m.kickoff_time).toLocaleDateString()}
                     </div>
-                    <TeamLogo name={m.away_team.name} className="w-8 h-8" />
+                    <TeamLogo name={m.away_team.name} src={m.away_team.logo_url} className="w-8 h-8" />
                   </div>
                 </button>
               ))}
