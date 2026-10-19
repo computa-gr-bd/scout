@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { STUDIO_DATASETS, studioDatasetForMatch, type StudioDataset } from "../api/studioData";
+import { crestFor } from "../api/footballDataOrg";
 import { JerseyGlyph, JerseyDefs, JerseyBadge, BallGlyph } from "./Jersey";
+import { TeamLogo } from "./ui";
 
 type ViewMode = "heatmap" | "shots" | "onTarget" | "goals" | "positions";
 type Coord = { x: number; y: number };
@@ -426,9 +428,12 @@ export function PitchStudio({
 }: {
   width?: number; height?: number; datasets?: StudioDataset[]; selectedMatchId?: number | null;
 }) {
-  const vb = "0 0 100 100";
-  const stroke = "rgba(255,255,255,0.92)";
-  const sw = 0.22;
+  // Margem extra no viewBox para a rede dos gols ficar FORA da linha de fundo
+  // (geometria real: boca do gol na linha, rede atrás dela).
+  const vb = "-5 -0.5 110 101";
+  const stroke = "rgba(255,255,255,0.9)";
+  // Linhas finas e nítidas (referência visual: traço delicado sobre o gramado).
+  const sw = 0.15;
   const [view, setView] = useState<ViewMode>("heatmap");
   const [heatTeam, setHeatTeam] = useState<"home" | "away" | "both">("both");
   const [idx, setIdx] = useState(0);
@@ -550,7 +555,10 @@ export function PitchStudio({
 
   const t = easeOutCubic(progress);
   const fromScreen = current ? { x: current.from.x, y: current.from.y } : null;
-  const toScreen = current ? { x: current.to.x, y: current.to.y } : null;
+  const toScreen = current ? {
+    x: current.to.x + (current.result === "goal" ? (current.to.x >= 50 ? 1.3 : -1.3) : 0),
+    y: current.to.y,
+  } : null;
   const ballLift = Math.sin(progress * Math.PI) * 2.2;
   const ballX = fromScreen && toScreen ? fromScreen.x + (toScreen.x - fromScreen.x) * t : 50;
   const ballY = fromScreen && toScreen ? fromScreen.y + (toScreen.y - fromScreen.y) * t - ballLift : 50;
@@ -589,7 +597,7 @@ export function PitchStudio({
           </div>
           <div className="flex items-center gap-4 mt-1">
             <div className="flex items-center gap-2">
-              <div className="w-3.5 h-3.5 rounded-full" style={{ background: HOME_COLOR, boxShadow: "0 0 8px rgba(59,130,246,.5)" }} />
+              <TeamLogo name={matchInfo.home} src={crestFor(matchInfo.home) ?? undefined} className="w-6 h-6" />
               <span className="text-sm font-medium">{matchInfo.home}</span>
             </div>
             <div className="font-mono text-xl font-bold tabular-nums text-white/95">
@@ -597,7 +605,7 @@ export function PitchStudio({
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{matchInfo.away}</span>
-              <div className="w-3.5 h-3.5 rounded-full" style={{ background: AWAY_COLOR, boxShadow: "0 0 8px rgba(225,83,78,.5)" }} />
+              <TeamLogo name={matchInfo.away} src={crestFor(matchInfo.away) ?? undefined} className="w-6 h-6" />
             </div>
           </div>
         </div>
@@ -739,7 +747,7 @@ export function PitchStudio({
                 </radialGradient>
                 <filter id="blurHeat" x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur in="SourceGraphic" stdDeviation="1.15" /></filter>
                 <filter id="blurHeat2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur in="SourceGraphic" stdDeviation="0.55" /></filter>
-                <filter id="softGlow"><feGaussianBlur stdDeviation="0.4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+                <filter id="softGlow"><feGaussianBlur stdDeviation="0.28" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
               </defs>
 
               {/* textura de grama + faixas de corte */}
@@ -790,18 +798,27 @@ export function PitchStudio({
                 <path d="M99,97 A2,2 0 0 0 97,99" fill="none" stroke={stroke} strokeWidth={sw * 0.85} />
               </g>
 
-              {/* Gols (rede + moldura com profundidade) */}
-              {[{ x: 0.7, flip: false }, { x: 99.3, flip: true }].map((g, gi) => (
-                <g key={`goal-${gi}`}>
-                  <rect x={g.flip ? g.x - 2.4 : g.x} y="44.6" width="2.4" height="10.8" fill="url(#goalNet)" stroke="none" />
-                  <rect x={g.flip ? g.x - 2.4 : g.x} y="44.6" width="2.4" height="10.8"
-                        fill="none" stroke="url(#goalFrame)" strokeWidth={sw * 1.9} rx="0.2" />
-                  <line x1={g.x} y1="44.6" x2={g.flip ? g.x - 1.5 : g.x + 1.5} y2="43.4" stroke="rgba(255,255,255,0.75)" strokeWidth={sw * 1.1} />
-                  <line x1={g.x} y1="55.4" x2={g.flip ? g.x - 1.5 : g.x + 1.5} y2="56.6" stroke="rgba(255,255,255,0.75)" strokeWidth={sw * 1.1} />
-                  <line x1={g.flip ? g.x - 1.5 : g.x + 1.5} y1="43.4" x2={g.flip ? g.x - 1.5 : g.x + 1.5} y2="56.6"
-                        stroke="rgba(255,255,255,0.6)" strokeWidth={sw * 0.9} />
-                </g>
-              ))}
+              {/* Gols: boca na linha de fundo, rede para FORA do campo (geometria real) */}
+              {[{ line: 1, back: -1.2 }, { line: 99, back: 101.2 }].map((g, gi) => {
+                const netX = Math.min(g.line, g.back);
+                const netW = Math.abs(g.back - g.line);
+                return (
+                  <g key={`goal-${gi}`}>
+                    {/* sombra da rede no gramado */}
+                    <rect x={netX} y="44.6" width={netW} height="10.8" fill="rgba(0,0,0,0.16)" />
+                    {/* rede */}
+                    <rect x={netX} y="44.6" width={netW} height="10.8" fill="url(#goalNet)" stroke="none" />
+                    {/* fios de profundidade da rede */}
+                    <line x1={g.line} y1="44.6" x2={g.back} y2="44.6" stroke="rgba(255,255,255,0.7)" strokeWidth={sw * 1.1} />
+                    <line x1={g.line} y1="55.4" x2={g.back} y2="55.4" stroke="rgba(255,255,255,0.7)" strokeWidth={sw * 1.1} />
+                    <line x1={g.back} y1="44.6" x2={g.back} y2="55.4" stroke="rgba(255,255,255,0.55)" strokeWidth={sw * 1.1} />
+                    {/* boca do gol (traves) */}
+                    <line x1={g.line} y1="44.6" x2={g.line} y2="55.4" stroke="url(#goalFrame)" strokeWidth={sw * 2.4} strokeLinecap="round" />
+                    <circle cx={g.line} cy="44.6" r={sw * 1.7} fill="#ffffff" />
+                    <circle cx={g.line} cy="55.4" r={sw * 1.7} fill="#ffffff" />
+                  </g>
+                );
+              })}
 
               {/* POSITIONS VIEW: JOGADORES CLICÁVEIS */}
               {view === "positions" && (
@@ -865,18 +882,24 @@ export function PitchStudio({
                 // Visão geral (antes de reproduzir): todos ativos. Ao reproduzir: só o atual destaca.
                 const active = !started || isCur;
                 const markerR = kind === "goal" ? (active ? 2.1 : 1.6) : (active ? 2.2 : 1.7);
+                // Gol: a bola termina DENTRO da rede (rede fora da linha de fundo)
+                // e a linha do chute chega até a boca do gol.
+                const isGoal = kind === "goal";
+                const target: Coord = isGoal
+                  ? { x: s.to.x + (s.to.x >= 50 ? 1.3 : -1.3), y: s.to.y }
+                  : s.to;
                 return (
                   <g key={`sm-${s.id}`}>
                     <ShotArrow
                       from={s.from}
-                      to={s.to}
+                      to={target}
                       color={color}
                       width={active ? 0.5 : 0.3}
                       opacity={active ? 0.92 : 0.26}
-                      endGap={kind === "goal" ? 4.8 : 3.4}
+                      endGap={isGoal ? 1.6 : 3.4}
                     />
                     <circle cx={s.from.x} cy={s.from.y} r={active ? 0.85 : 0.55} fill={color} opacity={active ? 0.9 : 0.35} />
-                    <ShotMarker x={s.to.x} y={s.to.y} color={color} kind={kind} r={markerR} highlight={active} />
+                    <ShotMarker x={target.x} y={target.y} color={color} kind={kind} r={markerR} highlight={active} />
                   </g>
                 );
               })}
@@ -1500,14 +1523,18 @@ function GoalPopupVisual({
         <svg viewBox="0 0 320 200" className="goal-net-svg" preserveAspectRatio="xMidYMid meet">
           <defs>
             <JerseyDefs />
-            <linearGradient id="gpSky" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#eef2f7" /><stop offset="100%" stopColor="#dbe4ee" />
+            <linearGradient id="gpStand" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#1e293b" /><stop offset="100%" stopColor="#334155" />
             </linearGradient>
+            <pattern id="gpCrowd" width="8" height="6" patternUnits="userSpaceOnUse">
+              <circle cx="2" cy="2" r="1" fill="rgba(255,255,255,0.16)" />
+              <circle cx="6" cy="4.5" r="0.9" fill="rgba(255,255,255,0.10)" />
+            </pattern>
             <linearGradient id="gpGrass" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#3f9a5f" /><stop offset="100%" stopColor="#1f6d40" />
+              <stop offset="0%" stopColor="#2f8a50" /><stop offset="100%" stopColor="#1b6038" />
             </linearGradient>
-            <pattern id="gpNet" width="7" height="7" patternUnits="userSpaceOnUse">
-              <path d="M0 1.6 H7 M1.6 0 V7" stroke="rgba(255,255,255,0.55)" strokeWidth="0.7" />
+            <pattern id="gpNet" width="6" height="6" patternUnits="userSpaceOnUse">
+              <path d="M0 1.5 H6 M1.5 0 V6" stroke="rgba(255,255,255,0.6)" strokeWidth="0.65" />
             </pattern>
             <radialGradient id="gpBall" cx="35%" cy="30%" r="70%">
               <stop offset="0%" stopColor="#ffffff" /><stop offset="100%" stopColor="#cfd8e3" />
@@ -1520,49 +1547,80 @@ function GoalPopupVisual({
             </filter>
           </defs>
 
-          {/* fundo + gramado */}
-          <rect x="0" y="0" width="320" height="200" fill="url(#gpSky)" />
-          <rect x="0" y="150" width="320" height="50" fill="url(#gpGrass)" />
-          {Array.from({ length: 8 }).map((_, i) => (
-            <rect key={`gp-st-${i}`} x={i * 40} y="150" width="40" height="50"
-                  fill={i % 2 === 0 ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} />
-          ))}
+          {/* fundo: arquibancada desfocada + placar */}
+          <rect x="0" y="0" width="320" height="66" fill="url(#gpStand)" />
+          <rect x="0" y="0" width="320" height="66" fill="url(#gpCrowd)" />
+          <rect x="0" y="66" width="320" height="8" fill="#0f172a" />
+          <rect x="0" y="66" width="320" height="1.6" fill="rgba(255,255,255,0.35)" />
 
-          {/* baliza com rede */}
-          <rect x="118" y="42" width="84" height="108" fill="url(#gpNet)" />
-          <rect x="118" y="42" width="84" height="108" fill="none" stroke="#e2e8f0" strokeWidth="4" />
-          <line x1="118" y1="42" x2="130" y2="52" stroke="#cbd5e1" strokeWidth="2.4" />
-          <line x1="202" y1="42" x2="190" y2="52" stroke="#cbd5e1" strokeWidth="2.4" />
-          <line x1="130" y1="52" x2="190" y2="52" stroke="#cbd5e1" strokeWidth="2.4" />
-          <line x1="118" y1="150" x2="130" y2="140" stroke="#cbd5e1" strokeWidth="2.4" />
-          <line x1="202" y1="150" x2="190" y2="140" stroke="#cbd5e1" strokeWidth="2.4" />
-          <line x1="130" y1="140" x2="190" y2="140" stroke="#cbd5e1" strokeWidth="2" />
-          {/* postes principais */}
-          <line x1="118" y1="42" x2="118" y2="150" stroke="#f8fafc" strokeWidth="5" strokeLinecap="round" />
-          <line x1="202" y1="42" x2="202" y2="150" stroke="#f8fafc" strokeWidth="5" strokeLinecap="round" />
-          <line x1="118" y1="42" x2="202" y2="42" stroke="#f8fafc" strokeWidth="5" strokeLinecap="round" />
+          {/* gramado em perspectiva (faixas de corte horizontais) */}
+          <rect x="0" y="74" width="320" height="126" fill="url(#gpGrass)" />
+          {[74, 86, 100, 116, 134, 154, 177].map((y, i) => {
+            const next = [86, 100, 116, 134, 154, 177, 200][i];
+            return (
+              <rect key={`gp-st-${i}`} x="0" y={y} width="320" height={next - y}
+                    fill={i % 2 === 0 ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.055)"} />
+            );
+          })}
 
-          {/* trajetória da bola entrando */}
-          <path
-            d={`M22,176 C120,150 190,${64 + gy * 46} ${118 + gx * 84},${48 + gy * 92}`}
-            fill="none" stroke="rgba(239,68,68,0.35)" strokeWidth="3" filter="url(#gpTrail)"
-            strokeLinecap="round" strokeDasharray="4 5"
-          />
-          <circle cx={118 + gx * 84} cy={48 + gy * 92} r="17" fill="rgba(34,197,94,0.28)">
-            <animate attributeName="r" values="12;20;12" dur="1.6s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="0.55;0.05;0.55" dur="1.6s" repeatCount="indefinite" />
+          {/* linha de fundo (o gol está ENCAIXADO nela) */}
+          <line x1="0" y1="150" x2="320" y2="150" stroke="rgba(255,255,255,0.92)" strokeWidth="2.4" />
+
+          {/* ===== GOL VISTO DE FRENTE (visão reta na linha de chute) ===== */}
+          {/* rede: plano traseiro + laterais/topo com profundidade */}
+          <polygon points="64,86 78,95 78,148 64,150" fill="rgba(15,23,42,0.10)" />
+          <polygon points="64,86 78,95 78,148 64,150" fill="url(#gpNet)" />
+          <polygon points="256,86 242,95 242,148 256,150" fill="rgba(15,23,42,0.10)" />
+          <polygon points="256,86 242,95 242,148 256,150" fill="url(#gpNet)" />
+          <polygon points="64,86 78,95 242,95 256,86" fill="rgba(15,23,42,0.08)" />
+          <polygon points="64,86 78,95 242,95 256,86" fill="url(#gpNet)" />
+          <rect x="78" y="95" width="164" height="53" fill="rgba(15,23,42,0.16)" />
+          <rect x="78" y="95" width="164" height="53" fill="url(#gpNet)" />
+          {/* sombra da rede no gramado */}
+          <ellipse cx="160" cy="152" rx="102" ry="6" fill="rgba(0,0,0,0.22)" filter="url(#gpTrail)" />
+
+          {/* trajetória RETA do chute: da linha de chute até a bola no gol */}
+          {(() => {
+            const ex = 64 + gx * 192;
+            const ey = 86 + gy * 64;
+            const ox = 160 + (ex - 160) * 0.22;
+            return (
+              <g>
+                <line x1={ox} y1="197" x2={ex} y2={ey}
+                      stroke="rgba(239,68,68,0.4)" strokeWidth="4.5" filter="url(#gpTrail)"
+                      strokeLinecap="round" />
+                <line x1={ox} y1="197" x2={ex} y2={ey}
+                      stroke="rgba(255,255,255,0.92)" strokeWidth="2.2"
+                      strokeDasharray="7 6" strokeLinecap="round" />
+                <circle cx={ox} cy="197" r="3.4" fill="#ffffff" stroke="rgba(15,23,42,0.5)" strokeWidth="1.2" />
+              </g>
+            );
+          })()}
+
+          {/* postes + travessão (por cima da rede) */}
+          <g filter="url(#gpShadow)">
+            <line x1="64" y1="86" x2="64" y2="150" stroke="#f8fafc" strokeWidth="7" strokeLinecap="round" />
+            <line x1="256" y1="86" x2="256" y2="150" stroke="#f8fafc" strokeWidth="7" strokeLinecap="round" />
+            <line x1="64" y1="86" x2="256" y2="86" stroke="#f8fafc" strokeWidth="7" strokeLinecap="round" />
+          </g>
+          <line x1="64" y1="149" x2="64" y2="90" stroke="rgba(148,163,184,0.5)" strokeWidth="2" strokeLinecap="round" />
+          <line x1="256" y1="149" x2="256" y2="90" stroke="rgba(148,163,184,0.5)" strokeWidth="2" strokeLinecap="round" />
+
+          {/* impacto da bola na rede + bola dentro do gol */}
+          <circle cx={64 + gx * 192} cy={86 + gy * 64} r="17" fill="rgba(34,197,94,0.3)">
+            <animate attributeName="r" values="12;21;12" dur="1.6s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.6;0.06;0.6" dur="1.6s" repeatCount="indefinite" />
           </circle>
-          {/* bola dentro do gol */}
-          <g transform={`translate(${118 + gx * 84} ${48 + gy * 92})`} filter="url(#gpShadow)">
+          <g transform={`translate(${64 + gx * 192} ${86 + gy * 64})`} filter="url(#gpShadow)">
             <circle cx="0" cy="0" r="11" fill="url(#gpBall)" stroke="#94a3b8" strokeWidth="1" />
             <polygon points="0,-4.4 4.1,-1.4 2.6,3.6 -2.6,3.6 -4.1,-1.4" fill="#1e293b" />
             <circle cx="0" cy="0" r="1.7" fill="#1e293b" />
           </g>
 
           {/* autor do gol (camisa + número) */}
-          <g transform="translate(276 158)">
-            <JerseyGlyph number={shot.number} color={teamColor} x={0} y={0} size={30} outlineWidth={1.6} />
-            <text x="0" y="26" textAnchor="middle" fontSize="9" fontWeight="700" fill="#0f172a">
+          <g transform="translate(291 165)">
+            <JerseyGlyph number={shot.number} color={teamColor} x={0} y={0} size={26} outlineWidth={1.6} />
+            <text x="0" y="24" textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#0f172a">
               {(shot.player || "").split(" ").slice(-1)[0].slice(0, 12)}
             </text>
           </g>
