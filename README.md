@@ -87,6 +87,26 @@ docker compose --profile local-collector up --build
 # API Docs : http://localhost:8000/docs
 ```
 
+## Deploy on Vercel (Services)
+
+The root `vercel.json` deploys `frontend/` and `backend/` as two services on the
+same Vercel project and domain. Requests under `/api/` go to FastAPI; all other
+paths go to the Vite frontend. `teste-api/` is a command-line data collector,
+not a web service, so it is intentionally not deployed as a third service.
+
+Before deploying, configure these Vercel environment variables:
+
+- **Backend service:** `DATABASE_URL` (PostgreSQL connection string) and
+  `SECRET_KEY` (a long, random production secret). Add `FOOTBALL_DATA_TOKEN` if
+  the backend should fetch live data.
+- **Frontend service:** `VITE_API_BASE_URL=/api`, so browser requests use the
+  same Vercel domain rather than `localhost`.
+
+After adding the backend variables, apply database migrations once against the
+production database with `python -m alembic upgrade head` from `backend/`.
+Vercel Functions do not run the always-on collector from Docker Compose; use the
+existing GitHub Actions `data-sync` workflow for scheduled data collection.
+
 ## ⚙️ Local Development (Without Docker)
 
 ### Requirements
