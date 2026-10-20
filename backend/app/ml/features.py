@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 import math
 
 import numpy as np
-import pandas as pd
 
 from app.db.models import PlayerStatistics, TeamStatistics, DefensiveWeakness, PlayerZoneStatistics
 from app.services.utils import clamp, safe_div

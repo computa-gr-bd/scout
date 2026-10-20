@@ -40,9 +40,9 @@ football-data.org + StatsBomb Open Data (importação histórica) + demo opciona
 - HTTPX
 
 ### Data / ML
-- Pandas, NumPy, SciPy
-- scikit-learn, XGBoost, SHAP
-- Joblib (model persistence)
+- NumPy (runtime baseline calculations)
+- Pandas and SciPy (optional local data/model experimentation)
+- scikit-learn, XGBoost, SHAP, Joblib (optional local model experimentation)
 
 ### Database
 - PostgreSQL 15+
@@ -124,7 +124,7 @@ cd backend
 python -m venv venv
 venv\Scripts\activate           # Windows
 # source venv/bin/activate      # Linux/macOS
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
 # DATABASE_URL is read from the root .env (Neon, with SSL).
 alembic upgrade head
