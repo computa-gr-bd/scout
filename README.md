@@ -90,9 +90,11 @@ docker compose --profile local-collector up --build
 ## Deploy on Vercel (Services)
 
 The root `vercel.json` deploys `frontend/` and `backend/` as two services on the
-same Vercel project and domain. Requests under `/api/` go to FastAPI; all other
-paths go to the Vite frontend. `teste-api/` is a command-line data collector,
-not a web service, so it is intentionally not deployed as a third service.
+same Vercel project and domain. Their Vite and FastAPI frameworks are set
+explicitly to avoid conflicting detection from the backend Dockerfile. Requests
+under `/api/` go to FastAPI; all other paths go to the Vite frontend.
+`teste-api/` is a command-line data collector, not a web service, so it is
+intentionally not deployed as a third service.
 
 Before deploying, configure these Vercel environment variables:
 
