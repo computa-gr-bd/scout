@@ -101,8 +101,8 @@ Before deploying, configure these Vercel environment variables:
 - **Backend service:** `DATABASE_URL` (PostgreSQL connection string) and
   `SECRET_KEY` (a long, random production secret). Add `FOOTBALL_DATA_TOKEN` if
   the backend should fetch live data.
-- **Frontend service:** `VITE_API_BASE_URL=/api`, so browser requests use the
-  same Vercel domain rather than `localhost`.
+- The production frontend automatically uses `/api` on the same Vercel domain;
+  `VITE_API_BASE_URL` is only used for local development.
 
 After adding the backend variables, apply database migrations once against the
 production database with `python -m alembic upgrade head` from `backend/`.
