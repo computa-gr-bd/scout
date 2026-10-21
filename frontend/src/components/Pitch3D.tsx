@@ -3,6 +3,7 @@ import { Canvas, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, Text } from "@react-three/drei";
 import type { PitchZone } from "../api/client";
 import { ZONE_GEOMETRY, flipZone } from "./Pitch";
+import { MaterialIcon } from "./MaterialIcon";
 
 const WIDTH = 105;
 const HEIGHT = 68;
@@ -314,7 +315,7 @@ function ZoneDropdown({
         </div>
         <button onClick={onClose} aria-label="Fechar estatísticas da zona"
           className="h-6 w-6 shrink-0 rounded-md border border-white/10 text-[11px] text-sv-muted transition hover:bg-white/10 hover:text-white">
-          ✕
+          <MaterialIcon name="close" />
         </button>
       </div>
 
@@ -498,11 +499,11 @@ export function Pitch3D({
           <span className="text-[10px] uppercase tracking-wide text-sv-muted">Zonas de</span>
           <button onClick={() => setSide("home")}
             className={`sv-btn !px-2.5 !py-1 text-[11px] ${side === "home" ? "!border-sv-accent3 !bg-sv-accent text-white" : ""}`}>
-            🏠 {teamNames?.home || "Casa"}
+            <MaterialIcon name="home" className="mr-1 align-middle text-[14px]" />{teamNames?.home || "Casa"}
           </button>
           <button onClick={() => setSide("away")}
             className={`sv-btn !px-2.5 !py-1 text-[11px] ${side === "away" ? "!border-sv-accent3 !bg-sv-accent text-white" : ""}`}>
-            ✈ {teamNames?.away || "Visitante"}
+            <MaterialIcon name="flight" className="mr-1 align-middle text-[14px]" />{teamNames?.away || "Visitante"}
           </button>
         </div>
       </div>

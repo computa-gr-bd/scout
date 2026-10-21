@@ -6,6 +6,7 @@ import {
 } from "../api/client";
 import { Badge, EmptyState, SectionTitle, StatCard, TeamLogo } from "../components/ui";
 import { PitchStudio } from "../components/PitchStudio";
+import { MaterialIcon } from "../components/MaterialIcon";
 
 function formatDate(s: string) {
   const d = new Date(s);
@@ -154,7 +155,7 @@ export default function Dashboard() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link to="/analysis" className="sv-btn-primary">
-            <span>🔍 Abrir estúdio de análise</span>
+            <span><MaterialIcon name="search" className="mr-1 align-middle" />Abrir estúdio de análise</span>
           </Link>
           <Link to="/matches" className="sv-btn">Todas as partidas</Link>
         </div>
@@ -172,9 +173,11 @@ export default function Dashboard() {
       </div>
 
       <SectionTitle title="Campo · ScoutVision Studio"
-        hint="Demonstração visual com lances simulados; não representa dados de uma partida real."
+        hint={highlightMatch ? "A partida em destaque é exibida no estúdio; os lances são simulados." : "Demonstração visual com lances simulados; não representa dados de uma partida real."}
         right={<Link to="/analysis" className="sv-btn-primary !py-1.5 text-[12px]">Abrir estúdio completo →</Link>} />
-      <PitchStudio />
+      {highlightMatch
+        ? <PitchStudio selectedMatch={highlightMatch} selectedMatchId={highlightMatch.id} />
+        : <EmptyState title="Nenhuma partida disponível" description="Cadastre ou importe uma partida para abrir o estúdio." />}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-5">
         <div className="xl:col-span-2 space-y-5">

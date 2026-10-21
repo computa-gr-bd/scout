@@ -11,7 +11,7 @@ demonstração são sintéticas e não representam lances reais.
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 football-data.org + StatsBomb Open Data (importação histórica) + demo opcional
@@ -25,7 +25,7 @@ football-data.org + StatsBomb Open Data (importação histórica) + demo opciona
 
 ---
 
-## 🧰 Tech Stack
+## Tech Stack
 
 ### Frontend
 - React 18 + TypeScript + Vite
@@ -53,7 +53,7 @@ football-data.org + StatsBomb Open Data (importação histórica) + demo opciona
 
 ---
 
-## 🗄️ Core Domain Entities
+## Core Domain Entities
 
 | Entity | Purpose |
 |---|---|
@@ -68,7 +68,7 @@ football-data.org + StatsBomb Open Data (importação histórica) + demo opciona
 
 ---
 
-## 🚀 Quick Start (Docker Compose — Recommended)
+## Quick Start (Docker Compose — Recommended)
 
 ```bash
 # 1. Copy env file
@@ -109,7 +109,7 @@ production database with `python -m alembic upgrade head` from `backend/`.
 Vercel Functions do not run the always-on collector from Docker Compose; use the
 existing GitHub Actions `data-sync` workflow for scheduled data collection.
 
-## ⚙️ Local Development (Without Docker)
+## Local Development (Without Docker)
 
 ### Requirements
 - Python 3.11+
@@ -141,7 +141,7 @@ npm run dev
 
 ---
 
-## 🧠 Prediction System
+## Prediction System
 
 The prediction endpoints currently use manually defined baseline coefficients.
 They are experimental estimates, not a trained and validated model for current
@@ -164,7 +164,7 @@ Prediction targets include:
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Backend
@@ -178,7 +178,7 @@ npm run build
 
 ---
 
-## 📦 Demo Mode
+## Demo Mode
 
 An optional synthetic dataset is available for interface demonstrations without
 an external provider. It is not current football data and must not be presented
@@ -195,6 +195,10 @@ snapshot used by demo/Studio examples, not a live feed. Its fixture metadata is
 real but static, and the Studio's shots, heatmaps, lineups and player actions are
 simulated—not provider play-by-play. Do not use those visualizations as current
 match statistics.
+
+The Studio (`PitchStudio`) follows the match selected in the Analysis page.
+Heatmaps, lineups and event-level visualizations remain simulated where
+applicable.
 
 See `teste-api/README.md` for the collection → treatment pipeline.
 
@@ -246,7 +250,7 @@ Mantenha apenas um coletor agendado ativo. StatsBomb permanece manual.
 
 ---
 
-## 🔐 Authentication (MVP)
+## Authentication (MVP)
 
 JWT-based. Roles:
 - `USER` — view, analyze, predict
@@ -254,7 +258,7 @@ JWT-based. Roles:
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 - API Docs — http://localhost:8000/docs (Swagger UI) / http://localhost:8000/redoc
 - Database schema — see `backend/app/db/models.py`
@@ -262,7 +266,7 @@ JWT-based. Roles:
 
 ---
 
-## ⚠️ Key Domain Rules
+## Key Domain Rules
 
 1. **No external API calls from the frontend** — backend/data services only.
 2. **Historical data is preserved (raw + normalized)**.
@@ -274,6 +278,6 @@ JWT-based. Roles:
 
 ---
 
-## 📝 License
+## License
 
 StatsBomb Open Data license applies to any StatsBomb-derived data. Demo data is synthetic.
