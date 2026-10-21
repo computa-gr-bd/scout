@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { TeamLogo } from "./ui";
+import { MaterialIcon } from "./MaterialIcon";
 
 export interface LineupPlayer {
   player_id: number;
@@ -259,7 +260,7 @@ export function LineupLists({ data }: { data: MatchLineups }) {
                   {p.position && <span className="sv-chip !py-0 text-[10px]">{p.position}</span>}
                   {goalsByPlayer.get(p.player_id) ? (
                     <span className="sv-chip-accent !py-0 text-[10px]">
-                      ⚽ {goalsByPlayer.get(p.player_id)}
+                      <><MaterialIcon name="sports_soccer" className="mr-0.5 align-middle" />{goalsByPlayer.get(p.player_id)}</>
                     </span>
                   ) : null}
                 </div>

@@ -509,8 +509,12 @@ export function PitchStudio({
 
   const ds = useMemo(() => {
     const matchId = selectedMatch?.id ?? selectedMatchId;
-    const existing = datasets.find((dataset) => dataset.match.id === matchId)
+    const candidate = datasets.find((dataset) => dataset.match.id === matchId)
       ?? studioDatasetForMatch(matchId);
+    const existing = candidate && (
+      !selectedMatch
+      || (candidate.match.home === selectedMatch.home_team.name && candidate.match.away === selectedMatch.away_team.name)
+    ) ? candidate : undefined;
     if (!selectedMatch) return existing ?? DEMO_STUDIO;
     if (!existing) return demoDatasetForMatch(selectedMatch);
     const kickoff = new Date(selectedMatch.kickoff_time);
