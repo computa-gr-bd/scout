@@ -39,20 +39,20 @@ const AWAY_COLOR = "#e1534e";
 const STROKE = "rgba(255,255,255,0.88)";
 const SW = 0.18;
 
-/** Campo em pé, proporções alongadas de um campo real (68 x 105 m). */
+/** Campo em pé, proporções de um campo real (68 x 105 m → 76 x 118). */
 const FIELD_W = 76;
-const FIELD_H = 160;
-const CENTER_Y = 80;
+const FIELD_H = 118;
+const CENTER_Y = 59;
 const R = 4.5;
 
 /** Linhas do 4-3-3: cada time ocupa só a sua metade, então nunca se sobrepõem.
- *  As duas linhas de ataque ficam a 24 de distância, o que garante espaço para
- *  o nome desenhado abaixo de cada círculo. */
+ *  As linhas ficam 13 unidades apartadas, o que garante espaço para o nome
+ *  desenhado abaixo de cada círculo. */
 const ROWS: Record<string, { home: number; away: number }> = {
-  GK: { home: 146, away: 14 },
-  DEF: { home: 128, away: 32 },
-  MID: { home: 110, away: 50 },
-  ATT: { home: 92, away: 68 },
+  GK: { home: 106, away: 12 },
+  DEF: { home: 93, away: 25 },
+  MID: { home: 80, away: 38 },
+  ATT: { home: 67, away: 51 },
 };
 
 function initials(name?: string | null) {
@@ -83,6 +83,9 @@ function xOf(p: LineupPlayer) {
   return 6 + ((p.pitch_y ?? 50) / 100) * (FIELD_W - 12);
 }
 
+/** Marca do jogador no campo: círculo, número e selo de gol. O nome é
+ *  desenhado em HTML por cima (ver `PlayerLabel`), para ter tamanho de fonte
+ *  em pixels e continuar legível em qualquer tela. */
 function PlayerMark({ p, y, color, goals, estimated }: {
   p: LineupPlayer;
   y: number;
@@ -111,12 +114,31 @@ function PlayerMark({ p, y, color, goals, estimated }: {
           </text>
         </g>
       )}
-      <text x={x} y={y + R + 5} textAnchor="middle" fontSize="3.5" fill="white"
-            fontWeight="600" style={{ paintOrder: "stroke" }}
-            stroke="rgba(0,0,0,0.8)" strokeWidth="1.1">
-        {lastName(p.player_name)}
-      </text>
     </g>
+  );
+}
+
+/** Nome do jogador em HTML, sobreposto ao campo (fonte em px, sempre legível). */
+function PlayerLabel({ p, y }: { p: LineupPlayer; y: number }) {
+  const name = lastName(p.player_name);
+  // Perto da base do campo o nome é desenhado acima do círculo, para não
+  // ser cortado pelo fim do campo.
+  const below = (y + R + 1.6) / FIELD_H < 0.9;
+  return (
+    <div
+      className="absolute -translate-x-1/2 pointer-events-none select-none"
+      style={{
+        left: `${(xOf(p) / FIELD_W) * 100}%`,
+        top: `${(below ? y + R + 1.6 : y - R - 1.6) / FIELD_H * 100}%`,
+        transform: below ? "translate(-50%, 0)" : "translate(-50%, -100%)",
+      }}
+    >
+      <span className="block max-w-[84px] truncate rounded bg-black/55 px-1 py-px
+                       text-[9px] leading-tight font-semibold text-white
+                       sm:text-[10px] md:text-[11px]">
+        {name}
+      </span>
+    </div>
   );
 }
 
@@ -160,42 +182,54 @@ export function LineupPitch({ data }: { data: MatchLineups; title?: string }) {
           })}
         </div>
 
-        <div className="rounded-2xl overflow-hidden pitch-gradient border border-white/10">
-          <svg viewBox={`0 0 ${FIELD_W} ${FIELD_H}`} width="100%"
-               preserveAspectRatio="xMidYMid meet"
-               style={{ display: "block", aspectRatio: `${FIELD_W} / ${FIELD_H}` }}>
-            <rect x="2" y="2" width={FIELD_W - 4} height={FIELD_H - 4}
-                  fill="none" stroke={STROKE} strokeWidth={SW * 1.2} />
-            <line x1="2" y1={CENTER_Y} x2={FIELD_W - 2} y2={CENTER_Y}
-                  stroke={STROKE} strokeWidth={SW} />
-            <circle cx={FIELD_W / 2} cy={CENTER_Y} r="9.15" fill="none"
+        {/* Campo: largura limitada para não ficar gigantesco no desktop e
+            manter as marcações legíveis; os nomes são HTML por cima do SVG. */}
+        <div className="relative mx-auto w-full max-w-[380px] sm:max-w-[420px] md:max-w-[460px]">
+          <div className="rounded-2xl overflow-hidden pitch-gradient border border-white/10">
+            <svg viewBox={`0 0 ${FIELD_W} ${FIELD_H}`} width="100%"
+                 preserveAspectRatio="xMidYMid meet"
+                 style={{ display: "block", aspectRatio: `${FIELD_W} / ${FIELD_H}` }}>
+              <rect x="2" y="2" width={FIELD_W - 4} height={FIELD_H - 4}
+                    fill="none" stroke={STROKE} strokeWidth={SW * 1.2} />
+              <line x1="2" y1={CENTER_Y} x2={FIELD_W - 2} y2={CENTER_Y}
                     stroke={STROKE} strokeWidth={SW} />
-            <circle cx={FIELD_W / 2} cy={CENTER_Y} r="0.6" fill={STROKE} />
+              <circle cx={FIELD_W / 2} cy={CENTER_Y} r="9.15" fill="none"
+                      stroke={STROKE} strokeWidth={SW} />
+              <circle cx={FIELD_W / 2} cy={CENTER_Y} r="0.6" fill={STROKE} />
 
-            {/* Área do time de cima (gol em cima) */}
-            <rect x="16" y="2" width="40" height="16.5" fill="none" stroke={STROKE} strokeWidth={SW} />
-            <rect x="26" y="2" width="20" height="5.5" fill="none" stroke={STROKE} strokeWidth={SW} />
-            <rect x="32.3" y="0.6" width="7.4" height="1.6" fill="none" stroke={STROKE} strokeWidth={SW} />
+              {/* Área do time de cima (gol em cima) */}
+              <rect x="16" y="2" width="40" height="16.5" fill="none" stroke={STROKE} strokeWidth={SW} />
+              <rect x="26" y="2" width="20" height="5.5" fill="none" stroke={STROKE} strokeWidth={SW} />
+              <rect x="32.3" y="0.6" width="7.4" height="1.6" fill="none" stroke={STROKE} strokeWidth={SW} />
 
-            {/* Área do time de baixo (gol embaixo) */}
-            <rect x="16" y={FIELD_H - 18.5} width="40" height="16.5"
-                  fill="none" stroke={STROKE} strokeWidth={SW} />
-            <rect x="26" y={FIELD_H - 7.5} width="20" height="5.5"
-                  fill="none" stroke={STROKE} strokeWidth={SW} />
-            <rect x="32.3" y={FIELD_H - 2.2} width="7.4" height="1.6"
-                  fill="none" stroke={STROKE} strokeWidth={SW} />
+              {/* Área do time de baixo (gol embaixo) */}
+              <rect x="16" y={FIELD_H - 18.5} width="40" height="16.5"
+                    fill="none" stroke={STROKE} strokeWidth={SW} />
+              <rect x="26" y={FIELD_H - 7.5} width="20" height="5.5"
+                    fill="none" stroke={STROKE} strokeWidth={SW} />
+              <rect x="32.3" y={FIELD_H - 2.2} width="7.4" height="1.6"
+                    fill="none" stroke={STROKE} strokeWidth={SW} />
 
-            {away.map(({ p, y }) => (
-              <PlayerMark key={`a-${p.player_id}`} p={p} y={y} color={AWAY_COLOR}
-                          goals={goalsByPlayer.get(p.player_id) || 0}
-                          estimated={!!p.estimated} />
-            ))}
-            {home.map(({ p, y }) => (
-              <PlayerMark key={`h-${p.player_id}`} p={p} y={y} color={HOME_COLOR}
-                          goals={goalsByPlayer.get(p.player_id) || 0}
-                          estimated={!!p.estimated} />
-            ))}
-          </svg>
+              {away.map(({ p, y }) => (
+                <PlayerMark key={`a-${p.player_id}`} p={p} y={y} color={AWAY_COLOR}
+                            goals={goalsByPlayer.get(p.player_id) || 0}
+                            estimated={!!p.estimated} />
+              ))}
+              {home.map(({ p, y }) => (
+                <PlayerMark key={`h-${p.player_id}`} p={p} y={y} color={HOME_COLOR}
+                            goals={goalsByPlayer.get(p.player_id) || 0}
+                            estimated={!!p.estimated} />
+              ))}
+            </svg>
+          </div>
+
+          {/* Nomes em HTML: fonte em pixels, legível em qualquer tamanho de tela */}
+          {away.map(({ p, y }) => (
+            <PlayerLabel key={`la-${p.player_id}`} p={p} y={y} />
+          ))}
+          {home.map(({ p, y }) => (
+            <PlayerLabel key={`lh-${p.player_id}`} p={p} y={y} />
+          ))}
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-sv-muted">

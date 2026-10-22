@@ -94,12 +94,14 @@ export function SectionTitle({
   title, hint, right, children,
 }: { title: string; hint?: string; right?: React.ReactNode; children?: React.ReactNode }) {
   return (
-    <div className="flex items-end justify-between gap-3 mb-3">
-      <div>
+    <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 sm:gap-3 mb-3">
+      <div className="min-w-0">
         <div className="text-lg font-semibold tracking-tight">{title}</div>
         {hint && <div className="text-sm text-sv-muted">{hint}</div>}
       </div>
-      {right ?? children}
+      {(right ?? children) && (
+        <div className="shrink-0 flex flex-wrap gap-2 sm:justify-end">{right ?? children}</div>
+      )}
     </div>
   );
 }

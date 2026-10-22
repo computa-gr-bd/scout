@@ -6,6 +6,7 @@ import {
 } from "../api/client";
 import { Badge, EmptyState, SectionTitle, StatCard, TeamLogo } from "../components/ui";
 import { PitchStudio } from "../components/PitchStudio";
+import { MaterialIcon } from "../components/MaterialIcon";
 
 function formatDate(s: string) {
   const d = new Date(s);
@@ -34,28 +35,28 @@ function MatchCard({ m, highlight }: { m: Match; highlight?: boolean }) {
           <div className="sv-chip">{m.competition_name || "Liga ScoutVision"} · Rodada {m.matchday ?? "—"}</div>
           <Badge kind={m.status === "finished" ? "default" : "accent"}>{statusPt(m.status)}</Badge>
         </div>
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
           <div className="flex items-center gap-2 min-w-0">
-            <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} className="w-10 h-10" />
+            <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} className="w-8 h-8 sm:w-10 sm:h-10 shrink-0" />
             <div className="min-w-0">
-              <div className="font-semibold truncate">{m.home_team.name}</div>
-              <div className="text-xs text-sv-muted truncate">{m.home_team.short_name || "—"}</div>
+              <div className="font-semibold text-[13px] sm:text-sm truncate">{m.home_team.name}</div>
+              <div className="text-[11px] sm:text-xs text-sv-muted truncate">{m.home_team.short_name || "—"}</div>
             </div>
           </div>
-          <div className="text-center">
+          <div className="text-center min-w-0">
             {m.status === "finished" ? (
-              <div className="font-mono text-xl font-bold tabular-nums">{m.home_score} — {m.away_score}</div>
+              <div className="font-mono text-lg sm:text-xl font-bold tabular-nums">{m.home_score} — {m.away_score}</div>
             ) : (
-              <div className="text-xs text-sv-accent3 font-medium">{formatDate(m.kickoff_time)}</div>
+              <div className="text-[11px] sm:text-xs text-sv-accent3 font-medium">{formatDate(m.kickoff_time)}</div>
             )}
-            <div className="text-[10px] text-sv-muted mt-1">{m.stadium_name || ""}</div>
+            <div className="text-[10px] text-sv-muted mt-1 truncate max-w-[120px]">{m.stadium_name || ""}</div>
           </div>
           <div className="flex items-center gap-2 min-w-0 justify-end">
             <div className="min-w-0 text-right">
-              <div className="font-semibold truncate">{m.away_team.name}</div>
-              <div className="text-xs text-sv-muted truncate">{m.away_team.short_name || "—"}</div>
+              <div className="font-semibold text-[13px] sm:text-sm truncate">{m.away_team.name}</div>
+              <div className="text-[11px] sm:text-xs text-sv-muted truncate">{m.away_team.short_name || "—"}</div>
             </div>
-            <TeamLogo name={m.away_team.name} src={m.away_team.logo_url} className="w-10 h-10" />
+            <TeamLogo name={m.away_team.name} src={m.away_team.logo_url} className="w-8 h-8 sm:w-10 sm:h-10 shrink-0" />
           </div>
         </div>
       </div>
@@ -154,7 +155,7 @@ export default function Dashboard() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link to="/analysis" className="sv-btn-primary">
-            <span>🔍 Abrir estúdio de análise</span>
+            <span><MaterialIcon name="search" className="mr-1 align-middle" />Abrir estúdio de análise</span>
           </Link>
           <Link to="/matches" className="sv-btn">Todas as partidas</Link>
         </div>
@@ -172,9 +173,11 @@ export default function Dashboard() {
       </div>
 
       <SectionTitle title="Campo · ScoutVision Studio"
-        hint="Demonstração visual com lances simulados; não representa dados de uma partida real."
+        hint={highlightMatch ? "A partida em destaque é exibida no estúdio; os lances são simulados." : "Demonstração visual com lances simulados; não representa dados de uma partida real."}
         right={<Link to="/analysis" className="sv-btn-primary !py-1.5 text-[12px]">Abrir estúdio completo →</Link>} />
-      <PitchStudio />
+      {highlightMatch
+        ? <PitchStudio selectedMatch={highlightMatch} selectedMatchId={highlightMatch.id} />
+        : <EmptyState title="Nenhuma partida disponível" description="Cadastre ou importe uma partida para abrir o estúdio." />}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-5">
         <div className="xl:col-span-2 space-y-5">
@@ -231,6 +234,7 @@ export default function Dashboard() {
         <div>
           <SectionTitle title="Principais times" right={<Link to="/teams" className="sv-btn">Ver todos</Link>} />
           <div className="sv-card">
+            <div className="sv-table-wrap">
             <table className="sv-table">
               <thead><tr><th>Time</th><th className="text-right">Pts/jogo</th><th className="text-right">xG/90</th><th className="text-right">xGA/90</th></tr></thead>
               <tbody>
@@ -253,6 +257,7 @@ export default function Dashboard() {
                   ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       </div>

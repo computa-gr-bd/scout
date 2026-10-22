@@ -195,28 +195,28 @@ export default function AnalysisPage() {
         <div className="space-y-5 min-w-0">
           {!selected ? (
             <>
-              <PitchStudio />
               <EmptyState title="Selecione uma partida ao lado para análise detalhada"
-                description="O PitchStudio acima já está funcionando com dados simulados. Clique em qualquer jogo na lista para carregar análises de zona, previsões e confrontos." />
+                description="Escolha uma partida na lista para carregar o estúdio, as análises de zona, previsões e confrontos." />
             </>
           ) : (
             <>
               <div>
                 <SectionTitle title="Campo · ScoutVision Studio"
                   hint={selMatch ? `${selMatch.home_team.name} vs ${selMatch.away_team.name}` : "Mapa de calor, chutes, gols e posições · dados simulados"}
-                  right={
-                    <div className="flex gap-1">
-                      <button onClick={() => setView("2d")} className={`sv-btn !py-1.5 text-[11.5px] ${view === "2d" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>Zonas 2D</button>
-                      <button onClick={() => setView("3d")} className={`sv-btn !py-1.5 text-[11.5px] ${view === "3d" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>3D</button>
-                    </div>
-                  } />
-                <PitchStudio selectedMatchId={selected} />
+                />
+                <PitchStudio selectedMatch={selMatch} selectedMatchId={selected} />
               </div>
 
               {view !== "3d" ? (
                 <div>
                   <SectionTitle title="Análise de zonas · vulnerabilidades defensivas"
-                    hint="Visão clássica: fraquezas por zona + melhores oportunidades ofensivas" />
+                    hint="Visão clássica: fraquezas por zona + melhores oportunidades ofensivas"
+                    right={
+                      <div className="flex gap-1">
+                        <button onClick={() => setView("2d")} aria-pressed={view === "2d"} className={`sv-btn !py-1.5 text-[11.5px] ${view === "2d" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>Mapa 2D</button>
+                        <button onClick={() => setView("3d")} className="sv-btn !py-1.5 text-[11.5px]">Campo 3D</button>
+                      </div>
+                    } />
                   <Pitch2D
                     homeWeakness={hw}
                     awayWeakness={aw}
@@ -230,7 +230,13 @@ export default function AnalysisPage() {
               ) : (
                 <div>
                   <SectionTitle title="Visão 3D do gramado"
-                    hint="Clique numa zona para ver as estatísticas · alterne mandante/visitante · use o mouse para rotacionar" />
+                    hint="Clique numa zona para ver as estatísticas · alterne mandante/visitante · use o mouse para rotacionar"
+                    right={
+                      <div className="flex gap-1">
+                        <button onClick={() => setView("2d")} className="sv-btn !py-1.5 text-[11.5px]">Mapa 2D</button>
+                        <button onClick={() => setView("3d")} aria-pressed={view === "3d"} className="sv-btn !py-1.5 text-[11.5px] !bg-sv-accent text-white !border-sv-accent3">Campo 3D</button>
+                      </div>
+                    } />
                   <Pitch3D
                     title=""
                     homeWeakness={hw}

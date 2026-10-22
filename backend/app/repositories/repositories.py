@@ -101,12 +101,14 @@ class MatchRepository(BaseRepository[Match]):
         return list(db.scalars(q).all())
 
     def get_detailed(self, db: Session, id: int) -> Optional[Match]:
+        # Lightweight projection: never eager-load the full event stream
+        # (which carries large JSON payloads) nor team_match_stats — the
+        # match-detail API returns events=[] and does not expose team_match_stats.
+        # Events are still available on demand via EventRepository.by_match.
         q = (select(Match)
              .options(selectinload(Match.home_team), selectinload(Match.away_team),
                       selectinload(Match.season).selectinload(Season.competition),
-                      selectinload(Match.stadium), selectinload(Match.lineups),
-                      selectinload(Match.events).selectinload(Event.position),
-                      selectinload(Match.team_match_stats))
+                      selectinload(Match.stadium), selectinload(Match.lineups))
              .where(Match.id == id))
         return db.scalar(q)
 
@@ -134,9 +136,14 @@ class TeamStatisticsRepository(BaseRepository[TeamStatistics]):
         filters = [TeamStatistics.team_id == team_id, TeamStatistics.scope == scope]
         if season_id is not None:
             filters.append(TeamStatistics.season_id == season_id)
-        else:
-            filters.append(TeamStatistics.season_id.is_(None))
-        return db.scalar(select(TeamStatistics).where(and_(*filters)))
+            return db.scalar(select(TeamStatistics).where(and_(*filters)))
+        # No season requested: prefer the most recent season-scoped row, then
+        # any overall (season-less) row, so aggregate stats are not silently
+        # reported as missing for teams that only have season-scoped data.
+        q = (select(TeamStatistics)
+             .where(and_(*filters))
+             .order_by(TeamStatistics.season_id.desc().nullslast()))
+        return db.scalar(q)
 
 
 class PlayerStatisticsRepository(BaseRepository[PlayerStatistics]):
@@ -146,9 +153,11 @@ class PlayerStatisticsRepository(BaseRepository[PlayerStatistics]):
         filters = [PlayerStatistics.player_id == player_id, PlayerStatistics.scope == scope]
         if season_id is not None:
             filters.append(PlayerStatistics.season_id == season_id)
-        else:
-            filters.append(PlayerStatistics.season_id.is_(None))
-        return db.scalar(select(PlayerStatistics).where(and_(*filters)))
+            return db.scalar(select(PlayerStatistics).where(and_(*filters)))
+        q = (select(PlayerStatistics)
+             .where(and_(*filters))
+             .order_by(PlayerStatistics.season_id.desc().nullslast()))
+        return db.scalar(q)
 
 
 class PlayerZoneStatsRepository(BaseRepository[PlayerZoneStatistics]):

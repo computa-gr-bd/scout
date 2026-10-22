@@ -35,7 +35,7 @@ export default function ModelsPage() {
                   {m.is_active && <Badge kind="warn">Baseline</Badge>}
                 </div>
                 <div className="sv-label">Avaliação sintética de demonstração — não representa desempenho em partidas reais</div>
-                <div className="grid grid-cols-4 gap-2 text-center">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                   <div><div className="sv-stat-k">Acurácia</div><div className="sv-stat-v">{m.accuracy != null ? m.accuracy.toFixed(2) : "—"}</div></div>
                   <div><div className="sv-stat-k">Precisão</div><div className="sv-stat-v">{m.precision != null ? m.precision.toFixed(2) : "—"}</div></div>
                   <div><div className="sv-stat-k">Revocação</div><div className="sv-stat-v">{m.recall != null ? m.recall.toFixed(2) : "—"}</div></div>

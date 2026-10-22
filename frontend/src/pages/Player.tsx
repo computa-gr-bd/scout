@@ -92,7 +92,7 @@ export default function PlayerPage() {
                 <span>Jogos: {s?.matches_played ?? "—"} · Titular: {s?.starts ?? "—"} · Minutos: {s?.minutes_played ?? "—"}</span>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Link to="/players" className="sv-btn">Voltar à lista</Link>
               <Link to="/analysis" className="sv-btn-primary">Análise contextual</Link>
             </div>

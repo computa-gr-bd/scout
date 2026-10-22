@@ -21,27 +21,27 @@ function statusLabel(status: string) {
 function MatchRow({ m }: { m: Match }) {
   return (
     <Link to={`/matches/${m.id}`} className="sv-card block hover:bg-sv-panel2 transition">
-      <div className="px-4 py-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+      <div className="px-3 sm:px-4 py-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} />
+          <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} className="w-6 h-6 sm:w-8 sm:h-8 shrink-0" />
           <div className="min-w-0">
-            <div className="font-medium truncate">{m.home_team.name}</div>
+            <div className="font-medium text-[13px] sm:text-sm truncate">{m.home_team.name}</div>
           </div>
         </div>
-        <div className="text-center min-w-[140px]">
+        <div className="text-center min-w-0 sm:min-w-[140px]">
           <div className="flex items-center justify-center gap-2">
             <Badge kind={m.status === "finished" ? "default" : "accent"}>{statusLabel(m.status)}</Badge>
           </div>
-          <div className="mt-1 font-mono font-semibold">
+          <div className="mt-1 font-mono font-semibold text-[13px] sm:text-sm">
             {m.status === "finished" ? `${m.home_score}–${m.away_score}` : formatDate(m.kickoff_time)}
           </div>
-          <div className="text-[11px] text-sv-muted truncate">{m.competition_name || ""}{m.matchday ? ` · Rodada ${m.matchday}` : ""}</div>
+          <div className="text-[10px] sm:text-[11px] text-sv-muted truncate hidden sm:block">{m.competition_name || ""}{m.matchday ? ` · Rodada ${m.matchday}` : ""}</div>
         </div>
         <div className="flex items-center gap-2 min-w-0 justify-end">
           <div className="min-w-0 text-right">
-            <div className="font-medium truncate">{m.away_team.name}</div>
+            <div className="font-medium text-[13px] sm:text-sm truncate">{m.away_team.name}</div>
           </div>
-          <TeamLogo name={m.away_team.name} src={m.away_team.logo_url} />
+          <TeamLogo name={m.away_team.name} src={m.away_team.logo_url} className="w-6 h-6 sm:w-8 sm:h-8 shrink-0" />
         </div>
       </div>
     </Link>
@@ -72,7 +72,7 @@ export default function MatchesPage() {
   return (
     <div className="space-y-5">
       <SectionTitle title="Partidas" hint="Consulte calendário e resultados importados. A disponibilidade varia por competição.">
-        <div className="flex gap-1">
+        <div className="flex gap-1 flex-wrap">
           {scopes.map((s) => (
             <button key={s.key}
               onClick={() => setScope(s.key)}

@@ -8,9 +8,9 @@ function PlayerRow({ p }: { p: Player }) {
   const s = p.statistics.find((x: any) => x.scope === "overall");
   return (
     <Link to={`/players/${p.id}`} className="sv-card block hover:bg-sv-panel2 transition">
-      <div className="px-4 py-3 grid grid-cols-[1.2fr_0.6fr_0.8fr_1.5fr] gap-3 items-center">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-full bg-sv-panel2 grid place-items-center text-xs font-semibold border border-sv-border">
+      <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,0.6fr)_minmax(0,0.8fr)_minmax(0,1.5fr)] gap-x-3 gap-y-2 items-center">
+        <div className="col-span-2 sm:col-span-1 flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-full bg-sv-panel2 grid place-items-center text-xs font-semibold border border-sv-border shrink-0">
             {(p.display_name || p.last_name).slice(0, 2).toUpperCase()}
           </div>
           <div className="min-w-0">
@@ -18,8 +18,8 @@ function PlayerRow({ p }: { p: Player }) {
             <div className="text-[11px] text-sv-muted">{p.country || "—"} · {p.position || "—"}</div>
           </div>
         </div>
-        <div><Badge kind="accent">{p.position || "—"}</Badge></div>
-        <div className="grid grid-cols-3 gap-1 text-xs text-center">
+        <div className="hidden sm:block"><Badge kind="accent">{p.position || "—"}</Badge></div>
+        <div className="col-span-2 sm:col-span-1 grid grid-cols-3 gap-1 text-xs text-center">
           <div>
             <div className="sv-stat-k">J</div><div className="sv-stat-v text-sm">{s?.matches_played ?? "—"}</div>
           </div>
@@ -31,7 +31,7 @@ function PlayerRow({ p }: { p: Player }) {
             <div className="sv-stat-v text-sm text-sv-accent3">{s ? `${s.goals}/${s.assists}` : "—"}</div>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2 text-xs text-right">
+        <div className="col-span-2 sm:col-span-1 grid grid-cols-3 gap-2 text-xs text-right">
           <div>
             <div className="sv-stat-k">Chutes/90</div>
             <div className="font-mono">{s?.shots_per_90?.toFixed(2) ?? "—"}</div>

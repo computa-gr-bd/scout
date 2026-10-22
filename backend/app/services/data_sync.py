@@ -11,7 +11,10 @@ from datetime import date, datetime, timezone
 import json
 import time
 
-import requests
+try:
+    import requests
+except Exception:  # pragma: no cover - optional dependency for HTTP sync
+    requests = None  # type: ignore
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -178,6 +181,12 @@ def ingest_competition(db, payload):
         for key, target in (("shortName", "short_name"), ("tla", "code"), ("crest", "logo_url"), ("founded", "founded")):
             if team.get(key) is not None:
                 values[target] = team[key]
+        # Fallback crest for teams whose provider omits the crest field.
+        if "logo_url" not in values:
+            from app.services.crests import crest_for_name
+            fallback = crest_for_name(team["name"])
+            if fallback:
+                values["logo_url"] = fallback
         if team.get("area"):
             values["country"] = team["area"]["name"]
         if isinstance(team.get("venue"), str) and team["venue"]:

@@ -11,7 +11,7 @@ demonstração são sintéticas e não representam lances reais.
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 football-data.org + StatsBomb Open Data (importação histórica) + demo opcional
@@ -25,7 +25,7 @@ football-data.org + StatsBomb Open Data (importação histórica) + demo opciona
 
 ---
 
-## 🧰 Tech Stack
+## Tech Stack
 
 ### Frontend
 - React 18 + TypeScript + Vite
@@ -40,9 +40,9 @@ football-data.org + StatsBomb Open Data (importação histórica) + demo opciona
 - HTTPX
 
 ### Data / ML
-- Pandas, NumPy, SciPy
-- scikit-learn, XGBoost, SHAP
-- Joblib (model persistence)
+- NumPy (runtime baseline calculations)
+- Pandas and SciPy (optional local data/model experimentation)
+- scikit-learn, XGBoost, SHAP, Joblib (optional local model experimentation)
 
 ### Database
 - PostgreSQL 15+
@@ -53,7 +53,7 @@ football-data.org + StatsBomb Open Data (importação histórica) + demo opciona
 
 ---
 
-## 🗄️ Core Domain Entities
+## Core Domain Entities
 
 | Entity | Purpose |
 |---|---|
@@ -68,7 +68,7 @@ football-data.org + StatsBomb Open Data (importação histórica) + demo opciona
 
 ---
 
-## 🚀 Quick Start (Docker Compose — Recommended)
+## Quick Start (Docker Compose — Recommended)
 
 ```bash
 # 1. Copy env file
@@ -87,7 +87,29 @@ docker compose --profile local-collector up --build
 # API Docs : http://localhost:8000/docs
 ```
 
-## ⚙️ Local Development (Without Docker)
+## Deploy on Vercel (Services)
+
+The root `vercel.json` deploys `frontend/` and `backend/` as two services on the
+same Vercel project and domain. Their Vite and FastAPI frameworks are set
+explicitly to avoid conflicting detection from the backend Dockerfile. Requests
+under `/api/` go to FastAPI; all other paths go to the Vite frontend.
+`teste-api/` is a command-line data collector, not a web service, so it is
+intentionally not deployed as a third service.
+
+Before deploying, configure these Vercel environment variables:
+
+- **Backend service:** `DATABASE_URL` (PostgreSQL connection string) and
+  `SECRET_KEY` (a long, random production secret). Add `FOOTBALL_DATA_TOKEN` if
+  the backend should fetch live data.
+- The production frontend automatically uses `/api` on the same Vercel domain;
+  `VITE_API_BASE_URL` is only used for local development.
+
+After adding the backend variables, apply database migrations once against the
+production database with `python -m alembic upgrade head` from `backend/`.
+Vercel Functions do not run the always-on collector from Docker Compose; use the
+existing GitHub Actions `data-sync` workflow for scheduled data collection.
+
+## Local Development (Without Docker)
 
 ### Requirements
 - Python 3.11+
@@ -102,7 +124,7 @@ cd backend
 python -m venv venv
 venv\Scripts\activate           # Windows
 # source venv/bin/activate      # Linux/macOS
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
 # DATABASE_URL is read from the root .env (Neon, with SSL).
 alembic upgrade head
@@ -119,7 +141,7 @@ npm run dev
 
 ---
 
-## 🧠 Prediction System
+## Prediction System
 
 The prediction endpoints currently use manually defined baseline coefficients.
 They are experimental estimates, not a trained and validated model for current
@@ -142,7 +164,7 @@ Prediction targets include:
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Backend
@@ -156,7 +178,7 @@ npm run build
 
 ---
 
-## 📦 Demo Mode
+## Demo Mode
 
 An optional synthetic dataset is available for interface demonstrations without
 an external provider. It is not current football data and must not be presented
@@ -173,6 +195,10 @@ snapshot used by demo/Studio examples, not a live feed. Its fixture metadata is
 real but static, and the Studio's shots, heatmaps, lineups and player actions are
 simulated—not provider play-by-play. Do not use those visualizations as current
 match statistics.
+
+The Studio (`PitchStudio`) follows the match selected in the Analysis page.
+Heatmaps, lineups and event-level visualizations remain simulated where
+applicable.
 
 See `teste-api/README.md` for the collection → treatment pipeline.
 
@@ -224,7 +250,7 @@ Mantenha apenas um coletor agendado ativo. StatsBomb permanece manual.
 
 ---
 
-## 🔐 Authentication (MVP)
+## Authentication (MVP)
 
 JWT-based. Roles:
 - `USER` — view, analyze, predict
@@ -232,7 +258,7 @@ JWT-based. Roles:
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 - API Docs — http://localhost:8000/docs (Swagger UI) / http://localhost:8000/redoc
 - Database schema — see `backend/app/db/models.py`
@@ -240,7 +266,7 @@ JWT-based. Roles:
 
 ---
 
-## ⚠️ Key Domain Rules
+## Key Domain Rules
 
 1. **No external API calls from the frontend** — backend/data services only.
 2. **Historical data is preserved (raw + normalized)**.
@@ -252,6 +278,6 @@ JWT-based. Roles:
 
 ---
 
-## 📝 License
+## License
 
 StatsBomb Open Data license applies to any StatsBomb-derived data. Demo data is synthetic.

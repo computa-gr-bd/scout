@@ -123,33 +123,33 @@ export default function MatchPage() {
       {/* header */}
       {m ? (
         <div className="sv-card sv-ring">
-          <div className="px-5 py-5 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} className="w-14 h-14" />
+          <div className="px-4 sm:px-5 py-5 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 sm:gap-4">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} className="w-10 h-10 sm:w-14 sm:h-14 shrink-0" />
               <div className="min-w-0">
-                <div className="text-xl font-bold truncate">{m.home_team.name}</div>
-                <div className="text-sm text-sv-muted">Casa · {m.home_team.short_name || ""}</div>
+                <div className="text-base sm:text-xl font-bold truncate">{m.home_team.name}</div>
+                <div className="text-xs sm:text-sm text-sv-muted truncate">Casa · {m.home_team.short_name || ""}</div>
               </div>
             </div>
-            <div className="text-center min-w-[200px]">
-              <div className="sv-chip mb-2">{m.competition_name || "Liga"} · {m.round_name || `Rodada ${m.matchday || "—"}`}</div>
+            <div className="text-center min-w-0 sm:min-w-[200px]">
+              <div className="sv-chip mb-2 hidden sm:inline-flex">{m.competition_name || "Liga"} · {m.round_name || `Rodada ${m.matchday || "—"}`}</div>
               <div className="font-mono text-2xl md:text-3xl font-bold tabular-nums">
                 {m.status === "finished" ? `${m.home_score}–${m.away_score}` : "VS"}
               </div>
-              <div className="mt-1 text-xs text-sv-muted">{formatDateTime(m.kickoff_time)}</div>
-              <div className="mt-0.5 text-[11px] text-sv-muted">Estádio: {m.stadium_name || "—"} · Árbitro: {m.referee || "—"}</div>
-              <div className="mt-2 flex items-center justify-center gap-2">
-                <Link to={`/analysis/${matchId}`} className="sv-btn-primary">Abrir análise</Link>
-                <Link to={`/teams/${homeId}`} className="sv-btn">Casa</Link>
-                <Link to={`/teams/${awayId}`} className="sv-btn">Fora</Link>
+              <div className="mt-1 text-[11px] sm:text-xs text-sv-muted">{formatDateTime(m.kickoff_time)}</div>
+              <div className="mt-0.5 text-[11px] text-sv-muted hidden md:block">Estádio: {m.stadium_name || "—"} · Árbitro: {m.referee || "—"}</div>
+              <div className="mt-2 flex items-center justify-center gap-2 flex-wrap">
+                <Link to={`/analysis/${matchId}`} className="sv-btn-primary !py-1.5 text-[12px]">Abrir análise</Link>
+                <Link to={`/teams/${homeId}`} className="sv-btn !py-1.5 text-[12px]">Casa</Link>
+                <Link to={`/teams/${awayId}`} className="sv-btn !py-1.5 text-[12px]">Fora</Link>
               </div>
             </div>
-            <div className="flex items-center gap-3 min-w-0 justify-end">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 justify-end">
               <div className="min-w-0 text-right">
-                <div className="text-xl font-bold truncate">{m.away_team.name}</div>
-                <div className="text-sm text-sv-muted">Fora · {m.away_team.short_name || ""}</div>
+                <div className="text-base sm:text-xl font-bold truncate">{m.away_team.name}</div>
+                <div className="text-xs sm:text-sm text-sv-muted truncate">Fora · {m.away_team.short_name || ""}</div>
               </div>
-              <TeamLogo name={m.away_team.name} src={m.away_team.logo_url} className="w-14 h-14" />
+              <TeamLogo name={m.away_team.name} src={m.away_team.logo_url} className="w-10 h-10 sm:w-14 sm:h-14 shrink-0" />
             </div>
           </div>
         </div>
@@ -208,29 +208,31 @@ export default function MatchPage() {
           <div className="sv-card-inner">
             <SectionTitle title="Confrontos diretos" hint="Últimos 6 encontros" />
             {a?.h2h_recent?.length ? (
-              <table className="sv-table">
-                <thead><tr><th>Data</th><th>Casa</th><th className="text-center">Placar</th><th>Fora</th></tr></thead>
-                <tbody>
-                  {a.h2h_recent.map((h) => (
-                    <tr key={h.match_id}>
-                      <td className="text-xs text-sv-muted">{new Date(h.kickoff).toLocaleDateString()}</td>
-                      <td className="font-medium text-right pr-4">
-                        <Link to={`/teams/${h.home_id}`} className="hover:text-sv-accent3 inline-flex items-center gap-1.5 justify-end">
-                          <span className="truncate">{h.home_name || `Time ${h.home_id}`}</span>
-                          <TeamLogo name={h.home_name || undefined} src={h.home_logo_url} className="w-4 h-4" />
-                        </Link>
-                      </td>
-                      <td className="text-center font-mono">{h.home_score}–{h.away_score}</td>
-                      <td className="font-medium pl-4">
-                        <Link to={`/teams/${h.away_id}`} className="hover:text-sv-accent3 inline-flex items-center gap-1.5">
-                          <TeamLogo name={h.away_name || undefined} src={h.away_logo_url} className="w-4 h-4" />
-                          <span className="truncate">{h.away_name || `Time ${h.away_id}`}</span>
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="sv-table-wrap">
+                <table className="sv-table">
+                  <thead><tr><th>Data</th><th>Casa</th><th className="text-center">Placar</th><th>Fora</th></tr></thead>
+                  <tbody>
+                    {a.h2h_recent.map((h) => (
+                      <tr key={h.match_id}>
+                        <td className="text-xs text-sv-muted">{new Date(h.kickoff).toLocaleDateString()}</td>
+                        <td className="font-medium text-right pr-4">
+                          <Link to={`/teams/${h.home_id}`} className="hover:text-sv-accent3 inline-flex items-center gap-1.5 justify-end">
+                            <span className="truncate">{h.home_name || `Time ${h.home_id}`}</span>
+                            <TeamLogo name={h.home_name || undefined} src={h.home_logo_url} className="w-4 h-4" />
+                          </Link>
+                        </td>
+                        <td className="text-center font-mono">{h.home_score}–{h.away_score}</td>
+                        <td className="font-medium pl-4">
+                          <Link to={`/teams/${h.away_id}`} className="hover:text-sv-accent3 inline-flex items-center gap-1.5">
+                            <TeamLogo name={h.away_name || undefined} src={h.away_logo_url} className="w-4 h-4" />
+                            <span className="truncate">{h.away_name || `Time ${h.away_id}`}</span>
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : <EmptyState title="Sem dados de confronto direto" />}
           </div>
         </div>
@@ -238,27 +240,29 @@ export default function MatchPage() {
           <div className="sv-card-inner">
             <SectionTitle title="Avaliação de confrontos" hint="Melhores duelos atacante × defensor" />
             {tactical.data?.matchups?.length ? (
-              <table className="sv-table">
-                <thead><tr><th>Atacante</th><th>Defensor</th><th>Nota</th><th>Vantagem</th></tr></thead>
-                <tbody>
-                  {tactical.data.matchups.slice(0, 10).map((mu: MatchupScore, i: number) => {
-                    const a = playerById[mu.attacker_id]; const d = playerById[mu.defender_id];
-                    const good = mu.score > 0.55;
-                    return (
-                      <tr key={i}>
-                        <td>{a?.display_name || a?.last_name || "Ata " + mu.attacker_id}</td>
-                        <td>{d?.display_name || d?.last_name || "Def " + mu.defender_id}</td>
-                        <td className="font-mono">{(mu.score * 100).toFixed(0)}%</td>
-                        <td>
-                          <Badge kind={good ? "good" : "default"}>
-                            {good ? "Vantagem ataque" : "Vantagem defesa"}
-                          </Badge>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <div className="sv-table-wrap">
+                <table className="sv-table">
+                  <thead><tr><th>Atacante</th><th>Defensor</th><th>Nota</th><th>Vantagem</th></tr></thead>
+                  <tbody>
+                    {tactical.data.matchups.slice(0, 10).map((mu: MatchupScore, i: number) => {
+                      const a = playerById[mu.attacker_id]; const d = playerById[mu.defender_id];
+                      const good = mu.score > 0.55;
+                      return (
+                        <tr key={i}>
+                          <td>{a?.display_name || a?.last_name || "Ata " + mu.attacker_id}</td>
+                          <td>{d?.display_name || d?.last_name || "Def " + mu.defender_id}</td>
+                          <td className="font-mono">{(mu.score * 100).toFixed(0)}%</td>
+                          <td>
+                            <Badge kind={good ? "good" : "default"}>
+                              {good ? "Vantagem ataque" : "Vantagem defesa"}
+                            </Badge>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             ) : <EmptyState title="Ainda sem dados de confrontos" description="Gere previsões para calcular os confrontos." />}
           </div>
         </div>

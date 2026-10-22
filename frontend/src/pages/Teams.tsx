@@ -31,7 +31,7 @@ function TeamCard({ t, league }: { t: Team & { league_id: string }; league?: Lea
           </div>
         </div>
       </div>
-      <div className="grid grid-cols-4 gap-2 text-center">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
         <div>
           <div className="sv-stat-k">J</div>
           <div className="sv-stat-v">{s?.matches_played ?? "—"}</div>

@@ -58,9 +58,12 @@ def ingest_match(db, raw_match, lineups, events):
     teams = {}
     for side in ("home", "away"):
         raw = raw_match[f"{side}_team"]
+        team_name = raw[f"{side}_team_name"]
+        from app.services.crests import crest_for_name
         teams[raw[f"{side}_team_id"]] = entity(
-            db, Team, SOURCE, raw[f"{side}_team_id"], name=raw[f"{side}_team_name"],
+            db, Team, SOURCE, raw[f"{side}_team_id"], name=team_name,
             country=(raw.get("country") or {}).get("name"),
+            logo_url=crest_for_name(team_name),
         )
     match = entity(
         db, Match, SOURCE, raw_match["match_id"], season_id=season.id,
@@ -161,6 +164,8 @@ def ingest_match(db, raw_match, lineups, events):
         "sha256": hashlib.sha256(json.dumps(events, sort_keys=True).encode()).hexdigest(),
         "coordinates": "100x100, attack-relative; raw coordinates in event.details",
     }
+    from app.services.aggregates import populate_aggregates_for_match
+    populate_aggregates_for_match(db, match)
     checkpoint(db, SOURCE.value, str(raw_match["match_id"]), "success", summary)
     upsert(db, DataSourceRecord, {"name": SOURCE}, {
         "description": "StatsBomb Open Data; selected historical matches; attribution required.",

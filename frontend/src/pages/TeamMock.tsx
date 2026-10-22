@@ -164,7 +164,7 @@ function FixtureRow({ f, teamName }: { f: ClubFixture; teamName: string }) {
         <div className="text-xs font-mono text-sv-muted">{f.date} · {f.time}</div>
         <Badge kind={fixtureKind(f.competition)}>{f.competition}</Badge>
       </div>
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <TeamLogo name={f.home} className="w-7 h-7 shrink-0" />
           <div className={`truncate text-sm ${isHome ? "font-semibold" : ""}`}>{f.home}</div>
@@ -216,8 +216,8 @@ function ClassificacaoTab({ detail, teamName }: { detail: TeamDetail; teamName: 
           hint={`Classificação mockada · rodada ${round}`}
           right={<Badge kind="accent">{rows.length} times</Badge>}
         />
-        <div className="overflow-x-auto">
-          <table className="sv-table">
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="sv-table min-w-[420px]">
             <thead>
               <tr>
                 <th>#</th>

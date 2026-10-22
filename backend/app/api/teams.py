@@ -43,7 +43,10 @@ def list_teams(q: Optional[str] = None, skip: int = 0, limit: int = 50,
             filters.append(TeamStatistics.season_id == season_id)
         for s in db.scalars(_select(TeamStatistics).where(and_(*filters))).all():
             stats_by_team.setdefault(s.team_id, []).append(s)
+    from app.services.crests import resolve_crest
     for t in teams:
+        if not t.logo_url:
+            t.logo_url = resolve_crest(t.name, t.logo_url)
         t.statistics = stats_by_team.get(t.id, [])
     return teams
 
@@ -53,6 +56,9 @@ def get_team(team_id: int, db: Session = Depends(get_db)):
     t = team_repo.get_detailed(db, team_id)
     if not t:
         raise HTTPException(404, "Team not found")
+    from app.services.crests import resolve_crest
+    if not t.logo_url:
+        t.logo_url = resolve_crest(t.name, t.logo_url)
     return t
 
 

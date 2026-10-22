@@ -29,7 +29,7 @@ function TeamMatchRow({ m, teamId, showResult }: { m: Match; teamId: number; sho
     : "bg-sv-panel2 text-sv-muted border-sv-border";
   return (
     <Link to={`/matches/${m.id}`} className="sv-card block hover:bg-sv-panel2 transition">
-      <div className="px-4 py-2.5 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+      <div className="px-3 sm:px-4 py-2.5 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} className="w-7 h-7 shrink-0" />
           <div className={`truncate text-sm ${m.home_team.id === teamId ? "font-semibold" : ""}`}>
@@ -91,7 +91,7 @@ function StandingsTable({ rows, teamId }: { rows: StandingRow[]; teamId: number 
   const sorted = [...rows].sort((a, b) => a.position - b.position);
   return (
     <div className="overflow-x-auto -mx-1 px-1">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm min-w-[420px]">
         <thead>
           <tr className="text-[11px] text-sv-muted border-b border-sv-border">
             <th className="text-left py-2 font-medium">#</th>
@@ -203,7 +203,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
                 </div>
                 <div className="text-sm text-sv-muted mt-1">Fundado em {t.data.founded || "—"} · Estádio: {(t.data as any).stadium?.name || "—"} ({(t.data as any).stadium?.capacity || "—"})</div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Link to="/matches" className="sv-btn">Jogos</Link>
                 <Link to={`/analysis?team=${teamId}`} className="sv-btn-primary">Analisar</Link>
               </div>
@@ -306,7 +306,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="flex gap-2 mt-3">
+                <div className="flex gap-2 mt-3 flex-wrap">
                   {formData.map((d, i) => (
                     <span key={i} className={`sv-pill ${d.label === "V" ? "bg-sv-accent2/20 text-sv-accent3" : d.label === "E" ? "bg-sv-warn/15 text-sv-warn" : "bg-sv-danger/15 text-sv-danger"}`}>{d.label}</span>
                   ))}

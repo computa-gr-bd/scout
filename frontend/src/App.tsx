@@ -12,20 +12,14 @@ import AnalysisPage from "./pages/Analysis";
 import ModelsPage from "./pages/Models";
 import AboutPage from "./pages/About";
 import LoginPage from "./pages/Login";
+import { NAV_ITEMS } from "./nav";
 import { useAuth } from "./store/auth";
 import { getDataStatus, me } from "./api/client";
 
-function Logo() {
+function Logo({ onClick }: { onClick?: () => void }) {
   return (
-    <Link to="/" className="flex items-center gap-2.5 shrink-0">
-      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sv-accent to-sv-accent2 grid place-items-center shadow-glow">
-        <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 text-white">
-          <g stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 12h16M12 4v16M8 5c2 2 2 12 0 14M16 5c-2 2-2 12 0 14"/>
-            <circle cx="12" cy="12" r="3"/>
-          </g>
-        </svg>
-      </div>
+    <Link to="/" onClick={onClick} className="flex items-center gap-2.5 shrink-0">
+      <img src="/scoutvision-logo.png" alt="" className="w-10 h-10 object-contain" />
       <div className="leading-tight">
         <div className="font-semibold text-sv-text tracking-tight">ScoutVision</div>
         <div className="text-[10px] text-sv-muted uppercase tracking-widest">Análise Pré-Jogo</div>
@@ -34,38 +28,39 @@ function Logo() {
   );
 }
 
+/** Classe de link de navegação, compartilhada pela sidebar e pelo drawer mobile. */
+function navLinkCls(isActive: boolean) {
+  return `flex items-center gap-3 px-3 py-2 rounded-lg text-sm border transition ${
+    isActive
+      ? "bg-sv-accent/10 border-sv-accent/30 text-sv-accent3"
+      : "border-transparent text-sv-text/85 hover:bg-sv-panel2 hover:text-white"
+  }`;
+}
+
+function NavIcon({ d }: { d: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" width="18" height="18" stroke="currentColor"
+         strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+      <path d={d} />
+    </svg>
+  );
+}
+
 function Sidebar() {
-  const nav = [
-    { to: "/", label: "Painel", icon: "M3 12l9-9 9 9M5 10v10h14V10" },
-    { to: "/matches", label: "Partidas", icon: "M4 6h16v12H4zM4 10h16M10 6v12" },
-    { to: "/teams", label: "Times", icon: "M4 20v-6a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v6M8 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" },
-    { to: "/players", label: "Jogadores", icon: "M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6" },
-    { to: "/analysis", label: "Análise", icon: "M4 20h16M7 16V8M12 16V4M17 16v-6" },
-    { to: "/models", label: "Modelos", icon: "M3 7l9-4 9 4-9 4-9-4zM3 12l9 4 9-4M3 17l9 4 9-4" },
-    { to: "/about", label: "Sobre e como usar", icon: "M12 16v-4m0-4h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z" },
-  ];
   return (
     <aside className="hidden md:flex md:flex-col w-60 shrink-0 border-r border-sv-border bg-sv-panel/40 backdrop-blur-sm">
       <div className="p-4 border-b border-sv-border">
         <Logo />
       </div>
       <nav className="flex flex-col gap-1 p-3">
-        {nav.map((n) => (
+        {NAV_ITEMS.map((n) => (
           <NavLink
             key={n.to}
             to={n.to}
             end={n.to === "/"}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2 rounded-lg text-sm border transition ${
-                isActive
-                  ? "bg-sv-accent/10 border-sv-accent/30 text-sv-accent3"
-                  : "border-transparent text-sv-text/85 hover:bg-sv-panel2 hover:text-white"
-              }`
-            }
+            className={({ isActive }) => navLinkCls(isActive)}
           >
-            <svg viewBox="0 0 24 24" fill="none" className="w-4.5 h-4.5" width="18" height="18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d={n.icon} />
-            </svg>
+            <NavIcon d={n.icon} />
             {n.label}
           </NavLink>
         ))}
@@ -80,7 +75,79 @@ function Sidebar() {
   );
 }
 
-function Topbar() {
+/**
+ * Drawer de navegação exclusivo do mobile (<md). Fica fora do fluxo da página,
+ * coberto por um scrim, e fecha ao navegar ou ao tocar fora.
+ */
+function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const loc = useLocation();
+  // Fecha o drawer ao trocar de rota.
+  useEffect(() => { onClose(); }, [loc.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Bloqueia o scroll do fundo enquanto o drawer está aberto.
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  return (
+    <div className={`md:hidden fixed inset-0 z-50 ${open ? "" : "pointer-events-none"}`}>
+      <div
+        onClick={onClose}
+        className={`absolute inset-0 bg-black/60 transition-opacity duration-200 ${
+          open ? "opacity-100" : "opacity-0"
+        }`}
+      />
+      <aside
+        id="sv-mobile-drawer"
+        className={`absolute left-0 top-0 bottom-0 w-64 max-w-[80vw] flex flex-col
+                    bg-sv-panel border-r border-sv-border shadow-2xl
+                    transition-transform duration-200 ease-out ${
+                      open ? "translate-x-0" : "-translate-x-full"
+                    }`}
+      >
+        <div className="flex items-center justify-between gap-2 p-4 border-b border-sv-border">
+          <Logo onClick={onClose} />
+          <button onClick={onClose} aria-label="Fechar menu"
+                  className="sv-btn !px-2 !py-1.5">
+            <svg viewBox="0 0 24 24" fill="none" width="18" height="18" stroke="currentColor"
+                 strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <nav className="flex flex-col gap-1 p-3 overflow-y-auto">
+          {NAV_ITEMS.map((n) => (
+            <NavLink
+              key={n.to}
+              to={n.to}
+              end={n.to === "/"}
+              onClick={onClose}
+              className={({ isActive }) => navLinkCls(isActive)}
+            >
+              <NavIcon d={n.icon} />
+              {n.label}
+            </NavLink>
+          ))}
+        </nav>
+        <div className="mt-auto p-3 text-[11px] text-sv-muted border-t border-sv-border">
+          <div className="opacity-80">v0.1.0 · ScoutVision</div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function Topbar({ onMenu, menuOpen }: { onMenu: () => void; menuOpen: boolean }) {
   const auth = useAuth();
   const loc = useLocation();
   const connection = useQuery({
@@ -104,29 +171,43 @@ function Topbar() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-sv-border bg-sv-bg/80 backdrop-blur-md">
-      <div className="flex items-center gap-3 px-4 md:px-6 h-14">
-        <div className="md:hidden"><Logo /></div>
-        <div className="ml-auto md:ml-0 flex-1 md:flex-none">
-          <div className="md:hidden sv-label">ScoutVision</div>
-          <div className="hidden md:block font-medium">{title}</div>
+      <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 md:px-6 h-14">
+        {/* Botão de menu — só no mobile */}
+        <button
+          onClick={onMenu}
+          aria-label="Abrir menu de navegação"
+          aria-expanded={menuOpen}
+          aria-controls="sv-mobile-drawer"
+          className="md:hidden shrink-0 grid place-items-center w-10 h-10 rounded-lg border border-sv-border bg-sv-panel hover:bg-sv-panel2"
+        >
+          <svg viewBox="0 0 24 24" fill="none" width="20" height="20" stroke="currentColor"
+               strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 7h16M4 12h16M4 17h16" />
+          </svg>
+        </button>
+
+        <div className="md:hidden min-w-0">
+          <Logo />
         </div>
-        <div className="flex items-center gap-2">
-          <Link to="/about" className="sv-btn !py-1.5 md:hidden">Sobre</Link>
-          <span className={connection.isError ? "sv-chip hidden sm:inline-flex text-sv-danger" : "sv-chip-accent hidden sm:inline-flex"}>
+
+        <div className="hidden md:block font-medium">{title}</div>
+
+        <div className="ml-auto flex items-center gap-2 min-w-0">
+          <span className={connection.isError ? "sv-chip hidden lg:inline-flex text-sv-danger" : "sv-chip-accent hidden lg:inline-flex"}>
             <span className={`w-1.5 h-1.5 rounded-full ${connection.isError ? "bg-sv-danger" : connection.isSuccess ? "bg-sv-accent3 shadow-[0_0_10px_#5ef2b8]" : "bg-sv-warn animate-pulse"}`}/>
             {connection.isError ? "API indisponível" : connection.isSuccess ? "API conectada" : "Verificando API"}
           </span>
           {auth.token ? (
-            <div className="flex items-center gap-2">
-              <div className="sv-chip">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="sv-chip hidden sm:inline-flex min-w-0">
                 <span className="uppercase text-[10px] font-semibold">{auth.role}</span>
                 <span className="text-sv-muted">·</span>
                 <span className="truncate max-w-[140px]">{auth.email}</span>
               </div>
-              <button onClick={() => auth.logout()} className="sv-btn !py-1.5">Sair</button>
+              <button onClick={() => auth.logout()} className="sv-btn !py-1.5 shrink-0">Sair</button>
             </div>
           ) : (
-            <Link to="/login" className="sv-btn-primary !py-1.5">Entrar</Link>
+            <Link to="/login" className="sv-btn-primary !py-1.5 shrink-0">Entrar</Link>
           )}
         </div>
       </div>
@@ -135,12 +216,16 @@ function Topbar() {
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = () => setMenuOpen(false);
+
   return (
     <div className="flex h-full">
       <Sidebar />
+      <MobileDrawer open={menuOpen} onClose={closeMenu} />
       <div className="flex-1 flex flex-col min-w-0">
-        <Topbar />
-        <main className="flex-1 p-4 md:p-6 overflow-auto">
+        <Topbar onMenu={() => setMenuOpen(true)} menuOpen={menuOpen} />
+        <main className="flex-1 p-3 sm:p-4 md:p-6 overflow-auto">
           <div className="mx-auto max-w-[1500px]">{children}</div>
         </main>
       </div>

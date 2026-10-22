@@ -331,6 +331,9 @@ class MatchAnalysisOut(BaseModel):
     h2h_recent: List[Dict[str, Any]] = []
     form: Dict[str, List[Any]] = {}
     key_stats: Dict[str, Any] = {}
+    # Explicit fallback signals so consumers can render empty states instead
+    # of assuming data is missing due to an error.
+    data_availability: Dict[str, bool] = Field(default_factory=dict)
 
 
 class PredictionGenerateRequest(BaseModel):

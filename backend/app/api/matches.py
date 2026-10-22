@@ -8,6 +8,7 @@ from app.db.models import Match
 from app.repositories.repositories import (
     MatchRepository, TeamRepository, TeamStatisticsRepository, PlayerRepository
 )
+from app.services.crests import resolve_crest
 from app.schemas import (
     MatchOut, MatchDetailedOut, MatchAnalysisOut, PredictionGenerateRequest,
     PredictionGenerateResponse, MatchTeamPreview, LineupPlayer,
@@ -30,10 +31,10 @@ def _to_match_out(m: Match) -> MatchOut:
         kickoff_time=m.kickoff_time,
         status=m.status,
         home_team=MatchTeamPreview(id=m.home_team.id, name=m.home_team.name,
-                                    short_name=m.home_team.short_name, logo_url=m.home_team.logo_url)
+                                    short_name=m.home_team.short_name, logo_url=resolve_crest(m.home_team.name, m.home_team.logo_url))
                  if m.home_team else MatchTeamPreview(id=m.home_team_id, name="?", short_name=None),
         away_team=MatchTeamPreview(id=m.away_team.id, name=m.away_team.name,
-                                    short_name=m.away_team.short_name, logo_url=m.away_team.logo_url)
+                                    short_name=m.away_team.short_name, logo_url=resolve_crest(m.away_team.name, m.away_team.logo_url))
                  if m.away_team else MatchTeamPreview(id=m.away_team_id, name="?", short_name=None),
         home_score=m.home_score, away_score=m.away_score,
         stadium_name=(m.stadium.name if m.stadium else None),
@@ -82,6 +83,14 @@ def get_match(match_id: int, db: Session = Depends(get_db)):
     if not m:
         raise HTTPException(404, "Match not found")
     out = _to_match_out(m)
+    # Pre-load all lineup players in a single query (avoid N+1).
+    player_ids = [lu.player_id for lu in m.lineups]
+    players_by_id = {}
+    if player_ids:
+        from sqlalchemy import select as _sel
+        from app.db.models import Player as _Player
+        rows = db.scalars(_sel(_Player).where(_Player.id.in_(player_ids))).all()
+        players_by_id = {p.id: p for p in rows}
     lineups_out: Dict[str, List[LineupPlayer]] = {
         "home": [], "away": [],
     }
@@ -89,7 +98,8 @@ def get_match(match_id: int, db: Session = Depends(get_db)):
     away_id = m.away_team_id
     for lu in m.lineups:
         side = "home" if lu.team_id == home_id else "away"
-        pname = (player_repo.get(db, lu.player_id).last_name) if player_repo.get(db, lu.player_id) else "?"
+        p = players_by_id.get(lu.player_id)
+        pname = (p.last_name if p else None) or (p.display_name if p else None) or "?"
         lineups_out[side].append(LineupPlayer(
             player_id=lu.player_id, player_name=pname,
             is_starter=lu.is_starter, position=lu.position,
@@ -107,8 +117,15 @@ def get_match_analysis(match_id: int, db: Session = Depends(get_db)):
     m = match_repo.get(db, match_id)
     if not m:
         raise HTTPException(404, "Match not found")
-    home = ts_repo.for_team(db, m.home_team_id)
-    away = ts_repo.for_team(db, m.away_team_id)
+    # Prefer the match's own season for aggregate stats; fall back to any
+    # available row (handled inside for_team) so StatsBomb teams are not
+    # silently reported as missing.
+    home = ts_repo.for_team(db, m.home_team_id, season_id=m.season_id)
+    away = ts_repo.for_team(db, m.away_team_id, season_id=m.season_id)
+    if home is None:
+        home = ts_repo.for_team(db, m.home_team_id)
+    if away is None:
+        away = ts_repo.for_team(db, m.away_team_id)
     h2h = match_repo.head_to_head(db, m.home_team_id, m.away_team_id, limit=6)
     h2h_out = [
         {
@@ -121,8 +138,8 @@ def get_match_analysis(match_id: int, db: Session = Depends(get_db)):
             "away_name": x.away_team.name if x.away_team else None,
             "home_short_name": x.home_team.short_name if x.home_team else None,
             "away_short_name": x.away_team.short_name if x.away_team else None,
-            "home_logo_url": x.home_team.logo_url if x.home_team else None,
-            "away_logo_url": x.away_team.logo_url if x.away_team else None,
+            "home_logo_url": resolve_crest(x.home_team.name if x.home_team else None, x.home_team.logo_url if x.home_team else None),
+            "away_logo_url": resolve_crest(x.away_team.name if x.away_team else None, x.away_team.logo_url if x.away_team else None),
             "home_score": x.home_score,
             "away_score": x.away_score,
         } for x in h2h
@@ -131,6 +148,12 @@ def get_match_analysis(match_id: int, db: Session = Depends(get_db)):
         "home": (home.recent_form if home else []),
         "away": (away.recent_form if away else []),
     }
+    # Standings availability for the match's season.
+    from app.db.models import Standing as _Standing
+    standings_available = db.query(_Standing).filter(_Standing.season_id == m.season_id).count() > 0
+    # Lineups availability (official or estimated possible).
+    from app.db.models import Lineup as _Lineup
+    lineups_available = db.query(_Lineup).filter(_Lineup.match_id == match_id).count() > 0
     return MatchAnalysisOut(
         match_id=match_id,
         home_team_stats=home, away_team_stats=away,
@@ -144,6 +167,14 @@ def get_match_analysis(match_id: int, db: Session = Depends(get_db)):
             "away_xga_per_90": getattr(away, "xga_per_90", None),
             "home_points_per_game": getattr(home, "points_per_game", None),
             "away_points_per_game": getattr(away, "points_per_game", None),
+        },
+        data_availability={
+            "team_stats": bool(home or away),
+            "home_team_stats": home is not None,
+            "away_team_stats": away is not None,
+            "lineups": lineups_available,
+            "standings": standings_available,
+            "h2h": len(h2h_out) > 0,
         },
     )
 
@@ -224,12 +255,12 @@ def get_match_lineups(match_id: int, db: Session = Depends(get_db)):
     payload["home_team"] = {
         "id": m.home_team_id,
         "name": m.home_team.name if m.home_team else None,
-        "logo_url": m.home_team.logo_url if m.home_team else None,
+        "logo_url": resolve_crest(m.home_team.name if m.home_team else None, m.home_team.logo_url if m.home_team else None),
     }
     payload["away_team"] = {
         "id": m.away_team_id,
         "name": m.away_team.name if m.away_team else None,
-        "logo_url": m.away_team.logo_url if m.away_team else None,
+        "logo_url": resolve_crest(m.away_team.name if m.away_team else None, m.away_team.logo_url if m.away_team else None),
     }
     return payload
 
