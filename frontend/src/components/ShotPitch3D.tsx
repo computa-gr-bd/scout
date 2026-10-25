@@ -6,6 +6,7 @@ import type { UnderstatShot } from "../api/client";
 import { Lines, PitchMesh, WIDTH } from "./Pitch3D";
 import {
   RESULT_META, bodyLabel, distanceToGoal, estimatedTrajectory, fmt, resultKey, situationLabel, toWorld,
+  type AttackSide,
 } from "../lib/shotAnalytics";
 
 export interface Shot3DItem {
@@ -13,14 +14,28 @@ export interface Shot3DItem {
   color: string;
   /** Cor do anel na base (time). */
   ring: string;
+  /** Posição de exibição (0-100) quando o time é espelhado para o outro lado do campo. */
+  pos?: { x: number; y: number };
+  /** Gol que o time ataca (padrão: direita). */
+  side?: AttackSide;
 }
 
 type CameraView = "broadcast" | "goal" | "top";
 
-const CAMERA_PRESETS: Record<CameraView, { label: string; position: [number, number, number]; target: [number, number, number] }> = {
+type CameraPreset = { label: string; position: [number, number, number]; target: [number, number, number] };
+
+// Um time só (ataque para a direita): câmera focada na metade ofensiva.
+const CAMERA_PRESETS: Record<CameraView, CameraPreset> = {
   broadcast: { label: "Transmissão", position: [18, 40, 54], target: [26, 0, 0] },
   goal: { label: "Atrás do gol", position: [WIDTH / 2 + 26, 11, 0], target: [WIDTH / 2 - 14, 1.5, 0] },
   top: { label: "Vista aérea", position: [30, 78, 0.01], target: [30, 0, 0] },
+};
+
+// Cada time em um lado: câmera centrada no campo inteiro.
+const CAMERA_PRESETS_BOTH: Record<CameraView, CameraPreset> = {
+  broadcast: { label: "Transmissão", position: [0, 62, 78], target: [0, 0, 0] },
+  goal: { label: "Atrás do gol", position: [WIDTH / 2 + 26, 11, 0], target: [WIDTH / 2 - 14, 1.5, 0] },
+  top: { label: "Vista aérea", position: [0, 105, 0.01], target: [0, 0, 0] },
 };
 
 function radiusFor(xg: number | null) {
@@ -34,7 +49,7 @@ function ShotMarker({
   const haloRef = useRef<Group>(null);
   const isGoal = resultKey(shot) === "goal";
   const r = radiusFor(shot.xg);
-  const pos = toWorld(shot.x ?? 0, shot.y ?? 0, r);
+  const pos = toWorld(item.pos?.x ?? shot.x ?? 0, item.pos?.y ?? shot.y ?? 0, r);
 
   useFrame(({ clock }) => {
     if (!haloRef.current) return;
@@ -76,7 +91,13 @@ function ShotMarker({
 }
 
 function Trajectory({ item, index, active, dim }: { item: Shot3DItem; index: number; active: boolean; dim: boolean }) {
-  const points = useMemo(() => estimatedTrajectory(item.shot, item.shot.event_id ?? index), [item.shot, index]);
+  const points = useMemo(
+    () => estimatedTrajectory(
+      item.shot, item.shot.event_id ?? index, 22,
+      item.pos ? { x: item.pos.x, y: item.pos.y, side: item.side ?? "right" } : undefined,
+    ),
+    [item.shot, item.pos, item.side, index]
+  );
   return (
     <Line
       points={points}
@@ -89,7 +110,7 @@ function Trajectory({ item, index, active, dim }: { item: Shot3DItem; index: num
 }
 
 export function ShotPitch3D({
-  items, showTrails = true, selected, onSelect, homeLabel, awayLabel,
+  items, showTrails = true, selected, onSelect, homeLabel, awayLabel, bothSides = false,
 }: {
   items: Shot3DItem[];
   showTrails?: boolean;
@@ -97,14 +118,17 @@ export function ShotPitch3D({
   onSelect: (index: number | null) => void;
   homeLabel?: string;
   awayLabel?: string;
+  /** Cada time ataca um lado do campo (câmera mostra o campo inteiro). */
+  bothSides?: boolean;
 }) {
   const [view, setView] = useState<CameraView>("broadcast");
-  const preset = CAMERA_PRESETS[view];
+  const presets = bothSides ? CAMERA_PRESETS_BOTH : CAMERA_PRESETS;
+  const preset = presets[view];
   const picked = selected != null ? items[selected] : null;
 
   return (
     <div className="relative rounded-2xl overflow-hidden border border-white/10" style={{ height: 520 }}>
-      <Canvas key={view} shadows camera={{ position: preset.position, fov: 42 }} dpr={[1, 2]}
+      <Canvas key={`${view}-${bothSides}`} shadows camera={{ position: preset.position, fov: 42 }} dpr={[1, 2]}
         onPointerMissed={() => onSelect(null)}>
         <color attach="background" args={["#0a0f1a"]} />
         <ambientLight intensity={0.65} />
@@ -123,19 +147,30 @@ export function ShotPitch3D({
             <ShotMarker key={`m-${it.shot.event_id}-${i}`} item={it} index={i}
               selected={selected === i} onSelect={onSelect} />
           ))}
-          <Text position={[WIDTH / 2 - 8, 0.1, 40]} fontSize={1.8} color="#8794ad" anchorX="center">
-            gol de ataque →
-          </Text>
+          {bothSides ? (
+            <>
+              <Text position={[WIDTH / 2 - 10, 0.1, 40]} fontSize={1.8} color="#8794ad" anchorX="center">
+                {`${homeLabel ?? "mandante"} ataca →`}
+              </Text>
+              <Text position={[-(WIDTH / 2) + 10, 0.1, 40]} fontSize={1.8} color="#8794ad" anchorX="center">
+                {`← ${awayLabel ?? "visitante"} ataca`}
+              </Text>
+            </>
+          ) : (
+            <Text position={[WIDTH / 2 - 8, 0.1, 40]} fontSize={1.8} color="#8794ad" anchorX="center">
+              gol de ataque →
+            </Text>
+          )}
         </Suspense>
         <OrbitControls enablePan={false} target={preset.target} minDistance={18} maxDistance={140}
           maxPolarAngle={Math.PI / 2.05} />
       </Canvas>
 
       <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
-        {(Object.keys(CAMERA_PRESETS) as CameraView[]).map((v) => (
+        {(Object.keys(presets) as CameraView[]).map((v) => (
           <button key={v} onClick={() => setView(v)}
             className={`sv-btn !px-2.5 !py-1 text-[11px] ${view === v ? "!border-sv-accent3 !bg-sv-accent text-white" : ""}`}>
-            {CAMERA_PRESETS[v].label}
+            {presets[v].label}
           </button>
         ))}
       </div>

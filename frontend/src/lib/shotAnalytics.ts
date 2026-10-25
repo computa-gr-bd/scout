@@ -60,6 +60,17 @@ export function bodyLabel(v: string | null | undefined): string {
 }
 
 /** Distância (m) do ponto do chute ao centro do gol. Coordenadas 0-100, gol em x=100. */
+/** Lado do campo para o qual o time ataca. */
+export type AttackSide = "left" | "right";
+
+/**
+ * Posição de exibição de um chute. O Understat sempre grava o ataque para a direita (x = 100);
+ * o time que ataca para a esquerda é espelhado (rotação de 180°: x -> 100 - x, y -> 100 - y).
+ */
+export function displayPoint(x: number, y: number, side: AttackSide): { x: number; y: number } {
+  return side === "right" ? { x, y } : { x: 100 - x, y: 100 - y };
+}
+
 export function distanceToGoal(x: number, y: number): number {
   const dx = ((100 - x) / 100) * PITCH_W;
   const dy = ((y - 50) / 100) * PITCH_H;
@@ -242,8 +253,12 @@ export function toWorld(x: number, y: number, height = 0): [number, number, numb
  * Trajetória estimada até o gol. O Understat só informa o ponto de origem do chute,
  * então o destino é uma aproximação determinística (mesmo chute = mesma curva).
  */
-export function estimatedTrajectory(s: UnderstatShot, seed: number, steps = 22): [number, number, number][] {
-  const start = toWorld(s.x ?? 90, s.y ?? 50, 0.3);
+export function estimatedTrajectory(
+  s: UnderstatShot, seed: number, steps = 22,
+  view?: { x: number; y: number; side: AttackSide },
+): [number, number, number][] {
+  const side: AttackSide = view?.side ?? "right";
+  const start = toWorld(view?.x ?? s.x ?? 90, view?.y ?? s.y ?? 50, 0.3);
   const rk = resultKey(s);
   const jitter = ((seed * 37) % 100) / 100 - 0.5; // -0.5..0.5
   let endZ = jitter * 6; // dentro das traves (±3.66)
@@ -255,7 +270,7 @@ export function estimatedTrajectory(s: UnderstatShot, seed: number, steps = 22):
     endZ = (jitter >= 0 ? 1 : -1) * 3.66;
     endH = 1.2;
   }
-  let end: [number, number, number] = [PITCH_W / 2, endH, endZ];
+  let end: [number, number, number] = [side === "right" ? PITCH_W / 2 : -PITCH_W / 2, endH, endZ];
   if (rk === "blocked") {
     // bloqueado: a trajetória termina a ~55% do caminho
     end = [start[0] + (end[0] - start[0]) * 0.55, 0.5, start[2] + (end[2] - start[2]) * 0.55];

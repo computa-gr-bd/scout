@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { UnderstatShot } from "../api/client";
 import { AWAY_COLOR, HOME_COLOR, SOLO_COLOR, fmt, xgTimeline } from "../lib/shotAnalytics";
+import { TeamLogo } from "./ui";
 
 const W = 640;
 const H = 240;
@@ -8,7 +9,7 @@ const PAD = { l: 38, r: 16, t: 16, b: 30 };
 
 /** Linha de xG acumulado por time ao longo da partida, com marcadores nos gols. */
 export function XgTimeline({
-  shots, teams, cutoff, title = "xG acumulado por minuto",
+  shots, teams, cutoff, title = "xG acumulado por minuto", logos,
 }: {
   shots: UnderstatShot[];
   /** Times na ordem [mandante, visitante]. */
@@ -16,6 +17,8 @@ export function XgTimeline({
   /** Linha vertical do filtro de minuto (opcional). */
   cutoff?: number;
   title?: string;
+  /** Escudos por nome de time (opcional). */
+  logos?: Record<string, string | null | undefined>;
 }) {
   const series = useMemo(() => xgTimeline(shots, teams, 90), [shots, teams]);
   const endMinute = Math.max(90, ...series.flatMap((s) => s.points.map((p) => p.minute)));
@@ -44,6 +47,7 @@ export function XgTimeline({
           {series.map((s, i) => (
             <span key={s.team} className="flex items-center gap-1">
               <span className="inline-block h-2 w-3 rounded-sm" style={{ background: colors[i] }} />
+              {logos && <TeamLogo name={s.team} src={logos[s.team]} className="h-4 w-4" />}
               {s.team} <b className="text-white">{fmt(s.total)}</b>
             </span>
           ))}

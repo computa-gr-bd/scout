@@ -7,6 +7,7 @@ import {
   type UnderstatLeague, type UnderstatMatch, type UnderstatStats, type UnderstatTableRow,
 } from "../api/client";
 import { ShotExplorer } from "../components/ShotExplorer";
+import { TeamCompare, type CompareTeam } from "../components/TeamCompare";
 import { XgScatter, type ScatterPoint } from "../components/XgScatter";
 import { Badge, EmptyState, SectionTitle, StatCard, TeamLogo } from "../components/ui";
 import { fmt } from "../lib/shotAnalytics";
@@ -17,6 +18,8 @@ function num(v: unknown): number | null {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isNaN(n) ? null : n;
 }
+
+type Logos = Record<string, string | null | undefined>;
 
 function LoadingCard({ lines = 4 }: { lines?: number }) {
   return (
@@ -212,8 +215,8 @@ const RESULT_PT: Record<string, { label: string; cls: string }> = {
 };
 
 function TeamFormPanel({
-  team, seasonId, onClose,
-}: { team: { id: number; name: string; logo_url: string | null }; seasonId?: number; onClose: () => void }) {
+  team, seasonId, onClose, logos,
+}: { team: { id: number; name: string; logo_url: string | null }; seasonId?: number; onClose: () => void; logos?: Logos }) {
   const q = useQuery({
     queryKey: ["understat", "form", team.id, seasonId],
     queryFn: () => getUnderstatTeamForm(team.id, { limit: 5, season_id: seasonId }),
@@ -265,7 +268,10 @@ function TeamFormPanel({
                       <span className={`rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${res?.cls ?? ""}`}>{res?.label ?? "—"}</span>
                       <span className="text-[11px] text-sv-muted">{m.home ? "casa" : "fora"}</span>
                     </div>
-                    <div className="truncate text-sm">{m.opponent ?? "—"}</div>
+                    <div className="flex items-center gap-1.5 min-w-0 text-sm">
+                      {m.opponent && <TeamLogo name={m.opponent} src={logos?.[m.opponent]} className="h-4 w-4" />}
+                      <span className="truncate">{m.opponent ?? "—"}</span>
+                    </div>
                     <div className="mb-2 font-mono text-base tabular-nums">{m.goals_for ?? "-"} × {m.goals_against ?? "-"}</div>
                     {m.has_shots ? (
                       <div className="space-y-1">
@@ -298,13 +304,14 @@ function TeamFormPanel({
 // ---------------------------------------------------------------- Rankings
 
 function Leaders({
-  title, rows, metric, unit, onPick,
+  title, rows, metric, unit, onPick, logos,
 }: {
   title: string;
   rows: { player_id?: number; player: string | null; team: string | null; goals?: number; shots?: number; xg?: number }[];
   metric: "goals" | "xg" | "shots";
   unit?: string;
   onPick?: (playerId: number, name: string) => void;
+  logos?: Logos;
 }) {
   if (!rows.length) {
     return (
@@ -329,6 +336,7 @@ function Leaders({
                   className="flex w-full items-center gap-3 rounded-lg px-1.5 py-1 text-left text-sm enabled:hover:bg-sv-panel2/60"
                   onClick={() => clickable && onPick!(r.player_id as number, r.player ?? "Jogador")}>
                   <span className="w-5 text-sv-muted tabular-nums">{i + 1}</span>
+                  <TeamLogo name={r.team ?? undefined} src={r.team ? logos?.[r.team] : undefined} className="h-6 w-6" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate">{r.player ?? "—"}</div>
                     <div className="text-[11px] text-sv-muted truncate">{r.team ?? "—"}</div>
@@ -353,8 +361,8 @@ function Leaders({
 type PerfMode = "players" | "attack" | "defense";
 
 function PerformancePanel({
-  stats, onPickPlayer,
-}: { stats: UnderstatStats | undefined; onPickPlayer: (id: number, name: string) => void }) {
+  stats, onPickPlayer, logos,
+}: { stats: UnderstatStats | undefined; onPickPlayer: (id: number, name: string) => void; logos?: Logos }) {
   const [mode, setMode] = useState<PerfMode>("players");
 
   const { points, over, under, xLabel, yLabel, invert } = useMemo(() => {
@@ -396,7 +404,11 @@ function PerformancePanel({
           <li key={r.id}>
             <button className="flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-0.5 text-left enabled:hover:bg-sv-panel2/60"
               disabled={mode !== "players"} onClick={() => mode === "players" && onPickPlayer(Number(r.id), r.label)}>
-              <span className="truncate">{r.label}{r.sub ? <span className="ml-1.5 text-[11px] text-sv-muted">{r.sub}</span> : null}</span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <TeamLogo name={(mode === "players" ? r.sub : r.label) ?? undefined}
+                  src={logos?.[(mode === "players" ? r.sub : r.label) ?? ""]} className="h-5 w-5" />
+                <span className="truncate">{r.label}{r.sub ? <span className="ml-1.5 text-[11px] text-sv-muted">{r.sub}</span> : null}</span>
+              </span>
               <span className="shrink-0 font-mono text-xs tabular-nums text-sv-muted">
                 {r.y} vs {r.x.toFixed(1)} <b className="text-white">{signed(r.y - r.x)}</b>
               </span>
@@ -553,8 +565,12 @@ function MatchList({ leagueKey, seasonId }: { leagueKey: string; seasonId?: numb
         <Modal onClose={() => setSelected(null)}>
           <div className="px-4 py-3 border-b border-sv-border flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-sm font-semibold truncate">
-                {homeName} {selected.home_score ?? "-"} × {selected.away_score ?? "-"} {awayName}
+              <div className="flex items-center gap-2 text-sm font-semibold min-w-0">
+                <TeamLogo name={homeName} src={selected.home_team?.logo_url} className="h-6 w-6" />
+                <span className="truncate">{homeName}</span>
+                <span className="font-mono tabular-nums">{selected.home_score ?? "-"} × {selected.away_score ?? "-"}</span>
+                <span className="truncate">{awayName}</span>
+                <TeamLogo name={awayName} src={selected.away_team?.logo_url} className="h-6 w-6" />
               </div>
               <div className="text-xs text-sv-muted">
                 {selected.kickoff_time ? new Date(selected.kickoff_time).toLocaleDateString("pt-BR") : ""}
@@ -568,7 +584,10 @@ function MatchList({ leagueKey, seasonId }: { leagueKey: string; seasonId?: numb
             {shotsQ.isError && (
               <div className="text-sm text-sv-muted">Erro ao carregar chutes. Esta partida pode ainda não ter chutes coletados.</div>
             )}
-            {shotsQ.data && <ShotExplorer shots={shotsQ.data.shots} homeName={homeName} awayName={awayName} />}
+            {shotsQ.data && (
+              <ShotExplorer shots={shotsQ.data.shots} homeName={homeName} awayName={awayName}
+                logos={{ [homeName]: selected.home_team?.logo_url, [awayName]: selected.away_team?.logo_url }} />
+            )}
           </div>
         </Modal>
       )}
@@ -615,6 +634,21 @@ export default function UnderstatPage() {
       }, 1500);
     },
   });
+
+  // Escudos por nome de time (vindos das estatísticas da liga), usados nas listas e tabelas.
+  const logoByName = useMemo<Logos>(() => {
+    const m: Logos = {};
+    (statsQ.data?.teams ?? []).forEach((t) => { if (t.team) m[t.team] = t.logo_url ?? null; });
+    return m;
+  }, [statsQ.data]);
+
+  // Times disponíveis no comparador (ordem das estatísticas da liga).
+  const compareTeams = useMemo<CompareTeam[]>(
+    () => (statsQ.data?.teams ?? [])
+      .filter((t) => t.team_id != null)
+      .map((t) => ({ id: t.team_id as number, name: t.team, logo_url: t.logo_url ?? null })),
+    [statsQ.data]
+  );
 
   const shots = Number(statusQ.data?.leagues?.find((l) => l.resource === current?.key)?.summary?.["shots"] ?? 0);
 
@@ -728,15 +762,17 @@ export default function UnderstatPage() {
         onSelectTeam={(r) => setFormTeam(formTeam?.id === r.team_id ? null : { id: r.team_id, name: r.team, logo_url: r.logo_url })}
       />
 
-      {formTeam && <TeamFormPanel team={formTeam} seasonId={selectedSeason} onClose={() => setFormTeam(null)} />}
+      {formTeam && <TeamFormPanel team={formTeam} seasonId={selectedSeason} onClose={() => setFormTeam(null)} logos={logoByName} />}
+
+      <TeamCompare teams={compareTeams} seasonId={selectedSeason} />
 
       <div className="grid md:grid-cols-3 gap-3">
-        <Leaders title="Artilheiros" rows={statsQ.data?.top_scorers ?? []} metric="goals" onPick={pickPlayer} />
-        <Leaders title="Top xG" rows={statsQ.data?.top_xg ?? []} metric="xg" onPick={pickPlayer} />
-        <Leaders title="Mais chutes" rows={statsQ.data?.top_shots ?? []} metric="shots" onPick={pickPlayer} />
+        <Leaders title="Artilheiros" rows={statsQ.data?.top_scorers ?? []} metric="goals" onPick={pickPlayer} logos={logoByName} />
+        <Leaders title="Top xG" rows={statsQ.data?.top_xg ?? []} metric="xg" onPick={pickPlayer} logos={logoByName} />
+        <Leaders title="Mais chutes" rows={statsQ.data?.top_shots ?? []} metric="shots" onPick={pickPlayer} logos={logoByName} />
       </div>
 
-      <PerformancePanel stats={statsQ.data} onPickPlayer={pickPlayer} />
+      <PerformancePanel stats={statsQ.data} onPickPlayer={pickPlayer} logos={logoByName} />
 
       <MatchList leagueKey={current?.key ?? "epl"} seasonId={selectedSeason} />
 

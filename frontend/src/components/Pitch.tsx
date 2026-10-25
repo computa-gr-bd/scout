@@ -63,6 +63,9 @@ export interface PitchShot {
   stroke?: string;
   label?: string;
   title?: string;
+  /** Gol para o qual o time ataca (padrão: direita). Define o destino da linha do chute. */
+  side?: "left" | "right";
+  isGoal?: boolean;
 }
 
 export function Pitch2D({
@@ -80,6 +83,7 @@ export function Pitch2D({
   selectedShot,
   onShotClick,
   title,
+  header,
 }: {
   width?: number;
   height?: number;
@@ -98,6 +102,8 @@ export function Pitch2D({
   selectedShot?: number | null;
   onShotClick?: (index: number) => void;
   title?: string;
+  /** Conteúdo acima do gramado (ex.: logos dos times e sentido do ataque). */
+  header?: React.ReactNode;
 }) {
   const vb = "-2 0 104 100";
   const stroke = "rgba(255,255,255,0.88)";
@@ -139,6 +145,7 @@ export function Pitch2D({
         </div>
       </div>}
       <div className="p-3 md:p-5">
+        {header}
         <div className="rounded-2xl overflow-hidden pitch-gradient border border-white/10">
           <svg viewBox={vb} width="100%" preserveAspectRatio="xMidYMid meet" style={{ display: "block", aspectRatio: `${width} / ${height}` }}>
             {/* weaknesses: home team defends left 0-50, away right 50-100 */}
@@ -161,14 +168,14 @@ export function Pitch2D({
             {/* own penalty area (left) */}
             <rect x="1" y="21" width="16" height="58" fill="none" stroke={stroke} strokeWidth={sw} />
             <rect x="1" y="34" width="6" height="32" fill="none" stroke={stroke} strokeWidth={sw} />
-            <circle cx="16" cy="50" r="0.6" fill={stroke} />
+            <circle cx="11.5" cy="50" r="0.6" fill={stroke} />
             {/* away penalty area (right) */}
             <rect x="83" y="21" width="16" height="58" fill="none" stroke={stroke} strokeWidth={sw} />
             <rect x="93" y="34" width="6" height="32" fill="none" stroke={stroke} strokeWidth={sw} />
-            <circle cx="84" cy="50" r="0.6" fill={stroke} />
-            {/* penalty arc Ds */}
-            <path d={`M16,${50 - 7.3} A9.15 9.15 0 0 1 16,${50 + 7.3}`} fill="none" stroke={stroke} strokeWidth={sw} />
-            <path d={`M84,${50 - 7.3} A9.15 9.15 0 0 0 84,${50 + 7.3}`} fill="none" stroke={stroke} strokeWidth={sw} />
+            <circle cx="88.5" cy="50" r="0.6" fill={stroke} />
+            {/* penalty arc Ds: marca a 11 m do gol, raio de 9,15 m (elipse, pois o campo é normalizado 100x100) */}
+            <path d={`M17,${50 - 10.4} A8.7 13.5 0 0 1 17,${50 + 10.4}`} fill="none" stroke={stroke} strokeWidth={sw} />
+            <path d={`M83,${50 - 10.4} A8.7 13.5 0 0 0 83,${50 + 10.4}`} fill="none" stroke={stroke} strokeWidth={sw} />
             {/* gols: boca na linha de fundo, rede para fora do campo */}
             <rect x="-1" y="44" width="2" height="12" fill="none" stroke={stroke} strokeWidth={sw * 1.4} />
             <line x1="1" y1="44" x2="1" y2="56" stroke={stroke} strokeWidth={sw * 1.8} strokeLinecap="round" />
@@ -194,12 +201,19 @@ export function Pitch2D({
               </g>
             ))}
 
-            {/* linhas do chute até o gol */}
-            {shotLines && shots?.map((sh, i) => (
-              <line key={`sl-${i}`} x1={sh.x} y1={sh.y} x2={100} y2={50}
-                    stroke={sh.color ?? "#facc15"} strokeOpacity={selectedShot === i ? 0.9 : 0.28}
-                    strokeWidth={selectedShot === i ? 0.35 : 0.14} strokeDasharray="0.8 0.6" />
-            ))}
+            {/* linhas do chute até o centro do gol que o time ataca */}
+            {shotLines && shots?.map((sh, i) => {
+              const picked = selectedShot === i;
+              const goalX = sh.side === "left" ? 1 : 99;
+              return (
+                <line key={`sl-${i}`} x1={sh.x} y1={sh.y} x2={goalX} y2={50}
+                      stroke={sh.color ?? "#facc15"}
+                      strokeOpacity={picked ? 0.95 : sh.isGoal ? 0.85 : 0.5}
+                      strokeWidth={picked ? 0.45 : sh.isGoal ? 0.32 : 0.2}
+                      strokeLinecap="round"
+                      strokeDasharray={sh.isGoal || picked ? undefined : "1 0.7"} />
+              );
+            })}
 
             {/* chutes */}
             {shots?.map((sh, i) => {

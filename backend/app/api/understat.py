@@ -35,6 +35,7 @@ from app.services.understat_sync import (
     DEFAULT_SEASON, UNDERSTAT_LEAGUES, UnderstatClient, sync_understat_league,
 )
 from app.db import SessionLocal
+from app.services.crests import resolve_crest
 
 try:
     import aiohttp
@@ -228,8 +229,8 @@ def list_understat_matches(
             "competition": (m.season.competition.name if m.season and m.season.competition else None),
             "season": (m.season.name if m.season else None),
             "season_id": m.season_id,
-            "home_team": {"id": m.home_team.id, "name": m.home_team.name, "logo_url": m.home_team.logo_url} if m.home_team else None,
-            "away_team": {"id": m.away_team.id, "name": m.away_team.name, "logo_url": m.away_team.logo_url} if m.away_team else None,
+            "home_team": {"id": m.home_team.id, "name": m.home_team.name, "logo_url": resolve_crest(m.home_team.name, m.home_team.logo_url)} if m.home_team else None,
+            "away_team": {"id": m.away_team.id, "name": m.away_team.name, "logo_url": resolve_crest(m.away_team.name, m.away_team.logo_url)} if m.away_team else None,
             "home_score": m.home_score,
             "away_score": m.away_score,
             "status": m.status,
@@ -572,7 +573,7 @@ def understat_stats(
         teams.append({
             "team_id": t.id,
             "team": t.name,
-            "logo_url": t.logo_url,
+            "logo_url": resolve_crest(t.name, t.logo_url),
             "matches_played": st.matches_played,
             "wins": st.wins, "draws": st.draws, "losses": st.losses,
             "goals_for": st.goals_for, "goals_against": st.goals_against,
@@ -658,6 +659,95 @@ def get_team_form(
         })
     out.reverse()  # cronológico: mais antigo -> mais recente
     return {"team_id": team_id, "team": team.name, "matches": out}
+
+
+@router.get("/understat/teams/{team_id}/shots")
+def get_team_shots(
+    team_id: int,
+    limit: int = Query(5, ge=1, le=15),
+    season_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Chutes do próprio time nas últimas N partidas finalizadas (usado para comparar times).
+
+    As coordenadas vêm no padrão Understat (ataque sempre para x = 100); o espelhamento
+    por lado do campo é feito no frontend.
+    """
+    from sqlalchemy import or_
+
+    team = db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    q = select(Match).options(selectinload(Match.home_team), selectinload(Match.away_team)).where(
+        Match.data_source == DataSource.UNDERSTAT,
+        Match.status == "finished",
+        or_(Match.home_team_id == team_id, Match.away_team_id == team_id),
+    )
+    if season_id:
+        q = q.where(Match.season_id == season_id)
+    matches = db.scalars(q.order_by(desc(Match.kickoff_time)).limit(limit)).all()
+    ids = [m.id for m in matches]
+
+    info: dict[int, dict[str, Any]] = {}
+    for m in matches:
+        home = m.home_team_id == team_id
+        opp = m.away_team if home else m.home_team
+        gf = m.home_score if home else m.away_score
+        ga = m.away_score if home else m.home_score
+        result = None
+        if gf is not None and ga is not None:
+            result = "W" if gf > ga else "D" if gf == ga else "L"
+        info[m.id] = {
+            "match_id": m.id,
+            "kickoff_time": m.kickoff_time.isoformat() if m.kickoff_time else None,
+            "home": home,
+            "opponent": opp.name if opp else None,
+            "goals_for": gf, "goals_against": ga, "result": result,
+        }
+
+    shots: list[dict[str, Any]] = []
+    if ids:
+        events = db.scalars(
+            select(Event)
+            .options(selectinload(Event.shot), selectinload(Event.position), selectinload(Event.player))
+            .where(Event.match_id.in_(ids), Event.team_id == team_id, Event.type == EventType.SHOT)
+        ).all()
+        for e in events:
+            sh, pos = e.shot, e.position
+            shots.append({
+                "event_id": e.id,
+                "match_id": e.match_id,
+                "minute": e.minute,
+                "period": e.period,
+                "player": _player_name(e.player),
+                "team": team.name,
+                "result": e.outcome,
+                "on_target": sh.on_target if sh else None,
+                "is_goal": sh.is_goal if sh else None,
+                "xg": sh.xg if sh else None,
+                "x": pos.x if pos else None,
+                "y": pos.y if pos else None,
+                "end_x": pos.end_x if pos else None,
+                "end_y": pos.end_y if pos else None,
+                "situation": sh.situation if sh else None,
+                "body_part": sh.body_part if sh else None,
+                "shot_type": sh.shot_type if sh else None,
+                "last_action": (e.details or {}).get("last_action"),
+                "assisted_by": (e.details or {}).get("assisted_by"),
+            })
+        shots.sort(key=lambda s: (s["match_id"], s["minute"] or 0))
+
+    ordered = [info[m.id] for m in reversed(matches)]  # cronológico: mais antigo -> mais recente
+    for row in ordered:
+        row["shots_count"] = sum(1 for s in shots if s["match_id"] == row["match_id"])
+    return {
+        "team_id": team_id,
+        "team": team.name,
+        "logo_url": resolve_crest(team.name, team.logo_url),
+        "matches": ordered,
+        "shots": shots,
+    }
 
 
 @router.get("/understat/matches/{match_id}/events")
@@ -761,7 +851,7 @@ def get_team_stats(
         "team_id": team.id,
         "team": team.name,
         "short_name": team.short_name,
-        "logo_url": team.logo_url,
+        "logo_url": resolve_crest(team.name, team.logo_url),
         "total_matches_played": total_matches,
         "total_wins": total_wins,
         "total_draws": total_draws,

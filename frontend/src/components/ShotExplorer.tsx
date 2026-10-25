@@ -3,12 +3,15 @@ import type { UnderstatShot } from "../api/client";
 import { Pitch2D, type PitchShot } from "./Pitch";
 import { ShotPitch3D, type Shot3DItem } from "./ShotPitch3D";
 import { XgTimeline } from "./XgTimeline";
+import { TeamLogo } from "./ui";
 import {
   AWAY_COLOR, DEFAULT_FILTERS, HOME_COLOR, RESULT_META, RESULT_ORDER, SITUATION_LABELS, SOLO_COLOR,
-  applyFilters, bodyLabel, distanceToGoal, fmt, heatGrid, resultKey, shotColor, situationLabel,
+  applyFilters, bodyLabel, displayPoint, distanceToGoal, fmt, heatGrid, resultKey, shotColor, situationLabel,
   summarize, uniqueValues, BODY_LABELS, BIG_CHANCE_XG,
-  type ResultKey, type ShotFilters, type ShotSummary,
+  type AttackSide, type ResultKey, type ShotFilters, type ShotSummary,
 } from "../lib/shotAnalytics";
+
+type Logos = Record<string, string | null | undefined>;
 
 type ViewMode = "map" | "heat" | "3d";
 
@@ -30,7 +33,9 @@ function cell(v: number | null, digits?: number) {
   return digits != null ? v.toFixed(digits) : String(Math.round(v));
 }
 
-function CompareTable({ teams, sums, colors }: { teams: string[]; sums: ShotSummary[]; colors: string[] }) {
+export function CompareTable({
+  teams, sums, colors, logos,
+}: { teams: string[]; sums: ShotSummary[]; colors: string[]; logos?: Logos }) {
   if (teams.length < 2) {
     const s = sums[0];
     return (
@@ -47,9 +52,15 @@ function CompareTable({ teams, sums, colors }: { teams: string[]; sums: ShotSumm
   return (
     <div className="space-y-2.5">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-xs font-semibold">
-        <div className="truncate text-right" style={{ color: colors[0] }}>{teams[0]}</div>
+        <div className="flex min-w-0 items-center justify-end gap-2" style={{ color: colors[0] }}>
+          <span className="truncate">{teams[0]}</span>
+          <TeamLogo name={teams[0]} src={logos?.[teams[0]]} className="h-6 w-6" />
+        </div>
         <div className="w-40 sm:w-52" />
-        <div className="truncate" style={{ color: colors[1] }}>{teams[1]}</div>
+        <div className="flex min-w-0 items-center gap-2" style={{ color: colors[1] }}>
+          <TeamLogo name={teams[1]} src={logos?.[teams[1]]} className="h-6 w-6" />
+          <span className="truncate">{teams[1]}</span>
+        </div>
       </div>
       {COMPARE_ROWS.map((r) => {
         const a = (sums[0]?.[r.key] as number | null) ?? 0;
@@ -79,12 +90,14 @@ function CompareTable({ teams, sums, colors }: { teams: string[]; sums: ShotSumm
  * linha do tempo (com play), xG acumulado e lista de finalizações.
  */
 export function ShotExplorer({
-  shots, homeName, awayName, showXgTimeline = true,
+  shots, homeName, awayName, showXgTimeline = true, logos,
 }: {
   shots: UnderstatShot[];
   homeName?: string;
   awayName?: string;
   showXgTimeline?: boolean;
+  /** Escudos por nome de time (opcional). Sem escudo, o TeamLogo mostra as iniciais. */
+  logos?: Logos;
 }) {
   const teams = useMemo(
     () => (homeName && awayName ? [homeName, awayName] : uniqueValues(shots, (s) => s.team).slice(0, 2)),
@@ -100,11 +113,18 @@ export function ShotExplorer({
   const maxAll = useMemo(() => Math.max(90, ...shots.map((s) => s.minute ?? 0)), [shots]);
   const [filters, setFilters] = useState<ShotFilters>({ ...DEFAULT_FILTERS, maxMinute: 999 });
   const [view, setView] = useState<ViewMode>("map");
-  const [lines, setLines] = useState(false);
+  // Linhas até o gol ligadas por padrão; em partidas, cada time ocupa um lado do campo.
+  const [lines, setLines] = useState(true);
+  const [trails, setTrails] = useState(false);
+  const [sides, setSides] = useState(true);
   const [heatMetric, setHeatMetric] = useState<"xg" | "count">("xg");
   const [selected, setSelected] = useState<number | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [playing, setPlaying] = useState(false);
+
+  // Só em partida (mandante x visitante): mandante ataca para a direita, visitante para a esquerda.
+  const bothSides = !!(homeName && awayName) && multiTeam && sides;
+  const sideOf = (t: string | null): AttackSide => (bothSides && teams.indexOf(t ?? "") === 1 ? "left" : "right");
 
   const cutoff = Math.min(filters.maxMinute, maxAll);
   const update = (patch: Partial<ShotFilters>) => {
@@ -162,22 +182,37 @@ export function ShotExplorer({
   );
   const pitchShots: PitchShot[] = useMemo(
     () =>
-      plotted.map(({ s }) => ({
-        x: s.x ?? 0,
-        y: s.y ?? 0,
+      plotted.map(({ s }) => {
+        const side = sideOf(s.team);
+        const p = displayPoint(s.x ?? 0, s.y ?? 0, side);
+        return {
+        x: p.x,
+        y: p.y,
+        side,
+        isGoal: resultKey(s) === "goal",
         r: Math.max(1.4, Math.min(4.2, 1.4 + (s.xg ?? 0) * 6)),
         color: shotColor(s),
         stroke: multiTeam ? teamColor(s.team) : undefined,
         label: plotted.length <= 25 && s.minute != null ? String(s.minute) : undefined,
         title: `${s.minute ?? "?"}' ${s.player ?? ""} · ${RESULT_META[resultKey(s)].label} · xG ${fmt(s.xg)}`,
-      })),
+        };
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [plotted, multiTeam, teams]
+    [plotted, multiTeam, teams, bothSides]
   );
   const items3d: Shot3DItem[] = useMemo(
-    () => plotted.map(({ s }) => ({ shot: s, color: shotColor(s), ring: teamColor(s.team) })),
+    () => plotted.map(({ s }) => {
+      const side = sideOf(s.team);
+      return {
+        shot: s,
+        color: shotColor(s),
+        ring: teamColor(s.team),
+        side,
+        pos: displayPoint(s.x ?? 0, s.y ?? 0, side),
+      };
+    }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [plotted, multiTeam, teams]
+    [plotted, multiTeam, teams, bothSides]
   );
   const plotIdxOfSelected = selected == null ? null : plotted.findIndex((p) => p.i === selected);
   const pickByPlot = (idx: number | null) => setSelected(idx == null ? null : plotted[idx]?.i ?? null);
@@ -264,7 +299,7 @@ export function ShotExplorer({
       {/* Resumo */}
       <div className="sv-card-inner">
         <div className="sv-label mb-3">Resumo das finalizações ({filtered.length})</div>
-        <CompareTable teams={teams} sums={sums} colors={colors} />
+        <CompareTable teams={teams} sums={sums} colors={colors} logos={logos} />
       </div>
 
       {/* Visualização */}
@@ -279,6 +314,12 @@ export function ShotExplorer({
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-3 text-[11px] text-sv-muted">
+            {(view === "map" || view === "3d") && !!(homeName && awayName) && multiTeam && (
+              <label className="flex cursor-pointer items-center gap-1.5">
+                <input type="checkbox" checked={sides} onChange={(e) => setSides(e.target.checked)} />
+                Cada time em um lado
+              </label>
+            )}
             {view === "map" && (
               <label className="flex cursor-pointer items-center gap-1.5">
                 <input type="checkbox" checked={lines} onChange={(e) => setLines(e.target.checked)} />
@@ -287,7 +328,7 @@ export function ShotExplorer({
             )}
             {view === "3d" && (
               <label className="flex cursor-pointer items-center gap-1.5">
-                <input type="checkbox" checked={lines} onChange={(e) => setLines(e.target.checked)} />
+                <input type="checkbox" checked={trails} onChange={(e) => setTrails(e.target.checked)} />
                 Trajetórias estimadas
               </label>
             )}
@@ -306,8 +347,8 @@ export function ShotExplorer({
 
         {view === "3d" ? (
           <div className="sv-card p-3 md:p-5">
-            <ShotPitch3D items={items3d} showTrails={lines} selected={plotIdxOfSelected != null && plotIdxOfSelected >= 0 ? plotIdxOfSelected : null}
-              onSelect={pickByPlot} homeLabel={teams[0]} awayLabel={teams[1]} />
+            <ShotPitch3D items={items3d} showTrails={trails} selected={plotIdxOfSelected != null && plotIdxOfSelected >= 0 ? plotIdxOfSelected : null}
+              onSelect={pickByPlot} homeLabel={teams[0]} awayLabel={teams[1]} bothSides={bothSides} />
           </div>
         ) : (
           <Pitch2D
@@ -317,6 +358,20 @@ export function ShotExplorer({
             shotLines={view === "map" && lines}
             selectedShot={plotIdxOfSelected != null && plotIdxOfSelected >= 0 ? plotIdxOfSelected : null}
             onShotClick={view === "map" ? pickByPlot : undefined}
+            header={view === "map" && bothSides ? (
+              <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+                <div className="flex min-w-0 items-center gap-2 font-semibold" style={{ color: AWAY_COLOR }}>
+                  <TeamLogo name={teams[1]} src={logos?.[teams[1]]} className="h-7 w-7" />
+                  <span className="truncate">{teams[1]}</span>
+                  <span className="shrink-0 font-normal text-sv-muted">← ataca para a esquerda</span>
+                </div>
+                <div className="flex min-w-0 items-center gap-2 font-semibold" style={{ color: HOME_COLOR }}>
+                  <span className="shrink-0 font-normal text-sv-muted">ataca para a direita →</span>
+                  <span className="truncate">{teams[0]}</span>
+                  <TeamLogo name={teams[0]} src={logos?.[teams[0]]} className="h-7 w-7" />
+                </div>
+              </div>
+            ) : undefined}
           />
         )}
 
@@ -354,18 +409,18 @@ export function ShotExplorer({
             <span>· tamanho = xG</span>
             {multiTeam && (
               <>
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full border-2" style={{ borderColor: HOME_COLOR }} />{teams[0]}</span>
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full border-2" style={{ borderColor: AWAY_COLOR }} />{teams[1]}</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full border-2" style={{ borderColor: HOME_COLOR }} /><TeamLogo name={teams[0]} src={logos?.[teams[0]]} className="h-4 w-4" />{teams[0]}</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full border-2" style={{ borderColor: AWAY_COLOR }} /><TeamLogo name={teams[1]} src={logos?.[teams[1]]} className="h-4 w-4" />{teams[1]}</span>
               </>
             )}
-            <span>· ataque sempre para a direita</span>
+            <span>{bothSides ? "· mandante ataca para a direita, visitante para a esquerda" : "· ataque sempre para a direita"}</span>
           </div>
         )}
       </div>
 
       {/* xG acumulado */}
       {showXgTimeline && (
-        <XgTimeline shots={noMinute} teams={multiTeam ? teams : teams.length ? teams : []} cutoff={cutoff} />
+        <XgTimeline shots={noMinute} teams={multiTeam ? teams : teams.length ? teams : []} cutoff={cutoff} logos={logos} />
       )}
 
       {/* Lista */}
@@ -400,7 +455,10 @@ export function ShotExplorer({
                     <td className="px-3 py-1.5">{s.player ?? "—"}</td>
                     {multiTeam && (
                       <td className="px-3 py-1.5 text-sv-muted">
-                        <span className="mr-1.5 inline-block h-2 w-2 rounded-full" style={{ background: teamColor(s.team) }} />{s.team}
+                        <span className="mr-1.5 inline-flex rounded-full p-px align-middle" style={{ boxShadow: `0 0 0 1.5px ${teamColor(s.team)}` }}>
+                          <TeamLogo name={s.team ?? undefined} src={s.team ? logos?.[s.team] : undefined} className="h-4 w-4" />
+                        </span>
+                        {s.team}
                       </td>
                     )}
                     <td className="px-3 py-1.5">

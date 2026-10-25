@@ -54,6 +54,7 @@ _CRESTS: dict[str, str] = {
     "liverpool": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ce/Liverpool_FC.svg/200px-Liverpool_FC.svg.png",
     "brentford": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/Brentford_FC.svg/200px-Brentford_FC.svg.png",
     "leeds united": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Leeds_United_FC.svg/200px-Leeds_United_FC.svg.png",
+    "leeds": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Leeds_United_FC.svg/200px-Leeds_United_FC.svg.png",
     "everton": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Everton_FC.svg/200px-Everton_FC.svg.png",
     "hull city": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/51/Hull_City_AFC_logo.svg/200px-Hull_City_AFC_logo.svg.png",
     "ipswich town": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Ipswich_Town_FC_logo.svg/200px-Ipswich_Town_FC_logo.svg.png",
