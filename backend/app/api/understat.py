@@ -837,6 +837,7 @@ def get_league_table(
         .order_by(desc(TeamStatistics.points_per_game or 0), desc(TeamStatistics.goals_for or 0))
     ).all()
 
+    from app.services.crests import resolve_crest
     table = []
     for pos, (st, team) in enumerate(teams_stats, start=1):
         rf = st.recent_form or {}
@@ -845,7 +846,7 @@ def get_league_table(
             "team_id": team.id,
             "team": team.name,
             "short_name": team.short_name,
-            "logo_url": team.logo_url,
+            "logo_url": resolve_crest(team.name, team.logo_url),
             "matches_played": st.matches_played,
             "wins": st.wins,
             "draws": st.draws,

@@ -41,6 +41,13 @@
   .sv-btn-primary {
     @apply inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium border border-sv-accent/40 bg-sv-accent hover:bg-sv-accent2 text-white shadow-glow transition;
   }
+  .sv-input {
+    @apply inline-flex items-center rounded-lg px-3 py-2 text-sm border border-sv-border bg-sv-panel text-sv-text hover:bg-sv-panel2 transition focus:outline-none focus:border-sv-accent/50;
+  }
+  .sv-input option {
+    background: #0b1223;
+    color: #e6eaf2;
+  }
   .sv-divider {
     @apply h-px bg-sv-border/80 my-3;
   }
