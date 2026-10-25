@@ -16,6 +16,8 @@ export interface SquadPlayer {
   group: SquadGroupKey;
   /** Nota média mockada (0–10). */
   rating: number;
+  /** Jogos disputados na temporada. */
+  played: number;
   /** Gols na temporada — a soma deve bater com o `gf` do time na classificação. */
   goals: number;
   /** Assistências na temporada. */
@@ -97,32 +99,32 @@ export interface TeamDetail {
 // ---------------------------------------------------------------------------
 const BAYERN_SQUAD: SquadPlayer[] = [
   // GOLEIROS
-  { name: "Manuel Neuer", age: 40, position: "Goleiro", group: "goleiros", rating: 7.28, goals: 0, assists: 0 },
-  { name: "Sven Ulreich", age: 38, position: "Goleiro", group: "goleiros", rating: 6.9, goals: 0, assists: 0 },
-  { name: "Jonas Urbig", age: 23, position: "Goleiro", group: "goleiros", rating: 6.95, goals: 0, assists: 0 },
+  { name: "Manuel Neuer", age: 40, position: "Goleiro", group: "goleiros", rating: 7.28, played: 7, goals: 0, assists: 0 },
+  { name: "Sven Ulreich", age: 38, position: "Goleiro", group: "goleiros", rating: 6.9, played: 0, goals: 0, assists: 0 },
+  { name: "Jonas Urbig", age: 23, position: "Goleiro", group: "goleiros", rating: 6.95, played: 0, goals: 0, assists: 0 },
   // DEFENSORES
-  { name: "Dayot Upamecano", age: 29, position: "Zagueiro", group: "defensores", rating: 7.54, goals: 0, assists: 0 },
-  { name: "Kim Min-jae", age: 29, position: "Zagueiro", group: "defensores", rating: 7.58, goals: 0, assists: 0 },
-  { name: "Jonathan Tah", age: 30, position: "Zagueiro", group: "defensores", rating: 7.83, goals: 1, assists: 0 },
-  { name: "Nathaniel Brown", age: 23, position: "Lateral-esquerdo", group: "defensores", rating: 7.22, goals: 0, assists: 0 },
-  { name: "Alphonso Davies", age: 25, position: "Lateral-esquerdo", group: "defensores", rating: 7.72, goals: 1, assists: 1 },
-  { name: "Hiroki Ito", age: 27, position: "Zagueiro/Lateral-esquerdo", group: "defensores", rating: 7.41, goals: 0, assists: 0 },
-  { name: "Sacha Boey", age: 26, position: "Lateral-direito", group: "defensores", rating: 7.3, goals: 0, assists: 0 },
-  { name: "Josip Stanišić", age: 26, position: "Lateral-direito/Zagueiro", group: "defensores", rating: 7.36, goals: 0, assists: 0 },
+  { name: "Dayot Upamecano", age: 29, position: "Zagueiro", group: "defensores", rating: 7.54, played: 7, goals: 0, assists: 0 },
+  { name: "Kim Min-jae", age: 29, position: "Zagueiro", group: "defensores", rating: 7.58, played: 7, goals: 0, assists: 0 },
+  { name: "Jonathan Tah", age: 30, position: "Zagueiro", group: "defensores", rating: 7.83, played: 6, goals: 1, assists: 0 },
+  { name: "Nathaniel Brown", age: 23, position: "Lateral-esquerdo", group: "defensores", rating: 7.22, played: 2, goals: 0, assists: 0 },
+  { name: "Alphonso Davies", age: 25, position: "Lateral-esquerdo", group: "defensores", rating: 7.72, played: 5, goals: 1, assists: 1 },
+  { name: "Hiroki Ito", age: 27, position: "Zagueiro/Lateral-esquerdo", group: "defensores", rating: 7.41, played: 3, goals: 0, assists: 0 },
+  { name: "Sacha Boey", age: 26, position: "Lateral-direito", group: "defensores", rating: 7.3, played: 4, goals: 0, assists: 0 },
+  { name: "Josip Stanišić", age: 26, position: "Lateral-direito/Zagueiro", group: "defensores", rating: 7.36, played: 5, goals: 0, assists: 0 },
   // MEIO-CAMPISTAS
-  { name: "Joshua Kimmich", age: 31, position: "Meio-campista/Volante", group: "meio", rating: 8.08, goals: 1, assists: 3 },
-  { name: "Tom Bischof", age: 21, position: "Meio-campista", group: "meio", rating: 7.14, goals: 0, assists: 0 },
-  { name: "Jamal Musiala", age: 23, position: "Meia-atacante", group: "meio", rating: 7.96, goals: 3, assists: 2 },
-  { name: "Konrad Laimer", age: 29, position: "Meio-campista", group: "meio", rating: 7.45, goals: 0, assists: 1 },
-  { name: "Bara Sapoko Ndiaye", age: 18, position: "Meio-campista", group: "meio", rating: 6.98, goals: 0, assists: 0 },
-  { name: "Lennart Karl", age: 18, position: "Meia-atacante", group: "meio", rating: 7.1, goals: 0, assists: 1 },
-  { name: "Aleksandar Pavlović", age: 22, position: "Volante", group: "meio", rating: 7.65, goals: 0, assists: 1 },
+  { name: "Joshua Kimmich", age: 31, position: "Meio-campista/Volante", group: "meio", rating: 8.08, played: 7, goals: 1, assists: 3 },
+  { name: "Tom Bischof", age: 21, position: "Meio-campista", group: "meio", rating: 7.14, played: 3, goals: 0, assists: 0 },
+  { name: "Jamal Musiala", age: 23, position: "Meia-atacante", group: "meio", rating: 7.96, played: 6, goals: 3, assists: 2 },
+  { name: "Konrad Laimer", age: 29, position: "Meio-campista", group: "meio", rating: 7.45, played: 7, goals: 0, assists: 1 },
+  { name: "Bara Sapoko Ndiaye", age: 18, position: "Meio-campista", group: "meio", rating: 6.98, played: 1, goals: 0, assists: 0 },
+  { name: "Lennart Karl", age: 18, position: "Meia-atacante", group: "meio", rating: 7.1, played: 2, goals: 0, assists: 1 },
+  { name: "Aleksandar Pavlović", age: 22, position: "Volante", group: "meio", rating: 7.65, played: 6, goals: 0, assists: 1 },
   // ATACANTES
-  { name: "Serge Gnabry", age: 31, position: "Ponta/Atacante", group: "atacantes", rating: 7.38, goals: 1, assists: 1 },
-  { name: "Harry Kane", age: 33, position: "Centroavante", group: "atacantes", rating: 7.91, goals: 8, assists: 1 },
-  { name: "Luis Díaz", age: 29, position: "Ponta-esquerda", group: "atacantes", rating: 7.78, goals: 2, assists: 1 },
-  { name: "Michael Olise", age: 24, position: "Ponta-direita/Meia-atacante", group: "atacantes", rating: 8.05, goals: 4, assists: 2 },
-  { name: "Ismael Saibari", age: 25, position: "Atacante/Ponta", group: "atacantes", rating: 7.35, goals: 0, assists: 1 },
+  { name: "Serge Gnabry", age: 31, position: "Ponta/Atacante", group: "atacantes", rating: 7.38, played: 5, goals: 1, assists: 1 },
+  { name: "Harry Kane", age: 33, position: "Centroavante", group: "atacantes", rating: 7.91, played: 7, goals: 8, assists: 1 },
+  { name: "Luis Díaz", age: 29, position: "Ponta-esquerda", group: "atacantes", rating: 7.78, played: 6, goals: 2, assists: 1 },
+  { name: "Michael Olise", age: 24, position: "Ponta-direita/Meia-atacante", group: "atacantes", rating: 8.05, played: 6, goals: 4, assists: 2 },
+  { name: "Ismael Saibari", age: 25, position: "Atacante/Ponta", group: "atacantes", rating: 7.35, played: 4, goals: 0, assists: 1 },
 ];
 
 /** Próximos jogos (inventados). Adversários da Bundesliga usam os nomes de `MOCK_TEAMS`. */

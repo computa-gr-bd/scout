@@ -14,6 +14,7 @@ from app.api.teams import router as teams_router
 from app.api.players import router as players_router
 from app.api.matches import router as matches_router
 from app.api.models import router as models_router
+from app.api.understat import router as understat_router
 from app.db.models import CollectionState
 from app.db import get_db
 from sqlalchemy import select
@@ -166,3 +167,4 @@ app.include_router(teams_router, prefix=api_prefix)
 app.include_router(players_router, prefix=api_prefix)
 app.include_router(matches_router, prefix=api_prefix)
 app.include_router(models_router, prefix=api_prefix)
+app.include_router(understat_router, prefix=api_prefix)

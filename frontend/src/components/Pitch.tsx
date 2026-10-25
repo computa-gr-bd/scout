@@ -53,6 +53,7 @@ export function Pitch2D({
   opportunityZones,
   homePlayers,
   awayPlayers,
+  shots,
   title,
 }: {
   width?: number;
@@ -62,6 +63,8 @@ export function Pitch2D({
   opportunityZones?: { zone: PitchZone; value: number }[];
   homePlayers?: { x: number; y: number; label: string; pos?: string }[];
   awayPlayers?: { x: number; y: number; label: string; pos?: string }[];
+  /** Chutes sobre o gramado (coordenadas 0-100, ataque para a direita). */
+  shots?: { x: number; y: number; r?: number; color?: string; label?: string; title?: string }[];
   title?: string;
 }) {
   const vb = "-2 0 104 100";
@@ -150,6 +153,19 @@ export function Pitch2D({
               <g key={`ap-${i}`}>
                 <circle cx={p.x} cy={p.y} r="2.6" fill="#e1534e" stroke="white" strokeWidth="0.5"/>
                 <text x={p.x} y={p.y + 0.8} textAnchor="middle" fontSize="2.2" fill="white" fontWeight="700">{p.label}</text>
+              </g>
+            ))}
+
+            {/* chutes */}
+            {shots?.map((s, i) => (
+              <g key={`sh-${i}`}>
+                <title>{s.title}</title>
+                <circle cx={s.x} cy={s.y} r={s.r ?? 2.2} fill={s.color ?? "#facc15"}
+                        fillOpacity="0.75" stroke="white" strokeWidth="0.25" />
+                {s.label && (
+                  <text x={s.x} y={s.y + 0.75} textAnchor="middle" fontSize="1.9"
+                        fill="#0b1220" fontWeight="700">{s.label}</text>
+                )}
               </g>
             ))}
           </svg>

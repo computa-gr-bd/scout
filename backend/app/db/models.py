@@ -20,6 +20,7 @@ class DataSource(str, PyEnum):
     API_FOOTBALL = "api_football"
     FOOTBALL_DATA = "football_data"
     STATSBOMB = "statsbomb"
+    UNDERSTAT = "understat"
     MANUAL = "manual"
 
 

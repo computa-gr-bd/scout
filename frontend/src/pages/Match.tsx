@@ -137,6 +137,29 @@ export default function MatchPage() {
                 {m.status === "finished" ? `${m.home_score}–${m.away_score}` : "VS"}
               </div>
               <div className="mt-1 text-[11px] sm:text-xs text-sv-muted">{formatDateTime(m.kickoff_time)}</div>
+              {m.status === "finished" && lineupData?.goals?.length && (
+                <div className="mt-1.5 flex items-center justify-center gap-2 flex-wrap text-xs">
+                  <span className="text-sv-muted">Gols:</span>
+                  {lineupData.goals.map((g) => (
+                    <span
+                      key={g.minute + "-" + g.scorer_name}
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-sv-panel2 border border-sv-border/40"
+                    >
+                      <span className="font-mono text-sv-muted">{g.minute}'</span>
+                      <span className="font-medium">{g.scorer_name}</span>
+                      {g.is_penalty && (
+                        <span className="sv-chip !py-0 text-[9px]">pên</span>
+                      )}
+                      {g.is_own_goal && (
+                        <span className="sv-chip !py-0 text-[9px] text-sv-warn border-sv-warn/40">
+                          GC
+                        </span>
+                      )}
+                      {g.assist_name && <span className="text-sv-muted">(ass. {g.assist_name})</span>}
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="mt-0.5 text-[11px] text-sv-muted hidden md:block">Estádio: {m.stadium_name || "—"} · Árbitro: {m.referee || "—"}</div>
               <div className="mt-2 flex items-center justify-center gap-2 flex-wrap">
                 <Link to={`/analysis/${matchId}`} className="sv-btn-primary !py-1.5 text-[12px]">Abrir análise</Link>

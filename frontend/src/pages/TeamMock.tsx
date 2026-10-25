@@ -116,7 +116,7 @@ function ElencoTab({ detail }: { detail: TeamDetail }) {
       <div className="sv-card-inner">
         <SectionTitle
           title={`${detail.display_name.toUpperCase()} — ELENCO ${detail.season}`}
-          hint={`${detail.squad.length} atletas · nome, idade e posição por linha`}
+          hint={`${detail.squad.length} atletas · J = jogos, G = gols, A = assistências`}
         />
         <div className="space-y-5">
           {SQUAD_GROUPS.map((g) => {
@@ -140,6 +140,11 @@ function ElencoTab({ detail }: { detail: TeamDetail }) {
                       <div className="text-right shrink-0">
                         <div className="font-mono text-sm font-semibold">{p.age}</div>
                         <div className="text-[10px] text-sv-muted">anos</div>
+                        <div className="mt-1 text-[10px] text-sv-muted">
+                          <span className="font-semibold text-white mr-1">J {p.played}</span>
+                          <span className="font-semibold text-white mr-1">G {p.goals}</span>
+                          <span className="font-semibold text-white">A {p.assists}</span>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -182,7 +187,7 @@ function FixtureRow({ f, teamName }: { f: ClubFixture; teamName: string }) {
   );
 }
 
-function PartidasTab({ detail, teamName }: { detail: TeamDetail; teamName: string }) {
+function PartidasTab({ detail, teamName, competition }: { detail: TeamDetail; teamName: string; competition: "Bundesliga" | "UEFA Champions League" }) {
   return (
     <div className="sv-card">
       <div className="sv-card-inner">
@@ -192,7 +197,7 @@ function PartidasTab({ detail, teamName }: { detail: TeamDetail; teamName: strin
           right={<Badge kind="accent">Bundesliga · UCL · Pokal</Badge>}
         />
         <div className="space-y-2">
-          {detail.fixtures.map((f, i) => (
+          {detail.fixtures.filter((f) => f.competition === competition).map((f, i) => (
             <FixtureRow key={`${f.date}-${f.home}-${f.away}-${i}`} f={f} teamName={teamName} />
           ))}
         </div>
@@ -205,8 +210,11 @@ function PartidasTab({ detail, teamName }: { detail: TeamDetail; teamName: strin
 // ---------------------------------------------------------------------------
 // Aba Classificação — Bundesliga com os 18 times mockados (rodada 7)
 // ---------------------------------------------------------------------------
-function ClassificacaoTab({ detail, teamName }: { detail: TeamDetail; teamName: string }) {
-  const rows = deriveStandings(detail.standings);
+function ClassificacaoTab({ detail, teamName, competition }: { detail: TeamDetail; teamName: string; competition: "Bundesliga" | "UEFA Champions League" }) {
+  const rows =
+      competition === "Bundesliga"
+        ? deriveStandings(detail.standings)
+        : []; // sem dados de Champions League no mock
   const round = rows[0]?.played ?? 0;
   return (
     <div className="sv-card">
@@ -468,6 +476,7 @@ function DetalhesTab({ detail, country }: { detail: TeamDetail; country: string 
 // ---------------------------------------------------------------------------
 export default function MockTeamDetail({ team }: { team: MockTeam }) {
   const [tab, setTab] = useState<TabKey>("elenco");
+  const [competition, setCompetition] = useState<"Bundesliga" | "UEFA Champions League">("Bundesliga");
   const detail = getTeamDetail(team.id);
   const league = LEAGUES.find((l) => l.id === team.league_id);
 
@@ -502,6 +511,24 @@ export default function MockTeamDetail({ team }: { team: MockTeam }) {
               </div>
             </div>
           </div>
+          {/* Toggle de competição (Bundesliga / Champions League) */}
+          <div className="mt-3 flex items-center gap-2 overflow-x-auto border-b border-sv-border pb-2">
+            <span className="text-xs text-sv-muted shrink-0 whitespace-nowrap">Competição:</span>
+            {(["Bundesliga", "UEFA Champions League"] as const).map((comp) => (
+              <button
+                key={comp}
+                type="button"
+                onClick={() => setCompetition(comp)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md border transition whitespace-nowrap ${
+                  competition === comp
+                    ? "bg-sv-accent3 border-sv-accent3 text-white"
+                    : "bg-sv-panel border-sv-border/50 text-sv-muted hover:text-sv-text hover:border-sv-border"
+                }`}
+              >
+                {comp.replace("UEFA ", "")}
+              </button>
+            ))}
+          </div>
           <div className="flex gap-1 mt-4 overflow-x-auto border-t border-sv-border pt-1">
             {TABS.map((tb) => (
               <button
@@ -522,8 +549,17 @@ export default function MockTeamDetail({ team }: { team: MockTeam }) {
       </div>
 
       {tab === "elenco" && <ElencoTab detail={detail} />}
-      {tab === "partidas" && <PartidasTab detail={detail} teamName={team.name} />}
-      {tab === "classificacao" && <ClassificacaoTab detail={detail} teamName={team.name} />}
+      {tab === "partidas" && <PartidasTab detail={detail} teamName={team.name} competition={competition} />}
+      {tab === "classificacao" && (
+        competition === "Bundesliga" ? (
+          <ClassificacaoTab detail={detail} teamName={team.name} competition={competition} />
+        ) : (
+          <EmptyState
+            title="Classificação — UEFA Champions League"
+            description="Não há dados de classificação da Champions League disponíveis nesta versão mock."
+          />
+        )
+      )}
       {tab === "melhores" && <MelhoresTab detail={detail} />}
       {tab === "estatisticas" && <EstatisticasTab detail={detail} teamName={team.name} />}
       {tab === "detalhes" && <DetalhesTab detail={detail} country={team.country || "—"} />}

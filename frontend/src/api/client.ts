@@ -351,3 +351,172 @@ export interface DataCollectionStatus {
 export async function getDataStatus() {
   return api.get<DataCollectionStatus>("/data/status").then((r) => r.data);
 }
+
+// ---------- Understat ----------
+export interface UnderstatSeason {
+  id: number;
+  name: string;
+  current: boolean;
+}
+export interface UnderstatLeague {
+  key: string;
+  name: string;
+  code: string;
+  country: string;
+  synced: boolean;
+  competition_id: number | null;
+  seasons: UnderstatSeason[];
+}
+export interface UnderstatLeaguesResp {
+  leagues: UnderstatLeague[];
+  default_season: number;
+}
+export async function listUnderstatLeagues() {
+  return api.get<UnderstatLeaguesResp>("/understat/leagues").then((r) => r.data);
+}
+
+export interface UnderstatTableRow {
+  position: number;
+  team_id: number;
+  team: string;
+  short_name: string | null;
+  logo_url: string | null;
+  matches_played: number;
+  wins: number; draws: number; losses: number;
+  goals_for: number; goals_against: number; goal_difference: number;
+  points: number; points_per_game: number;
+  xg: number; xga: number;
+  shots: number; shots_on_target: number; corners: number;
+  recent_form: Record<string, number | string> | null;
+  season_id: number;
+  season_name: string;
+}
+export interface UnderstatLeagueTable {
+  league: string;
+  league_key: string;
+  season: string;
+  season_id: number;
+  table: UnderstatTableRow[];
+}
+export async function getUnderstatLeagueTable(leagueKey: string, seasonId?: number) {
+  return api
+    .get<UnderstatLeagueTable>(`/understat/league-table/${leagueKey}`, { params: { season_id: seasonId } })
+    .then((r) => r.data);
+}
+
+export interface UnderstatMatch {
+  id: number;
+  external_id: string | null;
+  competition: string | null;
+  season: string | null;
+  season_id: number;
+  home_team: { id: number; name: string; logo_url: string | null } | null;
+  away_team: { id: number; name: string; logo_url: string | null } | null;
+  home_score: number | null;
+  away_score: number | null;
+  status: string;
+  kickoff_time: string | null;
+  has_shots: boolean;
+}
+export async function listUnderstatMatches(params?: {
+  league_key?: string; season_id?: number; team_id?: number; finished_only?: boolean; skip?: number; limit?: number;
+}) {
+  return api.get<UnderstatMatch[]>("/understat/matches", { params }).then((r) => r.data);
+}
+
+export interface UnderstatShot {
+  event_id: number;
+  minute: number | null;
+  period: string | null;
+  player: string | null;
+  team: string | null;
+  result: string | null;
+  on_target: boolean | null;
+  is_goal: boolean | null;
+  xg: number | null;
+  x: number | null;
+  y: number | null;
+  end_x: number | null;
+  end_y: number | null;
+  situation: string | null;
+  details?: Record<string, unknown> | null;
+}
+export interface UnderstatMatchShots {
+  match_id: number;
+  external_id: string | null;
+  home_team: { id: number; name: string } | null;
+  away_team: { id: number; name: string } | null;
+  home_score: number | null;
+  away_score: number | null;
+  summary: {
+    home_shots: number; home_shots_on_target: number; home_xg: number;
+    away_shots: number; away_shots_on_target: number; away_xg: number;
+  };
+  shots: UnderstatShot[];
+}
+export async function getUnderstatMatchShots(matchId: number) {
+  return api.get<UnderstatMatchShots>(`/understat/matches/${matchId}/shots`).then((r) => r.data);
+}
+
+export interface UnderstatLeaderRow {
+  player: string | null;
+  team: string | null;
+  goals?: number;
+  shots?: number;
+  xg?: number;
+}
+export interface UnderstatTopTeamRow {
+  team: string;
+  matches_played: number;
+  wins: number; draws: number; losses: number;
+  goals_for: number; goals_against: number;
+  xg: number; xga: number; points_per_game: number;
+}
+export interface UnderstatStats {
+  top_scorers: UnderstatLeaderRow[];
+  top_xg: UnderstatLeaderRow[];
+  top_shots: UnderstatLeaderRow[];
+  top_teams: UnderstatTopTeamRow[];
+}
+export async function getUnderstatStats(params?: { competition_id?: number }) {
+  return api.get<UnderstatStats>("/understat/stats", { params }).then((r) => r.data);
+}
+
+export interface UnderstatSyncStatus {
+  provider: string;
+  leagues: {
+    resource: string;
+    status: string;
+    last_success_at: string | null;
+    updated_at: string | null;
+    summary: Record<string, unknown> | null;
+  }[];
+}
+export async function getUnderstatSyncStatus() {
+  return api.get<UnderstatSyncStatus>("/understat/sync/status").then((r) => r.data);
+}
+export async function triggerUnderstatSync(params: {
+  leagues?: string; season?: number; shots_only?: boolean; max_matches?: number;
+}) {
+  return api.post("/understat/sync", null, { params }).then((r) => r.data);
+}
+
+export interface UnderstatPlayerShot {
+  event_id: number;
+  match_id: number;
+  minute: number | null;
+  result: string | null;
+  on_target: boolean | null;
+  is_goal: boolean | null;
+  xg: number | null;
+  x: number | null;
+  y: number | null;
+  team: string | null;
+}
+export async function getUnderstatPlayerShots(playerId: number) {
+  return api
+    .get<{ player_id: number; player: string | null; shots: UnderstatPlayerShot[] }>(
+      `/understat/players/${playerId}/shots`
+    )
+    .then((r) => r.data);
+}
