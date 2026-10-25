@@ -5,8 +5,8 @@ import type { PitchZone } from "../api/client";
 import { ZONE_GEOMETRY, flipZone } from "./Pitch";
 import { MaterialIcon } from "./MaterialIcon";
 
-const WIDTH = 105;
-const HEIGHT = 68;
+export const WIDTH = 105;
+export const HEIGHT = 68;
 
 /** Lado que dona das zonas exibidas: mandante (casa) ou visitante. */
 export type ZoneSide = "home" | "away";
@@ -68,7 +68,7 @@ function severity(t: number) {
   return { label: "Controlada", color: "#22c55e" };
 }
 
-function PitchMesh() {
+export function PitchMesh() {
   return (
     <group>
       <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
@@ -86,7 +86,7 @@ function PitchMesh() {
   );
 }
 
-function Lines() {
+export function Lines() {
   const stroke = "white";
   const lw = 0.02;
   return (

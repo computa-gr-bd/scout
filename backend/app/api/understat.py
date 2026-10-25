@@ -20,7 +20,7 @@ import asyncio
 from typing import Any, Optional
 
 from app.vendor.understat import Understat
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, func, desc
 
@@ -129,6 +129,7 @@ def understat_sync_status(db: Session = Depends(get_db)):
 
 @router.post("/understat/sync")
 def sync_understat(
+    background_tasks: BackgroundTasks,
     leagues: Optional[str] = Query(
         None, description="Ligas separadas por vírgula (ex.: epl,bundesliga). Padrão: todas."
     ),
@@ -137,7 +138,7 @@ def sync_understat(
     max_matches: Optional[int] = Query(None, description="Limita o nº de partidas com chutes."),
     _admin: User = Depends(require_admin),
 ):
-    """Executa a sincronização da Understat de forma síncrona (requer admin)."""
+    """Dispara a sincronização da Understat em background (requer admin)."""
     if aiohttp is None:
         raise HTTPException(status_code=503, detail="aiohttp indisponível no servidor")
 
@@ -166,17 +167,13 @@ def sync_understat(
 
         return _run_async(_go())
 
-    # Executa síncronamente para não depender de BackgroundTasks: em funções
-    # serverless (ex.: Vercel) o processo pode ser encerrado logo após a
-    # resposta, impedindo a conclusão de tarefas em segundo plano.
-    results = _run()
+    background_tasks.add_task(_run)
     return {
-        "status": "completed",
+        "status": "started",
         "leagues": league_list,
         "season": season,
         "shots_only": shots_only,
         "max_matches": max_matches,
-        "results": results,
     }
 
 
@@ -275,6 +272,10 @@ def get_match_shots(
             "end_x": pos.end_x if pos else None,
             "end_y": pos.end_y if pos else None,
             "situation": shot.situation if shot else None,
+            "body_part": shot.body_part if shot else None,
+            "shot_type": shot.shot_type if shot else None,
+            "last_action": (e.details or {}).get("last_action"),
+            "assisted_by": (e.details or {}).get("assisted_by"),
             "details": e.details,
         })
 
@@ -427,6 +428,7 @@ def get_player_shots(
         .order_by(Event.match_id, Event.minute)
     ).all()
 
+    pname = _player_name(player)
     shots = []
     for e in events:
         shot = e.shot
@@ -435,13 +437,19 @@ def get_player_shots(
             "event_id": e.id,
             "match_id": e.match_id,
             "minute": e.minute,
+            "period": e.period,
+            "player": pname,
+            "team": e.team.name if e.team else None,
             "result": e.outcome,
             "on_target": shot.on_target if shot else None,
             "is_goal": shot.is_goal if shot else None,
             "xg": shot.xg if shot else None,
             "x": pos.x if pos else None,
             "y": pos.y if pos else None,
-            "team": e.team.name if e.team else None,
+            "end_x": pos.end_x if pos else None,
+            "end_y": pos.end_y if pos else None,
+            "situation": shot.situation if shot else None,
+            "body_part": shot.body_part if shot else None,
         })
     return {"player_id": player_id, "player": _player_name(player), "shots": shots}
 
@@ -502,51 +510,154 @@ def get_player_stats(
 @router.get("/understat/stats")
 def understat_stats(
     competition_id: Optional[int] = None,
+    season_id: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
-    """Estatísticas agregadas da Understat (top artilheiros, top xG, times com mais chutes)."""
-    q = select(Player).where(Player.data_source == DataSource.UNDERSTAT)
-    players = db.scalars(q.limit(200)).all()
+    """Estatísticas agregadas da Understat, filtráveis por competição e temporada.
 
-    teams = db.scalars(select(Team).where(Team.data_source == DataSource.UNDERSTAT).limit(200)).all()
+    Mantém os rankings (`top_*`) e devolve também `players` e `teams` completos
+    (gols, xG, chutes, PPDA, deep, xpts...) para gráficos de desempenho vs. esperado.
+    """
+    season_ids: list[int] | None = None
+    if season_id:
+        season_ids = [season_id]
+    elif competition_id:
+        season_ids = list(db.scalars(select(Season.id).where(Season.competition_id == competition_id)).all())
 
-    top_scorers = sorted(players, key=lambda p: sum(s.goals or 0 for s in p.statistics), reverse=True)[:10]
-    top_xg = sorted(players, key=lambda p: sum(s.xg_total or 0 for s in p.statistics), reverse=True)[:10]
-    top_shots = sorted(players, key=lambda p: sum(s.shots or 0 for s in p.statistics), reverse=True)[:10]
+    pq = (
+        select(PlayerStatistics, Player)
+        .join(Player, Player.id == PlayerStatistics.player_id)
+        .where(Player.data_source == DataSource.UNDERSTAT)
+    )
+    if season_ids is not None:
+        pq = pq.where(PlayerStatistics.season_id.in_(season_ids))
+
+    agg: dict[int, dict[str, Any]] = {}
+    for st, pl in db.execute(pq).all():
+        row = agg.setdefault(pl.id, {
+            "player_id": pl.id,
+            "player": _player_name(pl),
+            "team": pl.team.name if pl.team else None,
+            "matches_played": 0, "minutes": 0, "goals": 0, "assists": 0,
+            "shots": 0, "shots_on_target": 0, "xg": 0.0, "xa": 0.0,
+        })
+        row["matches_played"] += st.matches_played or 0
+        row["minutes"] += st.minutes_played or 0
+        row["goals"] += st.goals or 0
+        row["assists"] += st.assists or 0
+        row["shots"] += st.shots or 0
+        row["shots_on_target"] += st.shots_on_target or 0
+        row["xg"] += st.xg_total or 0.0
+        row["xa"] += st.xa_total or 0.0
+
+    players = []
+    for r in agg.values():
+        r["xg"] = round(r["xg"], 2)
+        r["xa"] = round(r["xa"], 2)
+        r["xg_diff"] = round(r["goals"] - r["xg"], 2)
+        r["xg_per_shot"] = round(r["xg"] / r["shots"], 3) if r["shots"] else None
+        players.append(r)
+    players.sort(key=lambda r: (r["xg"], r["goals"]), reverse=True)
+
+    tq = (
+        select(TeamStatistics, Team)
+        .join(Team, Team.id == TeamStatistics.team_id)
+        .where(Team.data_source == DataSource.UNDERSTAT)
+    )
+    if season_ids is not None:
+        tq = tq.where(TeamStatistics.season_id.in_(season_ids))
+    teams = []
+    for st, t in db.execute(tq).all():
+        rf = st.recent_form or {}
+        teams.append({
+            "team_id": t.id,
+            "team": t.name,
+            "logo_url": t.logo_url,
+            "matches_played": st.matches_played,
+            "wins": st.wins, "draws": st.draws, "losses": st.losses,
+            "goals_for": st.goals_for, "goals_against": st.goals_against,
+            "xg": st.xg_total, "xga": st.xga_total,
+            "points_per_game": st.points_per_game,
+            "ppda": rf.get("ppda"), "deep": rf.get("deep"), "xpts": rf.get("xpts"),
+            "points": rf.get("points"),
+        })
+    teams.sort(key=lambda r: r["points_per_game"] or 0, reverse=True)
+
+    def top(key: str, n: int = 10):
+        return sorted(players, key=lambda r: r[key], reverse=True)[:n]
 
     return {
-        "top_scorers": [
-            {"player": _player_name(p), "team": p.team.name if p.team else None, "goals": sum(s.goals or 0 for s in p.statistics)}
-            for p in top_scorers
-        ],
-        "top_xg": [
-            {"player": _player_name(p), "team": p.team.name if p.team else None, "xg": round(sum(s.xg_total or 0 for s in p.statistics), 2)}
-            for p in top_xg
-        ],
-        "top_shots": [
-            {"player": _player_name(p), "team": p.team.name if p.team else None, "shots": sum(s.shots or 0 for s in p.statistics)}
-            for p in top_shots
-        ],
-        "top_teams": [
-            {
-                "team": t.name,
-                "matches_played": st.matches_played,
-                "wins": st.wins,
-                "draws": st.draws,
-                "losses": st.losses,
-                "goals_for": st.goals_for,
-                "goals_against": st.goals_against,
-                "xg": st.xg_total,
-                "xga": st.xga_total,
-                "points_per_game": st.points_per_game,
-            }
-            for t, st in sorted(
-                [(t, st) for t in teams for st in t.statistics],
-                key=lambda x: x[1].points_per_game or 0,
-                reverse=True,
-            )[:10]
-        ],
+        "top_scorers": [{"player_id": r["player_id"], "player": r["player"], "team": r["team"], "goals": r["goals"]} for r in top("goals")],
+        "top_xg": [{"player_id": r["player_id"], "player": r["player"], "team": r["team"], "xg": r["xg"]} for r in top("xg")],
+        "top_shots": [{"player_id": r["player_id"], "player": r["player"], "team": r["team"], "shots": r["shots"]} for r in top("shots")],
+        "top_teams": teams[:10],
+        "players": players[:150],
+        "teams": teams,
     }
+
+
+@router.get("/understat/teams/{team_id}/form")
+def get_team_form(
+    team_id: int,
+    limit: int = Query(5, ge=1, le=15),
+    season_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Forma recente: xG a favor/contra, chutes e resultado dos últimos jogos do time."""
+    from sqlalchemy import or_
+
+    team = db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    q = select(Match).options(selectinload(Match.home_team), selectinload(Match.away_team)).where(
+        Match.data_source == DataSource.UNDERSTAT,
+        Match.status == "finished",
+        or_(Match.home_team_id == team_id, Match.away_team_id == team_id),
+    )
+    if season_id:
+        q = q.where(Match.season_id == season_id)
+    matches = db.scalars(q.order_by(desc(Match.kickoff_time)).limit(limit)).all()
+    ids = [m.id for m in matches]
+
+    xg_by: dict[tuple[int, int], dict[str, float]] = {}
+    if ids:
+        rows = db.execute(
+            select(
+                Event.match_id, Event.team_id,
+                func.coalesce(func.sum(Shot.xg), 0.0), func.count(Shot.id),
+            )
+            .join(Shot, Shot.event_id == Event.id)
+            .where(Event.match_id.in_(ids), Event.type == EventType.SHOT)
+            .group_by(Event.match_id, Event.team_id)
+        ).all()
+        for mid, tid, xg, n in rows:
+            xg_by[(mid, tid)] = {"xg": float(xg or 0), "shots": int(n or 0)}
+
+    out = []
+    for m in matches:
+        home = m.home_team_id == team_id
+        opp = m.away_team if home else m.home_team
+        opp_id = m.away_team_id if home else m.home_team_id
+        gf = m.home_score if home else m.away_score
+        ga = m.away_score if home else m.home_score
+        mine = xg_by.get((m.id, team_id), {"xg": 0.0, "shots": 0})
+        theirs = xg_by.get((m.id, opp_id), {"xg": 0.0, "shots": 0})
+        result = None
+        if gf is not None and ga is not None:
+            result = "W" if gf > ga else "D" if gf == ga else "L"
+        out.append({
+            "match_id": m.id,
+            "kickoff_time": m.kickoff_time.isoformat() if m.kickoff_time else None,
+            "home": home,
+            "opponent": opp.name if opp else None,
+            "goals_for": gf, "goals_against": ga, "result": result,
+            "xg_for": round(mine["xg"], 2), "xg_against": round(theirs["xg"], 2),
+            "shots_for": mine["shots"], "shots_against": theirs["shots"],
+            "has_shots": bool(mine["shots"] or theirs["shots"]),
+        })
+    out.reverse()  # cronológico: mais antigo -> mais recente
+    return {"team_id": team_id, "team": team.name, "matches": out}
 
 
 @router.get("/understat/matches/{match_id}/events")

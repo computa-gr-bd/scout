@@ -45,6 +45,26 @@ export function heatColor(value: number, max: number, mode: "danger" | "good" = 
   return `rgba(${r},${g},${b},${0.18 + v * 0.6})`;
 }
 
+/** Escala do mapa de calor de chutes: azul-escuro -> amarelo -> vermelho. */
+export function shotHeatColor(v: number, max: number) {
+  const t = max > 0 ? Math.max(0, Math.min(1, v / max)) : 0;
+  const r = Math.round(40 + t * 215);
+  const g = Math.round(90 + (t < 0.6 ? t * 250 : (1 - t) * 240 + 20));
+  const b = Math.round(220 - t * 200);
+  return `rgba(${r},${Math.min(255, g)},${Math.max(0, b)},${0.22 + t * 0.6})`;
+}
+
+export interface PitchShot {
+  x: number;
+  y: number;
+  r?: number;
+  color?: string;
+  /** Cor do contorno (ex.: time). */
+  stroke?: string;
+  label?: string;
+  title?: string;
+}
+
 export function Pitch2D({
   width = 1000,
   height = 650,
@@ -54,6 +74,11 @@ export function Pitch2D({
   homePlayers,
   awayPlayers,
   shots,
+  heatCells,
+  heatMax,
+  shotLines,
+  selectedShot,
+  onShotClick,
   title,
 }: {
   width?: number;
@@ -64,7 +89,14 @@ export function Pitch2D({
   homePlayers?: { x: number; y: number; label: string; pos?: string }[];
   awayPlayers?: { x: number; y: number; label: string; pos?: string }[];
   /** Chutes sobre o gramado (coordenadas 0-100, ataque para a direita). */
-  shots?: { x: number; y: number; r?: number; color?: string; label?: string; title?: string }[];
+  shots?: PitchShot[];
+  /** Mapa de calor em células (coordenadas 0-100). */
+  heatCells?: { x: number; y: number; w: number; h: number; value: number }[];
+  heatMax?: number;
+  /** Desenha uma linha de cada chute até o centro do gol. */
+  shotLines?: boolean;
+  selectedShot?: number | null;
+  onShotClick?: (index: number) => void;
   title?: string;
 }) {
   const vb = "-2 0 104 100";
@@ -113,6 +145,12 @@ export function Pitch2D({
             {opp(homeWeakness, false)}
             {opp(awayWeakness, true)}
             {opps}
+            {heatCells?.map((c, i) => (
+              <rect key={`hc-${i}`} x={c.x} y={c.y} width={c.w} height={c.h}
+                    fill={shotHeatColor(c.value, heatMax ?? 1)}>
+                <title>{`${c.value.toFixed(2)}`}</title>
+              </rect>
+            ))}
 
             {/* sidelines */}
             <rect x="1" y="1" width="98" height="98" fill="none" stroke={stroke} strokeWidth={sw * 1.2} />
@@ -156,18 +194,32 @@ export function Pitch2D({
               </g>
             ))}
 
-            {/* chutes */}
-            {shots?.map((s, i) => (
-              <g key={`sh-${i}`}>
-                <title>{s.title}</title>
-                <circle cx={s.x} cy={s.y} r={s.r ?? 2.2} fill={s.color ?? "#facc15"}
-                        fillOpacity="0.75" stroke="white" strokeWidth="0.25" />
-                {s.label && (
-                  <text x={s.x} y={s.y + 0.75} textAnchor="middle" fontSize="1.9"
-                        fill="#0b1220" fontWeight="700">{s.label}</text>
-                )}
-              </g>
+            {/* linhas do chute até o gol */}
+            {shotLines && shots?.map((sh, i) => (
+              <line key={`sl-${i}`} x1={sh.x} y1={sh.y} x2={100} y2={50}
+                    stroke={sh.color ?? "#facc15"} strokeOpacity={selectedShot === i ? 0.9 : 0.28}
+                    strokeWidth={selectedShot === i ? 0.35 : 0.14} strokeDasharray="0.8 0.6" />
             ))}
+
+            {/* chutes */}
+            {shots?.map((sh, i) => {
+              const picked = selectedShot === i;
+              return (
+                <g key={`sh-${i}`} style={onShotClick ? { cursor: "pointer" } : undefined}
+                   onClick={onShotClick ? () => onShotClick(i) : undefined}>
+                  <title>{sh.title}</title>
+                  {picked && (
+                    <circle cx={sh.x} cy={sh.y} r={(sh.r ?? 2.2) + 1.1} fill="none" stroke="white" strokeWidth="0.35" />
+                  )}
+                  <circle cx={sh.x} cy={sh.y} r={sh.r ?? 2.2} fill={sh.color ?? "#facc15"}
+                          fillOpacity="0.8" stroke={sh.stroke ?? "white"} strokeWidth={sh.stroke ? 0.55 : 0.25} />
+                  {sh.label && (
+                    <text x={sh.x} y={sh.y + 0.75} textAnchor="middle" fontSize="1.9"
+                          fill="#0b1220" fontWeight="700" pointerEvents="none">{sh.label}</text>
+                  )}
+                </g>
+              );
+            })}
           </svg>
         </div>
       </div>

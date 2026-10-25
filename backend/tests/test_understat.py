@@ -369,3 +369,47 @@ async def test_understat_endpoints_with_synced_data(db_session, client):
     team_id = table["table"][0]["team_id"]
     team_stats = client.get(f"/api/understat/teams/{team_id}/stats").json()
     assert team_stats["total_matches_played"] == 10
+
+
+@pytest.mark.asyncio
+async def test_understat_extended_stats_form_and_shot_fields(db_session, client):
+    await us.sync_understat_league(db_session, FakeClient(), "epl", 2026)
+    db_session.commit()
+
+    leagues = client.get("/api/understat/leagues").json()["leagues"]
+    epl = next(row for row in leagues if row["key"] == "epl")
+
+    # estatísticas filtradas por competição: rankings + listas completas
+    stats = client.get("/api/understat/stats", params={"competition_id": epl["competition_id"]}).json()
+    assert stats["top_scorers"][0]["player"] == "Mohamed Salah"
+    assert stats["top_scorers"][0]["player_id"]
+    assert len(stats["teams"]) == 2
+    assert {"player_id", "goals", "xg", "xg_diff", "shots"} <= set(stats["players"][0])
+
+    # temporada inexistente não devolve dados de outras temporadas
+    empty = client.get(
+        "/api/understat/stats",
+        params={"competition_id": epl["competition_id"], "season_id": 999999},
+    ).json()
+    assert empty["players"] == [] and empty["teams"] == []
+
+    # chutes de partida trazem parte do corpo e situação
+    match = client.get("/api/understat/matches", params={"league_key": "epl"}).json()[0]
+    shots = client.get(f"/api/understat/matches/{match['id']}/shots").json()["shots"]
+    assert all("body_part" in s and "situation" in s for s in shots)
+
+    # forma recente: xG a favor + contra = xG total dos chutes da partida
+    table = client.get("/api/understat/league-table/epl").json()["table"]
+    team_id = table[0]["team_id"]
+    form = client.get(f"/api/understat/teams/{team_id}/form").json()
+    assert len(form["matches"]) == 1
+    m = form["matches"][0]
+    assert m["has_shots"] is True
+    assert m["xg_for"] + m["xg_against"] == pytest.approx(sum(s["xg"] or 0 for s in shots), abs=0.02)
+    assert client.get("/api/understat/teams/999999/form").status_code == 404
+
+    # chutes do jogador no mesmo formato dos chutes de partida
+    pid = stats["top_scorers"][0]["player_id"]
+    player_shots = client.get(f"/api/understat/players/{pid}/shots").json()
+    assert player_shots["player"] == "Mohamed Salah"
+    assert all({"body_part", "period", "player", "situation"} <= set(s) for s in player_shots["shots"])
