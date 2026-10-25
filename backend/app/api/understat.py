@@ -20,7 +20,7 @@ import asyncio
 from typing import Any, Optional
 
 from app.vendor.understat import Understat
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, func, desc
 
@@ -129,7 +129,6 @@ def understat_sync_status(db: Session = Depends(get_db)):
 
 @router.post("/understat/sync")
 def sync_understat(
-    background_tasks: BackgroundTasks,
     leagues: Optional[str] = Query(
         None, description="Ligas separadas por vírgula (ex.: epl,bundesliga). Padrão: todas."
     ),
@@ -138,7 +137,7 @@ def sync_understat(
     max_matches: Optional[int] = Query(None, description="Limita o nº de partidas com chutes."),
     _admin: User = Depends(require_admin),
 ):
-    """Dispara a sincronização da Understat em background (requer admin)."""
+    """Executa a sincronização da Understat de forma síncrona (requer admin)."""
     if aiohttp is None:
         raise HTTPException(status_code=503, detail="aiohttp indisponível no servidor")
 
@@ -167,13 +166,17 @@ def sync_understat(
 
         return _run_async(_go())
 
-    background_tasks.add_task(_run)
+    # Executa síncronamente para não depender de BackgroundTasks: em funções
+    # serverless (ex.: Vercel) o processo pode ser encerrado logo após a
+    # resposta, impedindo a conclusão de tarefas em segundo plano.
+    results = _run()
     return {
-        "status": "started",
+        "status": "completed",
         "leagues": league_list,
         "season": season,
         "shots_only": shots_only,
         "max_matches": max_matches,
+        "results": results,
     }
 
 

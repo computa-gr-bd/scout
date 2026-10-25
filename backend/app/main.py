@@ -14,13 +14,18 @@ from app.api.teams import router as teams_router
 from app.api.players import router as players_router
 from app.api.matches import router as matches_router
 from app.api.models import router as models_router
-from app.api.understat import router as understat_router
 from app.db.models import CollectionState
 from app.db import get_db
 from sqlalchemy import select
 
 settings = get_settings()
 logger = get_logger("scoutvision.api")
+
+try:
+    from app.api.understat import router as understat_router
+except Exception as exc:  # pragma: no cover - dependência opcional
+    logger.warning(f"Understat router não carregado: {exc}")
+    understat_router = None
 
 
 @asynccontextmanager
@@ -167,4 +172,5 @@ app.include_router(teams_router, prefix=api_prefix)
 app.include_router(players_router, prefix=api_prefix)
 app.include_router(matches_router, prefix=api_prefix)
 app.include_router(models_router, prefix=api_prefix)
-app.include_router(understat_router, prefix=api_prefix)
+if understat_router is not None:
+    app.include_router(understat_router, prefix=api_prefix)

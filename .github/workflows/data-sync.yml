@@ -35,10 +35,13 @@ jobs:
         run: >-
           pip install SQLAlchemy==2.0.35 alembic==1.13.3
           "psycopg[binary]==3.2.3" pydantic-settings==2.5.2
-          pydantic==2.9.2 requests==2.32.3
+          pydantic==2.9.2 requests==2.32.3 aiohttp==3.14.5
       - name: Atualizar schema
         working-directory: backend
         run: python -m alembic upgrade head
-      - name: Coletar e atualizar Neon
+      - name: Coletar football-data.org e atualizar Neon
         working-directory: backend
         run: python -m app.services.data_sync
+      - name: Coletar Understat e atualizar Neon
+        working-directory: backend
+        run: python -m app.services.understat_sync --leagues ${{ vars.UNDERSTAT_LEAGUES || 'epl' }}
