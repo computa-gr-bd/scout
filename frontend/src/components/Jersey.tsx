@@ -67,7 +67,7 @@ export function JerseyGlyph({
         fill={numberColor}
         style={{ paintOrder: "stroke", letterSpacing: "-0.3px" }}
       >
-        {number}
+        {number === 0 || number === "0" ? "" : number}
       </text>
     </g>
   );
@@ -112,7 +112,7 @@ export function JerseyBadge({
           fontWeight={800}
           fill="#fff"
         >
-          {number}
+          {number === 0 || number === "0" ? "" : number}
         </text>
       </svg>
     </span>

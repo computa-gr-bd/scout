@@ -265,6 +265,20 @@ def get_match_lineups(match_id: int, db: Session = Depends(get_db)):
     return payload
 
 
+@router.get("/matches/{match_id}/studio")
+def get_match_studio(match_id: int, db: Session = Depends(get_db)):
+    """Dados reais para o ScoutVision Studio: chutes/xG, mapa de calor, escalação e fichas.
+
+    Usa Understat/StatsBomb/football-data conforme o que existir no banco e
+    informa em ``mode``/``coverage`` o que veio de fato (nada é simulado).
+    """
+    from app.services.studio import build_studio_payload
+    payload = build_studio_payload(db, match_id)
+    if payload is None:
+        raise HTTPException(404, "Match not found")
+    return payload
+
+
 @router.get("/matches/{match_id}/tactical-analysis")
 def get_tactical_analysis(match_id: int, db: Session = Depends(get_db)):
     from app.services.matchups import recommend_matchups

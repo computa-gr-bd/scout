@@ -555,3 +555,62 @@ export async function getUnderstatPlayerShots(playerId: number) {
     )
     .then((r) => r.data);
 }
+
+// ---------- Studio (dados reais p/ a tela de Análise) ----------
+export interface StudioApiShot {
+  id: number; match_id: number; match_label: string | null;
+  minute: number; team: "home" | "away";
+  player_id: number | null; player: string | null;
+  result: "goal" | "saved" | "off_target" | "blocked"; outcome: string | null;
+  on_target: boolean | null; xg: number | null; xgot: number | null;
+  x: number; y: number; end_x: number; end_y: number; end_known: boolean;
+  situation: string | null; shot_type: string | null; body_part: string | null;
+  assisted_by: string | null; last_action: string | null;
+}
+export interface StudioApiLineupPlayer {
+  player_id: number | null; name: string | null; position: string | null;
+  line: string | null; line_label: string | null; shirt_number: number | null;
+  estimated: boolean; pitch_x: number; pitch_y: number; detail_key?: string;
+}
+export interface StudioApiPlayer {
+  key: string; player_id: number | null; name: string; team: "home" | "away";
+  shirt_number: number | null; position: string | null; minutes: number | null;
+  match: { goals: number; assists: number; shots: number; shots_on_target: number; xg: number; xa: number; key_passes: number };
+  season: { matches: number | null; minutes: number | null; goals: number | null; assists: number | null; shots: number | null;
+            shots_on_target: number | null; xg: number | null; xa: number | null; key_passes: number | null } | null;
+}
+export interface StudioApiHeat { x: number; y: number; intensity: number }
+export interface StudioApiTeam { id: number; name: string | null; logo_url: string | null }
+export interface MatchStudioPayload {
+  match_id: number; linked_match_id: number | null;
+  mode: "match" | "recent_form" | "none"; source: string | null;
+  match: {
+    home: StudioApiTeam; away: StudioApiTeam; home_score: number | null; away_score: number | null;
+    status: string; kickoff_time: string | null; competition: string | null; round_name: string | null;
+    venue: string | null; match_data_source: string | null;
+  };
+  recent_match_ids: { home: number[]; away: number[] };
+  shots: StudioApiShot[];
+  heatmap: { kind: string; home: StudioApiHeat[]; away: StudioApiHeat[] };
+  lineups: { home: StudioApiLineupPlayer[]; away: StudioApiLineupPlayer[]; source: string | null; formation: string | null };
+  players: StudioApiPlayer[];
+  coverage: { shots: number; has_shots: boolean; has_lineup: boolean; has_xg: boolean; has_end_location: boolean; notes: string[] };
+}
+export async function getMatchStudio(id: number) {
+  return api.get<MatchStudioPayload>(`/matches/${id}/studio`).then((r) => r.data);
+}
+
+// ---------- Understat: chutes recentes por time (comparação de times) ----------
+export interface UnderstatTeamShotsMatch {
+  match_id: number; kickoff_time: string | null; home: boolean; opponent: string | null;
+  goals_for: number | null; goals_against: number | null; result: "W" | "D" | "L" | null;
+  shots_count: number;
+}
+export interface UnderstatTeamShots {
+  team_id: number; team: string; logo_url: string | null;
+  matches: UnderstatTeamShotsMatch[];
+  shots: UnderstatShot[];
+}
+export async function getUnderstatTeamShots(teamId: number, params?: { limit?: number; season_id?: number }) {
+  return api.get<UnderstatTeamShots>(`/understat/teams/${teamId}/shots`, { params }).then((r) => r.data);
+}

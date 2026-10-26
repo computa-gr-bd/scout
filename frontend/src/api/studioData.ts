@@ -25,16 +25,33 @@ export type StudioCoord = { x: number; y: number };
 export type StudioAction = {
   id: number; minute: string; player: string; number: number; team: "home" | "away";
   teamName: string; type: "shot" | "goal" | "assist_shot"; from: StudioCoord; to: StudioCoord;
-  assistant?: { name: string; number: number; from: StudioCoord };
-  xg: number; xgot: number; situation: string; shotType: string;
+  assistant?: { name: string; number: number; from?: StudioCoord };
+  /** xGOT: `null` quando a fonte não fornece (Understat não tem). */
+  xg: number; xgot: number | null; situation: string; shotType: string;
   goalZone?: string; goalLoc?: StudioCoord; result: "goal" | "saved" | "off_target" | "blocked";
   duration?: number;
+  /** Jogo de origem do chute (modo "forma recente"). */
+  matchLabel?: string;
 };
 
 export type StudioHeatPoint = { x: number; y: number; intensity: number; label?: string };
 
 export type StudioStartingPlayer = {
   id: number; number: number; name: string; position: string; pitchPos: StudioCoord;
+  /** Chave em `StudioDataset.players` (dados reais; no demo usa-se o número da camisa). */
+  detailKey?: number;
+  /** Escalação provável (não oficial). */
+  estimated?: boolean;
+};
+
+/** Estatísticas reais que a fonte realmente fornece (ficha sem dados inventados). */
+export type StudioRealInfo = {
+  xa: number; keyPasses: number;
+  matchLabel?: string;
+  season: {
+    matches: number | null; minutes: number | null; goals: number | null; assists: number | null;
+    shots: number | null; xg: number | null; xa: number | null; keyPasses: number | null;
+  } | null;
 };
 
 export type StudioPlayerDetail = {
@@ -45,7 +62,7 @@ export type StudioPlayerDetail = {
   avatar: string;
   stats: {
     goals: number; assists: number; shots: number; shotsOnTarget: number;
-    xG: number; xGOT: number; passes: number; passesAcc: number; passAccPct: number;
+    xG: number; xGOT: number | null; passes: number; passesAcc: number; passAccPct: number;
     crosses: number; crossAccPct: number; dribbles: number; dribblesSuc: number;
     tackles: number; interceptions: number; duelsWon: number; duelsWonPct: number;
     touches: number; fouls: number; foulsSuffered: number; yellowCards: number; redCards: number;
@@ -53,6 +70,8 @@ export type StudioPlayerDetail = {
   };
   ratingBreakdown: { shooting: number; passing: number; dribbling: number; defending: number; impact: number };
   personalHeatmap: StudioHeatPoint[];
+  /** Presente apenas em fichas montadas com dados reais. */
+  real?: StudioRealInfo;
   actions: {
     shots: StudioAction[];
     passes: { from: StudioCoord; to: StudioCoord; minute: string; accurate: boolean; kind: "short" | "long" | "cross" | "throughball" }[];
@@ -63,7 +82,7 @@ export type StudioPlayerDetail = {
 
 export type StudioMatchHeader = {
   id: number;
-  source: "demo" | "api";
+  source: "demo" | "api" | "real";
   competition: string;
   title: string;
   home: string;
@@ -75,6 +94,14 @@ export type StudioMatchHeader = {
   formationHome?: string;
   formationAway?: string;
   dataSourceLabel?: string;
+  /** Escudos vindos da API (dados reais). */
+  homeLogo?: string | null;
+  awayLogo?: string | null;
+  /** false = partida ainda sem placar (não exibir 0–0). */
+  scoreKnown?: boolean;
+  /** "match" | "recent_form" | "none" (dados reais). */
+  mode?: string;
+  notes?: string[];
 };
 
 export type StudioDataset = {
@@ -273,7 +300,7 @@ function buildScorerDetail(
   const shotsCount = Math.max(myShots.length, goals + 1);
   const sot = Math.max(goals, Math.round(shotsCount * (0.45 + rnd() * 0.2)));
   const xG = round2(myShots.reduce((acc, s) => acc + s.xg, 0));
-  const xGOT = round2(myShots.filter((s) => s.result === "goal" || s.result === "saved").reduce((acc, s) => acc + s.xgot, 0));
+  const xGOT = round2(myShots.filter((s) => s.result === "goal" || s.result === "saved").reduce((acc, s) => acc + (s.xgot ?? 0), 0));
   const passes = Math.round(14 + rnd() * 30);
   const passAccPct = Math.round(72 + rnd() * 20);
   const dribbles = Math.round(2 + rnd() * 7);

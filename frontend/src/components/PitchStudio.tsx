@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { STUDIO_DATASETS, studioDatasetForMatch, type StudioDataset } from "../api/studioData";
+import { STUDIO_DATASETS, studioDatasetForMatch, type StudioDataset, type StudioRealInfo } from "../api/studioData";
 import { crestFor } from "../api/footballDataOrg";
 import { JerseyGlyph, JerseyDefs, JerseyBadge, BallGlyph } from "./Jersey";
 import { TeamLogo } from "./ui";
@@ -14,9 +14,10 @@ type Coord = { x: number; y: number };
 type Action = {
   id: number; minute: string; player: string; number: number; team: "home" | "away";
   teamName: string; type: "shot" | "goal" | "assist_shot"; from: Coord; to: Coord;
-  assistant?: { name: string; number: number; from: Coord };
-  xg: number; xgot: number; situation: string; shotType: string;
+  assistant?: { name: string; number: number; from?: Coord };
+  xg: number; xgot: number | null; situation: string; shotType: string;
   goalZone?: string; goalLoc?: Coord; result: "goal" | "saved" | "off_target" | "blocked"; duration?: number;
+  matchLabel?: string;
 };
 
 type HeatPoint = { x: number; y: number; intensity: number; label?: string };
@@ -29,7 +30,7 @@ type PlayerDetail = {
   avatar: string;
   stats: {
     goals: number; assists: number; shots: number; shotsOnTarget: number;
-    xG: number; xGOT: number; passes: number; passesAcc: number; passAccPct: number;
+    xG: number; xGOT: number | null; passes: number; passesAcc: number; passAccPct: number;
     crosses: number; crossAccPct: number; dribbles: number; dribblesSuc: number;
     tackles: number; interceptions: number; duelsWon: number; duelsWonPct: number;
     touches: number; fouls: number; foulsSuffered: number; yellowCards: number; redCards: number;
@@ -37,6 +38,7 @@ type PlayerDetail = {
   };
   ratingBreakdown: { shooting: number; passing: number; dribbling: number; defending: number; impact: number; };
   personalHeatmap: HeatPoint[];
+  real?: StudioRealInfo;
   actions: {
     shots: Action[];
     passes: { from: Coord; to: Coord; minute: string; accurate: boolean; kind: "short" | "long" | "cross" | "throughball" }[];
@@ -372,6 +374,9 @@ function demoDatasetForMatch(match: Match): StudioDataset {
   };
 }
 
+/** xG/xGOT: "—" quando a fonte não fornece o valor. */
+const fmt2 = (n: number | null | undefined) => (n == null ? "—" : n.toFixed(2));
+
 function easeOutCubic(t: number) { t = Math.max(0, Math.min(1, t)); return 1 - Math.pow(1 - t, 3); }
 function easeInOutCubic(t: number) { t = Math.max(0, Math.min(1, t)); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
 
@@ -474,10 +479,12 @@ function ShotArrow({
 
 
 export function PitchStudio({
-  width = 1000, height = 620, datasets = STUDIO_DATASETS, selectedMatchId, selectedMatch,
+  width = 1000, height = 620, datasets = STUDIO_DATASETS, selectedMatchId, selectedMatch, dataset,
 }: {
   width?: number; height?: number; datasets?: StudioDataset[]; selectedMatchId?: number | null;
   selectedMatch?: Match | null;
+  /** Dataset montado com dados reais (tem prioridade sobre demo/simulado). */
+  dataset?: StudioDataset | null;
 }) {
   // Margem extra no viewBox para a rede dos gols ficar FORA da linha de fundo
   // (geometria real: boca do gol na linha, rede atrás dela).
@@ -508,6 +515,7 @@ export function PitchStudio({
   };
 
   const ds = useMemo(() => {
+    if (dataset) return dataset;
     const matchId = selectedMatch?.id ?? selectedMatchId;
     const candidate = datasets.find((dataset) => dataset.match.id === matchId)
       ?? studioDatasetForMatch(matchId);
@@ -535,7 +543,7 @@ export function PitchStudio({
         venue: selectedMatch.stadium_name || existing.match.venue,
       },
     };
-  }, [datasets, selectedMatch, selectedMatchId]);
+  }, [dataset, datasets, selectedMatch, selectedMatchId]);
   const matchInfo = ds.match;
   const shots = ds.shots;
   const homeStar = useMemo(() => Object.values(ds.players).find((p) => p.team === "home"), [ds]);
@@ -644,7 +652,7 @@ export function PitchStudio({
     const merge = (list: typeof ds.startingHome, team: "home" | "away") =>
       list.map((p) => ({
         ...p, team,
-        detail: ds.players[p.number] as PlayerDetail | undefined,
+        detail: (p.detailKey !== undefined ? ds.players[p.detailKey] : ds.players[p.number]) as PlayerDetail | undefined,
         color: team === "home" ? HOME_COLOR : AWAY_COLOR,
       }));
     return [...merge(ds.startingHome, "home"), ...merge(ds.startingAway, "away")];
@@ -658,21 +666,23 @@ export function PitchStudio({
           <div className="flex items-center gap-2 flex-wrap">
             <div className="font-semibold tracking-tight text-[15px] truncate">{matchInfo.title}</div>
             <div className="sv-chip">{matchInfo.date}</div>
-            <div className={`sv-chip ${matchInfo.source === "api" ? "!border-sv-accent3/50 !text-sv-accent3" : ""}`}>
-              {matchInfo.source === "api" ? "● jogo da API · visualização simulada" : "● exemplo simulado"}
+            <div className={`sv-chip ${matchInfo.source !== "demo" ? "!border-sv-accent3/50 !text-sv-accent3" : ""}`}>
+              {matchInfo.source === "real"
+                ? `● dados reais · ${matchInfo.dataSourceLabel ?? "fonte"}`
+                : matchInfo.source === "api" ? "● jogo da API · visualização simulada" : "● exemplo simulado"}
             </div>
           </div>
           <div className="flex items-center gap-3 sm:gap-4 mt-1 flex-wrap">
             <div className="flex items-center gap-2 min-w-0">
-              <TeamLogo name={matchInfo.home} src={crestFor(matchInfo.home) ?? undefined} className="w-6 h-6 shrink-0" />
+              <TeamLogo name={matchInfo.home} src={matchInfo.homeLogo ?? crestFor(matchInfo.home) ?? undefined} className="w-6 h-6 shrink-0" />
               <span className="text-sm font-medium truncate">{matchInfo.home}</span>
             </div>
             <div className="font-mono text-lg sm:text-xl font-bold tabular-nums text-white/95">
-              {matchInfo.scoreHome} <span className="text-sv-muted mx-1">–</span> {matchInfo.scoreAway}
+              {matchInfo.scoreKnown === false ? "vs" : <>{matchInfo.scoreHome} <span className="text-sv-muted mx-1">–</span> {matchInfo.scoreAway}</>}
             </div>
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-sm font-medium truncate">{matchInfo.away}</span>
-              <TeamLogo name={matchInfo.away} src={crestFor(matchInfo.away) ?? undefined} className="w-6 h-6 shrink-0" />
+              <TeamLogo name={matchInfo.away} src={matchInfo.awayLogo ?? crestFor(matchInfo.away) ?? undefined} className="w-6 h-6 shrink-0" />
             </div>
           </div>
         </div>
@@ -700,11 +710,19 @@ export function PitchStudio({
           </div>
         ) : view === "positions" ? (
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="sv-chip-accent"><MaterialIcon name="groups" className="mr-1 align-middle text-[15px]" />22 jogadores em campo</span>
+            <span className="sv-chip-accent"><MaterialIcon name="groups" className="mr-1 align-middle text-[15px]" />{allPlayers.length} jogadores em campo{allPlayers.some((p) => p.estimated) ? " · escalação provável" : ""}</span>
+            {matchInfo.source === "real" ? (
+              <span className="text-xs text-sv-muted">
+                {Object.keys(ds.players).length
+                  ? "Clique numa camisa com anel dourado para abrir a ficha real do jogador"
+                  : "Sem fichas: a fonte não trouxe chutes para estes jogadores"}
+              </span>
+            ) : (
             <span className="text-xs text-sv-muted">
               Clique no camisa dos atacantes <span className="text-white/90 font-medium">{homeStar ? `${homeStar.nick || homeStar.name} #${homeStar.number}` : "—"}</span> ou{" "}
               <span className="text-white/90 font-medium">{awayStar ? `${awayStar.nick || awayStar.name} #${awayStar.number}` : "—"}</span> para abrir estatísticas completas
             </span>
+            )}
           </div>
         ) : (
           <div className="flex items-center gap-3 flex-wrap">
@@ -713,7 +731,7 @@ export function PitchStudio({
               {started ? `${idx + 1} / ${filtered.length || 0}` : `${filtered.length} finalizações`}
             </span>
             <span className="text-xs text-sv-muted">
-              {started && current ? `${current.player} · ${current.teamName}` : `Modo ${replayMode.toUpperCase()} · selecione Reproduzir lance`}
+              {started && current ? `${current.player} · ${current.teamName}${current.matchLabel ? ` · ${current.matchLabel}` : ""}` : `Modo ${replayMode.toUpperCase()} · selecione Reproduzir lance`}
             </span>
             {/* Legenda dos marcadores */}
             <span className="flex items-center gap-3 ml-1 pl-3 border-l border-sv-border/60 text-[11px] text-sv-muted">
@@ -766,6 +784,14 @@ export function PitchStudio({
           </div>
         )}
       </div>
+
+      {matchInfo.source === "real" && (matchInfo.notes?.length ?? 0) > 0 && (
+        <div className="px-3 sm:px-5 py-2 border-b border-sv-border/50 bg-sv-panel2/30 text-[11.5px] text-sv-muted space-y-0.5">
+          {matchInfo.notes!.map((n, i) => (
+            <div key={i} className="flex items-start gap-1.5"><span className="text-sv-accent3">•</span><span>{n}</span></div>
+          ))}
+        </div>
+      )}
 
       {/* Main area + drawer */}
       <div className="flex flex-col lg:flex-row">
@@ -901,13 +927,13 @@ export function PitchStudio({
                 <g>
                   {allPlayers.map((p) => {
                     const hasDetail = !!p.detail;
-                    const isHover = hoverPlayer === p.number;
-                    const isSel = selectedPlayer?.number === p.number;
+                    const isHover = hoverPlayer === p.id;
+                    const isSel = !!selectedPlayer && !!p.detail && selectedPlayer.id === p.detail.id;
                     const clickable = hasDetail;
                     return (
-                      <g key={`pos-${p.number}`}
+                      <g key={`pos-${p.id}`}
                         style={{ cursor: clickable ? "pointer" : "default" }}
-                        onMouseEnter={() => clickable && setHoverPlayer(p.number)}
+                        onMouseEnter={() => clickable && setHoverPlayer(p.id)}
                         onMouseLeave={() => setHoverPlayer(null)}
                         onClick={() => { if (hasDetail) { setSelectedPlayer(p.detail!); setStatTab("shot"); } }}
                       >
@@ -933,6 +959,12 @@ export function PitchStudio({
                           outline={isSel ? "#fde047" : "rgba(255,255,255,0.95)"}
                           outlineWidth={isSel || isHover ? 0.5 : 0.38}
                         />
+                        {matchInfo.source === "real" && !isHover && (
+                          <text x={p.pitchPos.x} y={p.pitchPos.y + 6.6} textAnchor="middle" fontSize="1.7" fill="white" fontWeight="600"
+                                style={{ paintOrder: "stroke", stroke: "rgba(0,0,0,0.65)", strokeWidth: 0.35 }}>
+                            {(p.name || "").split(" ").slice(-1)[0].slice(0, 12)}
+                          </text>
+                        )}
                         {/* Tooltip on hover */}
                         {isHover && (
                           <g>
@@ -1048,8 +1080,8 @@ export function PitchStudio({
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5 space-y-2.5">
                   <div className="flex items-center justify-between"><span className="text-xs text-sv-muted">xG (chance)</span><span className="font-mono font-bold text-sm">{current.xg.toFixed(2)}</span></div>
                   <div className="h-1.5 rounded-full bg-sv-panel overflow-hidden"><div className="h-full bg-gradient-to-r from-sv-accent to-sv-accent3 rounded-full" style={{ width: `${Math.min(100, current.xg * 200)}%` }} /></div>
-                  <div className="flex items-center justify-between"><span className="text-xs text-sv-muted">xGOT (no alvo)</span><span className={`font-mono font-bold text-sm ${current.xgot >= 0.7 ? "text-emerald-400" : ""}`}>{current.xgot.toFixed(2)}</span></div>
-                  <div className="h-1.5 rounded-full bg-sv-panel overflow-hidden"><div className={`h-full rounded-full ${current.xgot >= 0.7 ? "bg-gradient-to-r from-emerald-500 to-emerald-300" : "bg-gradient-to-r from-amber-500 to-amber-300"}`} style={{ width: `${current.xgot * 100}%` }} /></div>
+                  <div className="flex items-center justify-between"><span className="text-xs text-sv-muted">xGOT (no alvo)</span><span className={`font-mono font-bold text-sm ${(current.xgot ?? 0) >= 0.7 ? "text-emerald-400" : ""}`}>{fmt2(current.xgot)}</span></div>
+                  <div className="h-1.5 rounded-full bg-sv-panel overflow-hidden"><div className={`h-full rounded-full ${(current.xgot ?? 0) >= 0.7 ? "bg-gradient-to-r from-emerald-500 to-emerald-300" : "bg-gradient-to-r from-amber-500 to-amber-300"}`} style={{ width: `${(current.xgot ?? 0) * 100}%` }} /></div>
                   <div className="pt-1 grid grid-cols-2 gap-1.5 text-[11px]">
                     <div className="bg-sv-panel rounded-md px-2 py-1"><div className="text-sv-muted">Situação</div><div className="text-white/90 font-medium truncate">{current.situation}</div></div>
                     <div className="bg-sv-panel rounded-md px-2 py-1"><div className="text-sv-muted">Tipo</div><div className="text-white/90 font-medium truncate">{current.shotType}</div></div>
@@ -1076,11 +1108,11 @@ export function PitchStudio({
             ) : view === "heatmap" ? (
               <>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="flex items-center gap-2 mb-2.5"><div className="w-3 h-3 rounded-sm" style={{ background: heatColor2(0.7, "home") }} /><div className="text-sm font-semibold">{matchInfo.home} · Ocupação</div></div>
+                  <div className="flex items-center gap-2 mb-2.5"><div className="w-3 h-3 rounded-sm" style={{ background: heatColor2(0.7, "home") }} /><div className="text-sm font-semibold">{matchInfo.home} · {matchInfo.source === "real" ? "Finalizações (xG)" : "Ocupação"}</div></div>
                   <div className="text-xs text-sv-muted leading-relaxed">4-3-3 ofensivo: pontas altas e presença central na área.</div>
                 </div>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="flex items-center gap-2 mb-2.5"><div className="w-3 h-3 rounded-sm" style={{ background: heatColor2(0.7, "away") }} /><div className="text-sm font-semibold">{matchInfo.away} · Ocupação</div></div>
+                  <div className="flex items-center gap-2 mb-2.5"><div className="w-3 h-3 rounded-sm" style={{ background: heatColor2(0.7, "away") }} /><div className="text-sm font-semibold">{matchInfo.away} · {matchInfo.source === "real" ? "Finalizações (xG)" : "Ocupação"}</div></div>
                   <div className="text-xs text-sv-muted leading-relaxed">4-2-3-1 compacto: volantes centrais protegendo a área.</div>
                 </div>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
@@ -1098,18 +1130,18 @@ export function PitchStudio({
             ) : (
               <>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="flex items-center gap-2 mb-2"><div className="w-3 h-3 rounded-full" style={{ background: HOME_COLOR }} /><div className="text-sm font-semibold">{matchInfo.home} · {matchInfo.formationHome || "4-3-3"}</div></div>
+                  <div className="flex items-center gap-2 mb-2"><div className="w-3 h-3 rounded-full" style={{ background: HOME_COLOR }} /><div className="text-sm font-semibold">{matchInfo.home} · {matchInfo.formationHome || (matchInfo.source === "real" ? "—" : "4-3-3")}</div></div>
                   <div className="text-xs text-sv-muted">Anel dourado = jogador com perfil completo clicável</div>
                 </div>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="flex items-center gap-2 mb-2"><div className="w-3 h-3 rounded-full" style={{ background: AWAY_COLOR }} /><div className="text-sm font-semibold">{matchInfo.away} · {matchInfo.formationAway || "4-2-3-1"}</div></div>
-                  <div className="text-xs text-sv-muted">Clique em <span className="text-white/90 font-medium">#{homeStar?.number ?? "9"}</span> ou <span className="text-white/90 font-medium">#{awayStar?.number ?? "16"}</span> para abrir as stats</div>
+                  <div className="flex items-center gap-2 mb-2"><div className="w-3 h-3 rounded-full" style={{ background: AWAY_COLOR }} /><div className="text-sm font-semibold">{matchInfo.away} · {matchInfo.formationAway || (matchInfo.source === "real" ? "—" : "4-2-3-1")}</div></div>
+                  <div className="text-xs text-sv-muted">{matchInfo.source === "real" ? "Clique numa camisa com anel dourado para abrir as stats" : <>Clique em <span className="text-white/90 font-medium">#{homeStar?.number ?? "9"}</span> ou <span className="text-white/90 font-medium">#{awayStar?.number ?? "16"}</span> para abrir as stats</>}</div>
                 </div>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
                   <div className="text-sm font-semibold mb-2"><MaterialIcon name="person_search" className="mr-1 align-middle" />Jogadores com ficha completa</div>
                   <div className="space-y-1.5">
-                    {Object.values(ds.players).slice(0, 4).map((pd) => (
-                      <button key={pd.number} onClick={() => { setView("positions"); setSelectedPlayer(pd); setStatTab("shot"); }}
+                    {Object.values(ds.players).slice(0, matchInfo.source === "real" ? 6 : 4).map((pd) => (
+                      <button key={pd.id} onClick={() => { setView("positions"); setSelectedPlayer(pd); setStatTab("shot"); }}
                         className="w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md hover:bg-sv-panel transition text-left">
                         <div className="flex items-center gap-2 min-w-0">
                           <JerseyBadge number={pd.number} color={pd.team === "home" ? HOME_COLOR : AWAY_COLOR} size={26} />
@@ -1118,7 +1150,7 @@ export function PitchStudio({
                             <div className="text-[10px] text-sv-muted truncate">{pd.position}</div>
                           </div>
                         </div>
-                        <div className="font-bold text-emerald-400 text-sm">{pd.rating.toFixed(1)}</div>
+                        <div className="font-bold text-emerald-400 text-sm whitespace-nowrap">{pd.real ? `${pd.stats.goals}G · xG ${pd.stats.xG.toFixed(2)}` : pd.rating.toFixed(1)}</div>
                       </button>
                     ))}
                   </div>
@@ -1189,13 +1221,20 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
           </div>
           <div className="mt-2 flex items-center gap-2 flex-wrap">
             {p.injured && <span className="px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 text-[11px] font-semibold border border-rose-500/30"><MaterialIcon name="medical_services" className="mr-1 align-middle" />Contundido</span>}
+            {!p.real && (
             <div className="flex items-center gap-1.5">
               <span className={`${ratingColor} px-2 py-0.5 rounded-md text-white text-sm font-extrabold shadow-md inline-block min-w-[40px] text-center tabular-nums`}>
                 {p.rating.toFixed(1)}
               </span>
               <span className="text-[11px] text-sv-muted">Avaliação ScoutVision</span>
             </div>
-            <span className="px-2 py-0.5 rounded-md bg-sv-panel text-[11px] text-white/85 border border-sv-border">⏱ {p.minutes}' jogados</span>
+            )}
+            {(!p.real || p.minutes > 0) && (
+              <span className="px-2 py-0.5 rounded-md bg-sv-panel text-[11px] text-white/85 border border-sv-border">⏱ {p.minutes}' jogados</span>
+            )}
+            {p.real?.matchLabel && (
+              <span className="px-2 py-0.5 rounded-md bg-sv-panel text-[11px] text-white/85 border border-sv-border">{p.real.matchLabel}</span>
+            )}
           </div>
         </div>
       </div>
@@ -1203,6 +1242,8 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
       {/* Scroll area */}
       <div className="flex-1 overflow-y-auto pr-1 space-y-4">
         {/* Stats grid */}
+        {p.real && <RealStats p={p} />}
+        {!p.real && (
         <div className="px-4 pt-4">
           <div className="grid grid-cols-3 gap-2 text-center">
             <StatMini label="Gols" value={p.stats.goals} accent="text-emerald-400" />
@@ -1210,7 +1251,7 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
             <StatMini label="Chutes" value={p.stats.shots} accent="text-amber-400" />
             <StatMini label="Chutes no alvo" value={`${p.stats.shotsOnTarget}/${p.stats.shots}`} small />
             <StatMini label="xG total" value={p.stats.xG.toFixed(2)} accent="text-indigo-400" />
-            <StatMini label="xGOT total" value={p.stats.xGOT.toFixed(2)} accent="text-rose-400" />
+            <StatMini label="xGOT total" value={fmt2(p.stats.xGOT)} accent="text-rose-400" />
             <StatMini label="Passes certos" value={`${p.stats.passesAcc}/${p.stats.passes}`} small />
             <StatMini label="Precisão" value={`${p.stats.passAccPct}%`} accent={p.stats.passAccPct >= 85 ? "text-emerald-400" : ""} />
             <StatMini label="Dribles / certos" value={`${p.stats.dribblesSuc}/${p.stats.dribbles}`} small />
@@ -1222,8 +1263,10 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
             <StatMini label="Cartões" value={`${p.stats.yellowCards}A · ${p.stats.redCards}V`} mini />
           </div>
         </div>
+        )}
 
         {/* Rating breakdown */}
+        {!p.real && (
         <div className="px-4">
           <div className="rounded-xl border border-sv-border bg-sv-panel/60 p-3.5 space-y-3">
             <div className="flex items-center gap-2">
@@ -1257,6 +1300,7 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
             ))}
           </div>
         </div>
+        )}
 
         {/* Match heatmap do jogador */}
         <div className="px-4">
@@ -1265,8 +1309,8 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
               <div className="flex items-center gap-2">
                 <MaterialIcon name="sports_soccer" className="text-xl" />
                 <div>
-                  <div className="font-semibold text-sm">Mapa de calor da partida</div>
-                  <div className="text-[10px] text-sv-muted">Zonas de maior movimentação</div>
+                  <div className="font-semibold text-sm">{p.real ? "Mapa de finalizações" : "Mapa de calor da partida"}</div>
+                  <div className="text-[10px] text-sv-muted">{p.real ? "Onde o jogador chutou (tamanho = xG)" : "Zonas de maior movimentação"}</div>
                 </div>
               </div>
               <span className="sv-chip">expandir</span>
@@ -1309,7 +1353,7 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
                  ["pass", "route", `Passes (${p.actions.passes.length})`],
                  ["drib", "directions_run", `Dribles (${p.actions.dribbles.length})`],
                  ["def",  "shield",  `Defesas (${p.actions.defenses.length})`],
-               ] as const).map(([k, icon, label]) => (
+               ] as const).filter(([k]) => !p.real || k === "shot").map(([k, icon, label]) => (
                 <button key={k} onClick={() => setTab(k as StatTab)}
                   className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap overflow-hidden text-ellipsis
                     ${tab === k ? "bg-slate-200 text-slate-900 shadow-inner" : "text-slate-300 hover:bg-white/5"}`}>
@@ -1326,9 +1370,9 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
                     <InfoRow label="Gols" value={p.stats.goals} accent />
                     <InfoRow label="xG" value={p.stats.xG.toFixed(2)} />
                     <InfoRow label="Chutes" value={p.stats.shots} />
-                    <InfoRow label="xGOT" value={p.stats.xGOT.toFixed(2)} />
+                    <InfoRow label="xGOT" value={fmt2(p.stats.xGOT)} />
                     <InfoRow label="No alvo" value={`${p.stats.shotsOnTarget} (${p.stats.shots ? Math.round(p.stats.shotsOnTarget / p.stats.shots * 100) : 0}%)`} />
-                    <InfoRow label="Cabeceios" value={p.stats.aerialWon} />
+                    {!p.real && <InfoRow label="Cabeceios" value={p.stats.aerialWon} />}
                   </div>
 
                   {/* Lista de chutes */}
@@ -1371,7 +1415,7 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
                                 </>
                               )}
                               {/* Assist origin */}
-                              {s.assistant && (
+                              {s.assistant?.from && (
                                 <>
                                   <circle cx={s.assistant.from.x} cy={(s.assistant.from.y / 100) * 68} r="1.2" fill="#fde047" stroke="white" strokeWidth="0.15" />
                                   <line x1={s.assistant.from.x} y1={(s.assistant.from.y / 100) * 68}
@@ -1398,7 +1442,7 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
                           {/* Info */}
                           <div className="flex-1 min-w-0 space-y-1.5 text-[11px]">
                             <div className="flex justify-between gap-1"><span className="text-sv-muted">xG</span><span className="font-mono font-bold text-sv-accent3">{s.xg.toFixed(2)}</span></div>
-                            <div className="flex justify-between gap-1"><span className="text-sv-muted">xGOT</span><span className="font-mono font-bold text-emerald-400">{s.xgot.toFixed(2)}</span></div>
+                            <div className="flex justify-between gap-1"><span className="text-sv-muted">xGOT</span><span className="font-mono font-bold text-emerald-400">{fmt2(s.xgot)}</span></div>
                             <div className="flex justify-between gap-1"><span className="text-sv-muted">Situação</span><span className="text-white/85 font-medium text-right">{s.situation}</span></div>
                             <div className="flex justify-between gap-1"><span className="text-sv-muted">Tipo</span><span className="text-white/85 font-medium text-right">{s.shotType}</span></div>
                             {s.assistant && <div className="flex justify-between gap-1"><span className="text-sv-muted">Assist.</span><span className="text-amber-300 font-medium text-right truncate">{s.assistant.name}</span></div>}
@@ -1410,7 +1454,7 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
                 </>
               )}
 
-              {tab === "pass" && (
+              {tab === "pass" && !p.real && (
                 <>
                   <div className="grid grid-cols-2 gap-2 text-[11px]">
                     <InfoRow label="Total passes" value={p.stats.passes} accent />
@@ -1455,7 +1499,7 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
                 </>
               )}
 
-              {tab === "drib" && (
+              {tab === "drib" && !p.real && (
                 <>
                   <div className="grid grid-cols-2 gap-2 text-[11px]">
                     <InfoRow label="Dribles tentados" value={p.stats.dribbles} accent />
@@ -1492,7 +1536,7 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
                 </>
               )}
 
-              {tab === "def" && (
+              {tab === "def" && !p.real && (
                 <>
                   <div className="grid grid-cols-2 gap-2 text-[11px]">
                     <InfoRow label="Divididos ganhos" value={`${p.stats.duelsWon} (${p.stats.duelsWonPct}%)`} accent />
@@ -1549,6 +1593,46 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function RealStats({ p }: { p: PlayerDetail }) {
+  const r = p.real!;
+  const v = (n: number | null | undefined, d = 0) => (n == null ? "—" : d ? n.toFixed(d) : String(n));
+  return (
+    <div className="px-4 pt-4 space-y-3">
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-sv-muted mb-1.5">{r.matchLabel ?? "Nesta partida"}</div>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <StatMini label="Gols" value={p.stats.goals} accent="text-emerald-400" />
+          <StatMini label="Assistências" value={p.stats.assists} accent="text-sky-400" />
+          <StatMini label="Chutes" value={p.stats.shots} accent="text-amber-400" />
+          <StatMini label="Chutes no alvo" value={`${p.stats.shotsOnTarget}/${p.stats.shots}`} small />
+          <StatMini label="xG" value={p.stats.xG.toFixed(2)} accent="text-indigo-400" />
+          <StatMini label="xA" value={r.xa.toFixed(2)} accent="text-rose-400" />
+          <StatMini label="Passes p/ chute" value={r.keyPasses} small />
+        </div>
+      </div>
+      {r.season && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-sv-muted mb-1.5">Temporada (Understat)</div>
+          <div className="grid grid-cols-4 gap-2 text-center">
+            <StatMini label="Jogos" value={v(r.season.matches)} mini />
+            <StatMini label="Minutos" value={v(r.season.minutes)} mini />
+            <StatMini label="Gols" value={v(r.season.goals)} mini />
+            <StatMini label="Assist." value={v(r.season.assists)} mini />
+            <StatMini label="Chutes" value={v(r.season.shots)} mini />
+            <StatMini label="xG" value={v(r.season.xg, 2)} mini />
+            <StatMini label="xA" value={v(r.season.xa, 2)} mini />
+            <StatMini label="Passes-chave" value={v(r.season.keyPasses)} mini />
+          </div>
+        </div>
+      )}
+      <div className="text-[10.5px] leading-snug text-sv-muted rounded-lg border border-sv-border/60 bg-sv-panel/40 p-2.5">
+        Valores calculados dos chutes reais da fonte. Passes, dribles, desarmes e nota não são fornecidos
+        pela fonte, por isso não aparecem aqui.
       </div>
     </div>
   );
@@ -1698,7 +1782,7 @@ function GoalPopupVisual({
         {shot.assistant && (
           <div className="text-slate-500">Assistência: {shot.assistant.name} #{shot.assistant.number}</div>
         )}
-        <div className="text-slate-500">xG {shot.xg.toFixed(2)} · xGOT {shot.xgot.toFixed(2)} · {shot.situation}</div>
+        <div className="text-slate-500">xG {shot.xg.toFixed(2)} · xGOT {fmt2(shot.xgot)} · {shot.situation}</div>
       </div>
     </>
   );

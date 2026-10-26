@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  listMatches, generatePredictions, getMatchZones, getMatchAnalysis, type PlayerMatchPrediction,
+  listMatches, generatePredictions, getMatchZones, getMatchStudio, type PlayerMatchPrediction,
   type ZoneOpportunity, type MatchupScore, type Match,
 } from "../api/client";
 import {
-  MOCK_MATCHES, MOCK_MATCH_ANALYSIS, MOCK_HOME_WEAKNESSES, MOCK_AWAY_WEAKNESSES, MOCK_PREDICTIONS,
+  MOCK_MATCHES, MOCK_HOME_WEAKNESSES, MOCK_AWAY_WEAKNESSES, MOCK_PREDICTIONS,
 } from "../api/mockData";
+import { payloadToDataset } from "../api/studioReal";
 import { Badge, ConfidenceBadge, EmptyState, ProbabilityBar, SectionTitle, TeamLogo } from "../components/ui";
 import { Pitch2D } from "../components/Pitch";
 import { Pitch3D } from "../components/Pitch3D";
@@ -24,78 +25,107 @@ function filterMatchesByScope(list: Match[], scope: "upcoming" | "recent" | "all
   });
 }
 
+/** Texto curto do motivo de uma falha de rede/API (para diagnóstico na tela). */
+function describeError(err: unknown): string {
+  const e = err as any;
+  if (e?.code === "ECONNABORTED") return "tempo esgotado (a API demorou mais de 20 s)";
+  if (e?.response?.status) return `a API respondeu ${e.response.status}${e.response.data?.detail ? ` — ${String(e.response.data.detail).slice(0, 120)}` : ""}`;
+  if (e?.message) return String(e.message).slice(0, 140);
+  return "erro desconhecido";
+}
+
+const EMPTY_ZONES = { home_team_weaknesses: [] as any[], away_team_weaknesses: [] as any[] };
+const EMPTY_PREDS = { predictions: [] as any[], matchups: [] as any[] };
+
+/** Partida padrão: a mais recente já finalizada (tem chutes/xG); senão a primeira da lista. */
+function pickDefaultMatch(list: Match[]): number {
+  const now = Date.now();
+  const done = list.find((m) => m.status === "finished" && new Date(m.kickoff_time).getTime() <= now);
+  return (done ?? list[0]).id;
+}
+
 export default function AnalysisPage() {
   const { matchId } = useParams();
   const [params] = useSearchParams();
   const preTeam = params.get("team");
   const [scope, setScope] = useState<"upcoming" | "recent" | "all">("all");
-  const [useMock, setUseMock] = useState(false);
+  // `forceDemo` só liga quando a pessoa pede (botão) — ou quando a API não devolve partida nenhuma.
+  const [forceDemo, setForceDemo] = useState(false);
 
   const matchesQuery = useQuery({
     queryKey: ["matches-analysis", scope],
-    queryFn: () => listMatches({ scope }).catch(() => {
-      setUseMock(true);
-      return [] as Match[];
-    }),
+    queryFn: () => listMatches({ scope, limit: 60 }),
     retry: 1,
     retryDelay: 600,
   });
+  const realMatches = useMemo(() => matchesQuery.data ?? [], [matchesQuery.data]);
+  const demoMode = forceDemo || (!matchesQuery.isLoading && realMatches.length === 0);
 
-  useEffect(() => {
-    if (!matchesQuery.isFetching && (!matchesQuery.data || matchesQuery.data.length === 0)) {
-      setUseMock(true);
-    }
-  }, [matchesQuery.data, matchesQuery.isFetching]);
-
-  const rawMatches = (matchesQuery.data && matchesQuery.data.length > 0)
-    ? matchesQuery.data
-    : filterMatchesByScope(MOCK_MATCHES, scope);
-
-  const [selected, setSelected] = useState<number | null>(
-    matchId ? Number(matchId) : (rawMatches.length ? rawMatches[0].id : MOCK_MATCHES[0].id)
+  const rawMatches = useMemo(
+    () => (demoMode ? filterMatchesByScope(MOCK_MATCHES, scope) : realMatches),
+    [demoMode, realMatches, scope],
   );
 
+  const [selected, setSelected] = useState<number | null>(matchId ? Number(matchId) : null);
   useEffect(() => {
-    if (!selected && rawMatches.length) setSelected(rawMatches[0].id);
-  }, [rawMatches, selected]);
+    if (!rawMatches.length) return;
+    if (selected != null && (rawMatches.some((m) => m.id === selected) || (matchId && selected === Number(matchId)))) return;
+    setSelected(pickDefaultMatch(rawMatches));
+  }, [rawMatches, selected, matchId]);
 
   const [view, setView] = useState<"2d" | "3d">("2d");
   const [target, setTarget] = useState<string>("shot");
 
-  const analysisQuery = useQuery({
-    queryKey: ["match-analysis", selected, useMock],
-    enabled: !!selected,
-    queryFn: () =>
-      useMock
-        ? Promise.resolve(MOCK_MATCH_ANALYSIS)
-        : getMatchAnalysis(selected!).catch(() => { setUseMock(true); return MOCK_MATCH_ANALYSIS; }),
-    retry: 0,
+  // Dados reais do Studio (Understat / StatsBomb / football-data) — nada simulado.
+  const studioQuery = useQuery({
+    queryKey: ["match-studio", selected],
+    enabled: !!selected && !demoMode,
+    queryFn: () => getMatchStudio(selected!),
+    staleTime: 5 * 60_000,
+    retry: 1,
   });
-  const analysis = analysisQuery.data || MOCK_MATCH_ANALYSIS;
+  const studioDataset = useMemo(
+    () => (studioQuery.data ? payloadToDataset(studioQuery.data) : null),
+    [studioQuery.data],
+  );
 
+  // Zonas e previsões: no modo real, se o backend não tem como calcular, mostra vazio (nunca jogadores de exemplo).
   const zonesQuery = useQuery({
-    queryKey: ["match-zones-analysis", selected, useMock],
+    queryKey: ["match-zones-analysis", selected, demoMode],
     enabled: !!selected,
-    queryFn: () =>
-      useMock
-        ? Promise.resolve({ home_team_weaknesses: MOCK_HOME_WEAKNESSES, away_team_weaknesses: MOCK_AWAY_WEAKNESSES } as any)
-        : getMatchZones(selected!).catch(() => { setUseMock(true); return { home_team_weaknesses: MOCK_HOME_WEAKNESSES, away_team_weaknesses: MOCK_AWAY_WEAKNESSES }; }),
+    queryFn: async () => {
+      if (demoMode) return { data: { home_team_weaknesses: MOCK_HOME_WEAKNESSES, away_team_weaknesses: MOCK_AWAY_WEAKNESSES } as any, ok: true };
+      try { return { data: (await getMatchZones(selected!)) as any, ok: true }; }
+      catch { return { data: EMPTY_ZONES as any, ok: false }; }
+    },
     retry: 0,
   });
-  const zones = zonesQuery.data || { home_team_weaknesses: MOCK_HOME_WEAKNESSES, away_team_weaknesses: MOCK_AWAY_WEAKNESSES };
+  const zones = zonesQuery.data?.data ?? EMPTY_ZONES;
 
   const predsQuery = useQuery({
-    queryKey: ["predictions", selected, useMock],
+    queryKey: ["predictions", selected, demoMode],
     enabled: !!selected,
-    queryFn: () =>
-      useMock
-        ? Promise.resolve(MOCK_PREDICTIONS as any)
-        : generatePredictions(selected!, {
+    queryFn: async () => {
+      if (demoMode) return { data: MOCK_PREDICTIONS as any, ok: true, reason: "" };
+      try {
+        return {
+          data: (await generatePredictions(selected!, {
             targets: ["shot", "shot_on_target", "goal", "goal_involvement"], include_matchups: true,
-          }).catch(() => { setUseMock(true); return MOCK_PREDICTIONS as any; }),
+          })) as any,
+          ok: true,
+          reason: "",
+        };
+      } catch (err) {
+        const status = (err as any)?.response?.status;
+        return {
+          data: EMPTY_PREDS as any, ok: false,
+          reason: status === 401 ? "É preciso entrar na conta (botão Entrar) para gerar previsões." : describeError(err),
+        };
+      }
+    },
     retry: 0,
   });
-  const preds = predsQuery.data || MOCK_PREDICTIONS;
+  const preds = predsQuery.data?.data ?? EMPTY_PREDS;
 
   const hw: Record<string, number> = {}; const aw: Record<string, number> = {};
   zones.home_team_weaknesses?.forEach((z: any) => { hw[z.zone] = z.weakness_score; });
@@ -129,6 +159,7 @@ export default function AnalysisPage() {
   }));
 
   const selMatch = rawMatches.find((m) => m.id === selected) || rawMatches[0] || MOCK_MATCHES[0];
+  const studioReady = !demoMode && !!studioDataset;
 
   return (
     <div className="space-y-6">
@@ -137,16 +168,27 @@ export default function AnalysisPage() {
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Estúdio de análise</h1>
           <p className="text-sv-muted mt-1 text-sm">
             Escolha uma partida para consultar indicadores e visualizações. Probabilidades são estimativas baseline experimentais, não previsões validadas.
-            {useMock && (
+            {demoMode ? (
               <span className="inline-flex items-center gap-1.5 ml-2 sv-chip-accent">
                 <span className="w-1.5 h-1.5 rounded-full bg-sv-accent3 animate-pulse"/>
                 Modo DEMO · dados simulados
               </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 ml-2 sv-chip-accent">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"/>
+                Dados reais · Understat / football-data / StatsBomb
+              </span>
             )}
           </p>
         </div>
-        {!useMock && (
-          <button onClick={() => setUseMock(true)} className="sv-btn !py-1.5 text-[12px]">
+        {demoMode ? (
+          realMatches.length > 0 && (
+            <button onClick={() => setForceDemo(false)} className="sv-btn !py-1.5 text-[12px]">
+              Voltar aos dados reais
+            </button>
+          )
+        ) : (
+          <button onClick={() => setForceDemo(true)} className="sv-btn !py-1.5 text-[12px]">
             Carregar dados demo
           </button>
         )}
@@ -155,7 +197,7 @@ export default function AnalysisPage() {
       <div className="grid lg:grid-cols-[320px_1fr] gap-5">
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Partidas" hint={useMock ? `${rawMatches.length} partidas (demo + API)` : "Escolha para analisar"}>
+            <SectionTitle title="Partidas" hint={demoMode ? `${rawMatches.length} partidas de exemplo` : `${rawMatches.length} partidas reais`}>
               <div className="flex gap-1">
                 {([["all", "todas"], ["upcoming", "próximas"], ["recent", "recentes"]] as const).map(([s, label]) => (
                   <button key={s} onClick={() => setScope(s as any)}
@@ -164,7 +206,11 @@ export default function AnalysisPage() {
               </div>
             </SectionTitle>
             <div className="space-y-2 max-h-[640px] overflow-auto pr-1">
-              {(rawMatches || []).slice(0, 40).map((m: Match) => (
+              {matchesQuery.isLoading && <div className="text-xs text-sv-muted p-3">Carregando partidas…</div>}
+              {!matchesQuery.isLoading && rawMatches.length === 0 && (
+                <div className="text-xs text-sv-muted p-3">Nenhuma partida neste filtro.</div>
+              )}
+              {(rawMatches || []).slice(0, 60).map((m: Match) => (
                 <button key={m.id}
                   onClick={() => setSelected(m.id)}
                   className={[
@@ -202,9 +248,23 @@ export default function AnalysisPage() {
             <>
               <div>
                 <SectionTitle title="Campo · ScoutVision Studio"
-                  hint={selMatch ? `${selMatch.home_team.name} vs ${selMatch.away_team.name}` : "Mapa de calor, chutes, gols e posições · dados simulados"}
+                  hint={selMatch
+                    ? `${selMatch.home_team.name} vs ${selMatch.away_team.name}`
+                    : `Mapa de calor, chutes, gols e posições${demoMode ? " · dados simulados" : ""}`}
                 />
-                <PitchStudio selectedMatch={selMatch} selectedMatchId={selected} />
+                {demoMode ? (
+                  <PitchStudio selectedMatch={selMatch} selectedMatchId={selected} />
+                ) : studioQuery.isError ? (
+                  <EmptyState
+                    title="Não foi possível carregar os dados reais desta partida"
+                    description={`Motivo: ${describeError(studioQuery.error)}. Tente novamente ou escolha outra partida.`}
+                    action={<button className="sv-btn !py-1.5 text-[12px]" onClick={() => studioQuery.refetch()}>Tentar novamente</button>}
+                  />
+                ) : !studioReady ? (
+                  <div className="sv-card"><div className="sv-card-inner text-sm text-sv-muted">Carregando dados reais da partida…</div></div>
+                ) : (
+                  <PitchStudio dataset={studioDataset} selectedMatch={selMatch} selectedMatchId={selected} />
+                )}
               </div>
 
               {view !== "3d" ? (
@@ -217,6 +277,11 @@ export default function AnalysisPage() {
                         <button onClick={() => setView("3d")} className="sv-btn !py-1.5 text-[11.5px]">Campo 3D</button>
                       </div>
                     } />
+                  {!demoMode && zonesQuery.data?.ok === false && (
+                    <div className="text-[11.5px] text-sv-muted mb-2">
+                      Sem vulnerabilidades por zona calculadas para esta partida (faltam eventos com zona ou elenco).
+                    </div>
+                  )}
                   <Pitch2D
                     homeWeakness={hw}
                     awayWeakness={aw}
@@ -276,7 +341,11 @@ export default function AnalysisPage() {
                     </div>
                   </div>
                   {targetPreds.length === 0 ? (
-                    <EmptyState title="Ainda sem previsões para este alvo" />
+                    <EmptyState
+                      title="Ainda sem previsões para este alvo"
+                      description={!demoMode && predsQuery.data?.ok === false
+                        ? (predsQuery.data.reason || "O modelo não gerou previsões para esta partida.")
+                        : undefined} />
                   ) : (
                     <div className="space-y-2.5">
                       {targetPreds.slice(0, 20).map((p: any, i: number) => (
