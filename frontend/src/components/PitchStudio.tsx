@@ -499,6 +499,8 @@ export function PitchStudio({
   // `started` = reprodução iniciada. Enquanto false, mostramos a VISÃO GERAL
   // (trajetória + direção de TODOS os chutes) sem animar nenhum lance.
   const [started, setStarted] = useState(false);
+  /** Pop-up de detalhe aberto ao clicar num chute/gol no campo. */
+  const [popupOpen, setPopupOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
   const progressRef = useRef(0);
   const rafRef = useRef<number | null>(null);
@@ -551,6 +553,7 @@ export function PitchStudio({
 
   useEffect(() => {
     setIdx(0); progressRef.current = 0; setProgress(0); setPlaying(false); setStarted(false); setSelectedPlayer(null);
+    setPopupOpen(false);
     clearGoalPulse();
   }, [ds]);
 
@@ -567,8 +570,17 @@ export function PitchStudio({
 
   useEffect(() => {
     setIdx(0); progressRef.current = 0; setProgress(0); setPlaying(false); setStarted(false);
+    setPopupOpen(false);
     clearGoalPulse();
   }, [view, filtered.length]);
+
+  // Esc fecha o pop-up do lance
+  useEffect(() => {
+    if (!popupOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPopupOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [popupOpen]);
 
   useEffect(() => {
     if (!started || !playing || !current || view === "heatmap" || view === "positions") {
@@ -603,7 +615,7 @@ export function PitchStudio({
 
   /** Inicia a reprodução do lance atual (limpa progresso e toca). */
   const startPlayback = () => {
-    progressRef.current = 0; setProgress(0); clearGoalPulse(); setStarted(true); setPlaying(true);
+    progressRef.current = 0; setProgress(0); clearGoalPulse(); setPopupOpen(false); setStarted(true); setPlaying(true);
   };
   const selectShot = (nextIndex: number) => {
     setIdx(nextIndex);
@@ -613,6 +625,8 @@ export function PitchStudio({
     setStarted(false);
     setPlaying(false);
   };
+  /** Clique num marcador do campo: seleciona o lance, destaca e abre o pop-up. */
+  const openShot = (i: number) => { selectShot(i); setPopupOpen(true); };
   const selectReplayMode = (mode: ReplayMode) => {
     setReplayMode(mode);
     progressRef.current = 0;
@@ -983,12 +997,16 @@ export function PitchStudio({
 
               {/* Marcadores + trajetória/direção de TODOS os chutes.
                   • gol → bola · no alvo → bolinha com ponto · pra fora → bola sem ponto */}
-              {isShotView && filtered.map((s, i) => {
+              {isShotView && filtered
+                .map((s, i) => ({ s, i }))
+                // o lance selecionado é desenhado por último (fica por cima e recebe o clique)
+                .sort((a, b) => Number(a.i === idx) - Number(b.i === idx))
+                .map(({ s, i }) => {
                 const isCur = i === idx;
                 const color = s.team === "home" ? HOME_COLOR : AWAY_COLOR;
                 const kind = shotKind(s);
                 // Visão geral (antes de reproduzir): todos ativos. Ao reproduzir: só o atual destaca.
-                const active = !started || isCur;
+                const active = popupOpen ? isCur : (!started || isCur);
                 const markerR = kind === "goal" ? (active ? 2.1 : 1.6) : (active ? 2.2 : 1.7);
                 // Gol: a bola termina DENTRO da rede (rede fora da linha de fundo)
                 // e a linha do chute chega até a boca do gol.
@@ -997,7 +1015,8 @@ export function PitchStudio({
                   ? { x: s.to.x + (s.to.x >= 50 ? 1.3 : -1.3), y: s.to.y }
                   : s.to;
                 return (
-                  <g key={`sm-${s.id}`}>
+                  <g key={`sm-${s.id}`} style={{ cursor: "pointer" }} onClick={() => openShot(i)}>
+                    <title>{`${s.player} · ${s.minute}' · xG ${s.xg.toFixed(2)} — clique para ver o lance`}</title>
                     <ShotArrow
                       from={s.from}
                       to={target}
@@ -1008,6 +1027,19 @@ export function PitchStudio({
                     />
                     <circle cx={s.from.x} cy={s.from.y} r={active ? 0.85 : 0.55} fill={color} opacity={active ? 0.9 : 0.35} />
                     <ShotMarker x={target.x} y={target.y} color={color} kind={kind} r={markerR} highlight={active} />
+                    {popupOpen && isCur && (
+                      <>
+                        <circle cx={target.x} cy={target.y} r={markerR * 2.4} fill="none" stroke={isGoal ? "#22c55e" : "#fde047"} strokeWidth="0.55">
+                          <animate attributeName="r" values={`${markerR * 2.3};${markerR * 3.8};${markerR * 2.3}`} dur="1.4s" repeatCount="indefinite" />
+                          <animate attributeName="opacity" values="0.95;0.15;0.95" dur="1.4s" repeatCount="indefinite" />
+                        </circle>
+                        <circle cx={s.from.x} cy={s.from.y} r={1.9} fill="none" stroke="#fde047" strokeWidth="0.35" />
+                      </>
+                    )}
+                    {/* áreas de clique maiores (linha, ponto final e origem do chute) */}
+                    <line x1={s.from.x} y1={s.from.y} x2={target.x} y2={target.y} stroke="transparent" strokeWidth={2.4} pointerEvents="stroke" />
+                    <circle cx={target.x} cy={target.y} r={3.6} fill="transparent" pointerEvents="all" />
+                    <circle cx={s.from.x} cy={s.from.y} r={2.4} fill="transparent" pointerEvents="all" />
                   </g>
                 );
               })}
@@ -1051,60 +1083,37 @@ export function PitchStudio({
                 <><MaterialIcon name="sports_soccer" className="mr-1 align-middle" />GOOOOOL · {current.player}</>
               </div>
             )}
+            {popupOpen && isShotView && current && (
+              <div
+                className={`absolute left-3 right-3 z-20 mx-auto max-w-[780px] ${current.to.y > 50 ? "top-3" : "bottom-3"}`}
+                role="dialog" aria-label="Detalhe do lance"
+              >
+                <div className="rounded-xl border border-sv-border bg-[#0b1220]/95 backdrop-blur-md shadow-2xl p-3 max-h-[85%] overflow-auto">
+                  <div className="flex items-center gap-1.5 mb-2.5">
+                    <span className="text-[11px] font-semibold tracking-wider text-sv-muted">
+                      LANCE {idx + 1}/{filtered.length}
+                    </span>
+                    <div className="flex-1" />
+                    <button onClick={goPrev} disabled={idx === 0} className="sv-btn !py-1 !px-2 text-[12px]" title="Lance anterior"><MaterialIcon name="skip_previous" /></button>
+                    <button onClick={goNext} disabled={idx >= filtered.length - 1} className="sv-btn !py-1 !px-2 text-[12px]" title="Próximo lance"><MaterialIcon name="skip_next" /></button>
+                    <button onClick={startPlayback} className="sv-btn-primary !py-1 !px-3 text-[12px]">
+                      <MaterialIcon name="play_arrow" className="mr-1 align-middle" />Reproduzir
+                    </button>
+                    <button onClick={() => setPopupOpen(false)} className="sv-btn !py-1 !px-2 text-[12px]" title="Fechar (Esc)" aria-label="Fechar"><MaterialIcon name="close" /></button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                    <ShotDetail shot={current} />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           )}
 
           {/* Progress + info grid */}
           <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
             {isShotView && current ? (
-              <>
-                <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className={`px-3 py-1.5 rounded-lg text-xs font-bold text-center mb-3 tracking-wide
-                    ${current.result === "goal" ? "bg-gradient-to-r from-emerald-500 to-emerald-400 text-white" :
-                      current.result === "saved" ? "bg-gradient-to-r from-amber-500 to-amber-400 text-white" :
-                      "bg-gradient-to-r from-rose-500 to-rose-400 text-white"}`}>
-                    <MaterialIcon name={current.result === "goal" ? "sports_score" : current.result === "saved" ? "pan_tool" : current.result === "off_target" ? "north_east" : "shield"} className="mr-1 align-middle" />
-                    {current.result === "goal" ? "GOL" : current.result === "saved" ? "DEFENDIDO" : current.result === "off_target" ? "FORA" : "BLOQUEADO"}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="relative shrink-0">
-                      <JerseyBadge number={current.number} color={current.team === "home" ? HOME_COLOR : AWAY_COLOR} size={56} />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-semibold truncate">{current.player}</div>
-                      <div className="text-xs text-sv-muted mt-0.5">{current.teamName} · {current.minute}'</div>
-                      {current.assistant && <div className="text-[11px] text-sv-muted mt-1"><MaterialIcon name="sports_score" className="mr-1 align-middle" />Assistência: <span className="text-white/80">{current.assistant.name}</span></div>}
-                    </div>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5 space-y-2.5">
-                  <div className="flex items-center justify-between"><span className="text-xs text-sv-muted">xG (chance)</span><span className="font-mono font-bold text-sm">{current.xg.toFixed(2)}</span></div>
-                  <div className="h-1.5 rounded-full bg-sv-panel overflow-hidden"><div className="h-full bg-gradient-to-r from-sv-accent to-sv-accent3 rounded-full" style={{ width: `${Math.min(100, current.xg * 200)}%` }} /></div>
-                  <div className="flex items-center justify-between"><span className="text-xs text-sv-muted">xGOT (no alvo)</span><span className={`font-mono font-bold text-sm ${(current.xgot ?? 0) >= 0.7 ? "text-emerald-400" : ""}`}>{fmt2(current.xgot)}</span></div>
-                  <div className="h-1.5 rounded-full bg-sv-panel overflow-hidden"><div className={`h-full rounded-full ${(current.xgot ?? 0) >= 0.7 ? "bg-gradient-to-r from-emerald-500 to-emerald-300" : "bg-gradient-to-r from-amber-500 to-amber-300"}`} style={{ width: `${(current.xgot ?? 0) * 100}%` }} /></div>
-                  <div className="pt-1 grid grid-cols-2 gap-1.5 text-[11px]">
-                    <div className="bg-sv-panel rounded-md px-2 py-1"><div className="text-sv-muted">Situação</div><div className="text-white/90 font-medium truncate">{current.situation}</div></div>
-                    <div className="bg-sv-panel rounded-md px-2 py-1"><div className="text-sv-muted">Tipo</div><div className="text-white/90 font-medium truncate">{current.shotType}</div></div>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="text-xs font-semibold text-sv-muted mb-2 tracking-wide text-center">MAPA DO GOL</div>
-                  <div className="relative mx-auto rounded-lg overflow-hidden border border-white/10" style={{ background: "#0f172a", aspectRatio: "16 / 10", width: "100%", maxWidth: 240 }}>
-                    <div className="absolute inset-2 rounded-md border-2 border-white/85" />
-                    <svg viewBox="0 0 100 62" className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
-                      {Array.from({ length: 11 }).map((_, i) => <line key={`gv-${i}`} x1={10 + i * 8} y1="15" x2={10 + i * 8} y2="52" stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" />)}
-                      {Array.from({ length: 6 }).map((_, i) => <line key={`gh-${i}`} x1="10" y1={15 + i * 7.2} x2="90" y2={15 + i * 7.2} stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" />)}
-                      {current.goalLoc ? (
-                        <g>
-                          <circle cx={10 + current.goalLoc.x * 80} cy={15 + current.goalLoc.y * 37} r="4" fill={current.result === "goal" ? "#22c55e" : "#ef4444"} stroke="white" strokeWidth="0.8" />
-                          {current.result === "goal" && <circle cx={10 + current.goalLoc.x * 80} cy={15 + current.goalLoc.y * 37} r="7" fill="none" stroke="#22c55e" strokeWidth="0.6" opacity="0.6" />}
-                        </g>
-                      ) : <text x="50" y="38" textAnchor="middle" fontSize="9" fill="rgba(255,255,255,0.4)">Fora do alvo</text>}
-                    </svg>
-                  </div>
-                  {current.goalZone && <div className="text-center text-[11px] text-sv-muted mt-2">Zona: <span className="text-white/85 font-medium">{current.goalZone}</span></div>}
-                </div>
-              </>
+              <ShotDetail shot={current} />
             ) : view === "heatmap" ? (
               <>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
@@ -1648,6 +1657,60 @@ function StatMini({ label, value, accent, small, mini }: { label: string; value:
 }
 
 /* ============== POPUP DE GOL: a bola entrando no gol ============== */
+/** Cartões de detalhe de um lance: resultado, jogador, xG/xGOT, situação/tipo e mapa do gol. */
+function ShotDetail({ shot }: { shot: Action }) {
+  return (
+    <>
+                <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
+                  <div className={`px-3 py-1.5 rounded-lg text-xs font-bold text-center mb-3 tracking-wide
+                    ${shot.result === "goal" ? "bg-gradient-to-r from-emerald-500 to-emerald-400 text-white" :
+                      shot.result === "saved" ? "bg-gradient-to-r from-amber-500 to-amber-400 text-white" :
+                      "bg-gradient-to-r from-rose-500 to-rose-400 text-white"}`}>
+                    <MaterialIcon name={shot.result === "goal" ? "sports_score" : shot.result === "saved" ? "pan_tool" : shot.result === "off_target" ? "north_east" : "shield"} className="mr-1 align-middle" />
+                    {shot.result === "goal" ? "GOL" : shot.result === "saved" ? "DEFENDIDO" : shot.result === "off_target" ? "FORA" : "BLOQUEADO"}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="relative shrink-0">
+                      <JerseyBadge number={shot.number} color={shot.team === "home" ? HOME_COLOR : AWAY_COLOR} size={56} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-semibold truncate">{shot.player}</div>
+                      <div className="text-xs text-sv-muted mt-0.5">{shot.teamName} · {shot.minute}'</div>
+                      {shot.assistant && <div className="text-[11px] text-sv-muted mt-1"><MaterialIcon name="sports_score" className="mr-1 align-middle" />Assistência: <span className="text-white/80">{shot.assistant.name}</span></div>}
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between"><span className="text-xs text-sv-muted">xG (chance)</span><span className="font-mono font-bold text-sm">{shot.xg.toFixed(2)}</span></div>
+                  <div className="h-1.5 rounded-full bg-sv-panel overflow-hidden"><div className="h-full bg-gradient-to-r from-sv-accent to-sv-accent3 rounded-full" style={{ width: `${Math.min(100, shot.xg * 200)}%` }} /></div>
+                  <div className="flex items-center justify-between"><span className="text-xs text-sv-muted">xGOT (no alvo)</span><span className={`font-mono font-bold text-sm ${(shot.xgot ?? 0) >= 0.7 ? "text-emerald-400" : ""}`}>{fmt2(shot.xgot)}</span></div>
+                  <div className="h-1.5 rounded-full bg-sv-panel overflow-hidden"><div className={`h-full rounded-full ${(shot.xgot ?? 0) >= 0.7 ? "bg-gradient-to-r from-emerald-500 to-emerald-300" : "bg-gradient-to-r from-amber-500 to-amber-300"}`} style={{ width: `${(shot.xgot ?? 0) * 100}%` }} /></div>
+                  <div className="pt-1 grid grid-cols-2 gap-1.5 text-[11px]">
+                    <div className="bg-sv-panel rounded-md px-2 py-1"><div className="text-sv-muted">Situação</div><div className="text-white/90 font-medium truncate">{shot.situation}</div></div>
+                    <div className="bg-sv-panel rounded-md px-2 py-1"><div className="text-sv-muted">Tipo</div><div className="text-white/90 font-medium truncate">{shot.shotType}</div></div>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
+                  <div className="text-xs font-semibold text-sv-muted mb-2 tracking-wide text-center">MAPA DO GOL</div>
+                  <div className="relative mx-auto rounded-lg overflow-hidden border border-white/10" style={{ background: "#0f172a", aspectRatio: "16 / 10", width: "100%", maxWidth: 240 }}>
+                    <div className="absolute inset-2 rounded-md border-2 border-white/85" />
+                    <svg viewBox="0 0 100 62" className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
+                      {Array.from({ length: 11 }).map((_, i) => <line key={`gv-${i}`} x1={10 + i * 8} y1="15" x2={10 + i * 8} y2="52" stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" />)}
+                      {Array.from({ length: 6 }).map((_, i) => <line key={`gh-${i}`} x1="10" y1={15 + i * 7.2} x2="90" y2={15 + i * 7.2} stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" />)}
+                      {shot.goalLoc ? (
+                        <g>
+                          <circle cx={10 + shot.goalLoc.x * 80} cy={15 + shot.goalLoc.y * 37} r="4" fill={shot.result === "goal" ? "#22c55e" : "#ef4444"} stroke="white" strokeWidth="0.8" />
+                          {shot.result === "goal" && <circle cx={10 + shot.goalLoc.x * 80} cy={15 + shot.goalLoc.y * 37} r="7" fill="none" stroke="#22c55e" strokeWidth="0.6" opacity="0.6" />}
+                        </g>
+                      ) : <text x="50" y="38" textAnchor="middle" fontSize="9" fill="rgba(255,255,255,0.4)">Fora do alvo</text>}
+                    </svg>
+                  </div>
+                  {shot.goalZone && <div className="text-center text-[11px] text-sv-muted mt-2">Zona: <span className="text-white/85 font-medium">{shot.goalZone}</span></div>}
+                </div>
+    </>
+  );
+}
+
 function GoalPopupVisual({
   shot, home, away, scoreHome, scoreAway, onClose,
 }: {
