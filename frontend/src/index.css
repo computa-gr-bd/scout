@@ -148,6 +148,26 @@
     letter-spacing: 0.08em;
     pointer-events: none;
   }
+  .goal-replay-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.78);
+    color: #f8fafc;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .goal-replay-close:hover {
+    background: rgba(225, 83, 78, 0.9);
+  }
   .goal-replay-stage {
     position: relative;
   }

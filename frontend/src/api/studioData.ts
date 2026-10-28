@@ -30,6 +30,8 @@ export type StudioAction = {
   xg: number; xgot: number | null; situation: string; shotType: string;
   goalZone?: string; goalLoc?: StudioCoord; result: "goal" | "saved" | "off_target" | "blocked";
   duration?: number;
+  /** `false` quando a fonte não informa onde a bola chegou (o `to` é só o centro do gol). */
+  endKnown?: boolean;
   /** Jogo de origem do chute (modo "forma recente"). */
   matchLabel?: string;
 };

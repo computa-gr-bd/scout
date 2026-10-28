@@ -66,6 +66,7 @@ function toAction(s: StudioApiShot, teamName: string): StudioAction {
     shotType: bodyPt(s.body_part, s.shot_type),
     result: s.result,
     duration: durationFor(from, to),
+    endKnown: s.end_known,
     matchLabel: s.match_label ?? undefined,
   };
 }

@@ -17,6 +17,7 @@ type Action = {
   assistant?: { name: string; number: number; from?: Coord };
   xg: number; xgot: number | null; situation: string; shotType: string;
   goalZone?: string; goalLoc?: Coord; result: "goal" | "saved" | "off_target" | "blocked"; duration?: number;
+  endKnown?: boolean;
   matchLabel?: string;
 };
 
@@ -582,6 +583,15 @@ export function PitchStudio({
     return () => window.removeEventListener("keydown", onKey);
   }, [popupOpen]);
 
+  // Esc fecha o replay 3D
+  useEffect(() => {
+    if (!(started && replayMode === "3d")) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeReplay(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started, replayMode]);
+
   useEffect(() => {
     if (!started || !playing || !current || view === "heatmap" || view === "positions") {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -627,6 +637,15 @@ export function PitchStudio({
   };
   /** Clique num marcador do campo: seleciona o lance, destaca e abre o pop-up. */
   const openShot = (i: number) => { selectShot(i); setPopupOpen(true); };
+  /** Fecha o replay 3D e volta ao mapa. */
+  const closeReplay = () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    progressRef.current = 0;
+    setProgress(0);
+    clearGoalPulse();
+    setPlaying(false);
+    setStarted(false);
+  };
   const selectReplayMode = (mode: ReplayMode) => {
     setReplayMode(mode);
     progressRef.current = 0;
@@ -817,8 +836,11 @@ export function PitchStudio({
                 key={`${current.id}-${replayMode}`}
                 goalLoc={current.goalLoc}
                 shotOrigin={current.from}
+                team={current.team}
+                result={current.result}
                 teamColor={current.team === "home" ? HOME_COLOR : AWAY_COLOR}
                 progress={progress}
+                onClose={closeReplay}
               />
               {current.result === "goal" && goalPulse > 0.15 && (
                 <div className="goal-replay-goal-label" style={{ opacity: Math.min(1, goalPulse * 2.4) }}>
@@ -1000,7 +1022,7 @@ export function PitchStudio({
               {isShotView && filtered
                 .map((s, i) => ({ s, i }))
                 // o lance selecionado é desenhado por último (fica por cima e recebe o clique)
-                .sort((a, b) => Number(a.i === idx) - Number(b.i === idx))
+                .sort((a, b) => (Number(a.i === idx) - Number(b.i === idx)) || (Number(a.s.result === "goal") - Number(b.s.result === "goal")))
                 .map(({ s, i }) => {
                 const isCur = i === idx;
                 const color = s.team === "home" ? HOME_COLOR : AWAY_COLOR;
@@ -1011,21 +1033,30 @@ export function PitchStudio({
                 // Gol: a bola termina DENTRO da rede (rede fora da linha de fundo)
                 // e a linha do chute chega até a boca do gol.
                 const isGoal = kind === "goal";
-                const target: Coord = isGoal
+                // Direção do chute (até o gol ou até onde a fonte diz que a bola foi).
+                const aim: Coord = isGoal
                   ? { x: s.to.x + (s.to.x >= 50 ? 1.3 : -1.3), y: s.to.y }
                   : s.to;
+                // Se a fonte NÃO informa onde a bola chegou, o marcador fica na ORIGEM do chute.
+                // (Antes todos eram empilhados na boca do gol e pareciam vários gols.)
+                const endKnown = s.endKnown !== false;
+                const target: Coord = endKnown ? aim : s.from;
                 return (
                   <g key={`sm-${s.id}`} style={{ cursor: "pointer" }} onClick={() => openShot(i)}>
                     <title>{`${s.player} · ${s.minute}' · xG ${s.xg.toFixed(2)} — clique para ver o lance`}</title>
-                    <ShotArrow
-                      from={s.from}
-                      to={target}
-                      color={color}
-                      width={active ? 0.5 : 0.3}
-                      opacity={active ? 0.92 : 0.26}
-                      endGap={isGoal ? 1.6 : 3.4}
-                    />
-                    <circle cx={s.from.x} cy={s.from.y} r={active ? 0.85 : 0.55} fill={color} opacity={active ? 0.9 : 0.35} />
+                    {endKnown ? (
+                      <ShotArrow
+                        from={s.from}
+                        to={aim}
+                        color={color}
+                        width={active ? 0.5 : 0.3}
+                        opacity={active ? 0.92 : 0.26}
+                        endGap={isGoal ? 1.6 : 3.4}
+                      />
+                    ) : isCur ? (
+                      <ShotArrow from={s.from} to={aim} color={color} width={0.3} opacity={0.55} endGap={isGoal ? 1.6 : 3.4} dashed />
+                    ) : null}
+                    {endKnown && <circle cx={s.from.x} cy={s.from.y} r={active ? 0.85 : 0.55} fill={color} opacity={active ? 0.9 : 0.35} />}
                     <ShotMarker x={target.x} y={target.y} color={color} kind={kind} r={markerR} highlight={active} />
                     {popupOpen && isCur && (
                       <>
@@ -1037,7 +1068,7 @@ export function PitchStudio({
                       </>
                     )}
                     {/* áreas de clique maiores (linha, ponto final e origem do chute) */}
-                    <line x1={s.from.x} y1={s.from.y} x2={target.x} y2={target.y} stroke="transparent" strokeWidth={2.4} pointerEvents="stroke" />
+                    {endKnown && <line x1={s.from.x} y1={s.from.y} x2={target.x} y2={target.y} stroke="transparent" strokeWidth={2.4} pointerEvents="stroke" />}
                     <circle cx={target.x} cy={target.y} r={3.6} fill="transparent" pointerEvents="all" />
                     <circle cx={s.from.x} cy={s.from.y} r={2.4} fill="transparent" pointerEvents="all" />
                   </g>
@@ -1101,7 +1132,7 @@ export function PitchStudio({
                     </button>
                     <button onClick={() => setPopupOpen(false)} className="sv-btn !py-1 !px-2 text-[12px]" title="Fechar (Esc)" aria-label="Fechar"><MaterialIcon name="close" /></button>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                  <div className={`grid grid-cols-1 ${current.goalLoc ? "md:grid-cols-3" : "md:grid-cols-2"} gap-2.5`}>
                     <ShotDetail shot={current} />
                   </div>
                 </div>
@@ -1111,7 +1142,7 @@ export function PitchStudio({
           )}
 
           {/* Progress + info grid */}
-          <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <div className={`mt-4 grid grid-cols-1 ${isShotView && current && !current.goalLoc ? "lg:grid-cols-2" : "lg:grid-cols-3"} gap-3`}>
             {isShotView && current ? (
               <ShotDetail shot={current} />
             ) : view === "heatmap" ? (
@@ -1683,30 +1714,36 @@ function ShotDetail({ shot }: { shot: Action }) {
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5 space-y-2.5">
                   <div className="flex items-center justify-between"><span className="text-xs text-sv-muted">xG (chance)</span><span className="font-mono font-bold text-sm">{shot.xg.toFixed(2)}</span></div>
                   <div className="h-1.5 rounded-full bg-sv-panel overflow-hidden"><div className="h-full bg-gradient-to-r from-sv-accent to-sv-accent3 rounded-full" style={{ width: `${Math.min(100, shot.xg * 200)}%` }} /></div>
-                  <div className="flex items-center justify-between"><span className="text-xs text-sv-muted">xGOT (no alvo)</span><span className={`font-mono font-bold text-sm ${(shot.xgot ?? 0) >= 0.7 ? "text-emerald-400" : ""}`}>{fmt2(shot.xgot)}</span></div>
-                  <div className="h-1.5 rounded-full bg-sv-panel overflow-hidden"><div className={`h-full rounded-full ${(shot.xgot ?? 0) >= 0.7 ? "bg-gradient-to-r from-emerald-500 to-emerald-300" : "bg-gradient-to-r from-amber-500 to-amber-300"}`} style={{ width: `${(shot.xgot ?? 0) * 100}%` }} /></div>
+                  {shot.xgot != null && (
+                    <>
+                      <div className="flex items-center justify-between"><span className="text-xs text-sv-muted">xGOT (no alvo)</span><span className={`font-mono font-bold text-sm ${(shot.xgot ?? 0) >= 0.7 ? "text-emerald-400" : ""}`}>{fmt2(shot.xgot)}</span></div>
+                      <div className="h-1.5 rounded-full bg-sv-panel overflow-hidden"><div className={`h-full rounded-full ${(shot.xgot ?? 0) >= 0.7 ? "bg-gradient-to-r from-emerald-500 to-emerald-300" : "bg-gradient-to-r from-amber-500 to-amber-300"}`} style={{ width: `${(shot.xgot ?? 0) * 100}%` }} /></div>
+                    </>
+                  )}
                   <div className="pt-1 grid grid-cols-2 gap-1.5 text-[11px]">
                     <div className="bg-sv-panel rounded-md px-2 py-1"><div className="text-sv-muted">Situação</div><div className="text-white/90 font-medium truncate">{shot.situation}</div></div>
                     <div className="bg-sv-panel rounded-md px-2 py-1"><div className="text-sv-muted">Tipo</div><div className="text-white/90 font-medium truncate">{shot.shotType}</div></div>
                   </div>
                 </div>
-                <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="text-xs font-semibold text-sv-muted mb-2 tracking-wide text-center">MAPA DO GOL</div>
-                  <div className="relative mx-auto rounded-lg overflow-hidden border border-white/10" style={{ background: "#0f172a", aspectRatio: "16 / 10", width: "100%", maxWidth: 240 }}>
-                    <div className="absolute inset-2 rounded-md border-2 border-white/85" />
-                    <svg viewBox="0 0 100 62" className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
-                      {Array.from({ length: 11 }).map((_, i) => <line key={`gv-${i}`} x1={10 + i * 8} y1="15" x2={10 + i * 8} y2="52" stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" />)}
-                      {Array.from({ length: 6 }).map((_, i) => <line key={`gh-${i}`} x1="10" y1={15 + i * 7.2} x2="90" y2={15 + i * 7.2} stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" />)}
-                      {shot.goalLoc ? (
-                        <g>
-                          <circle cx={10 + shot.goalLoc.x * 80} cy={15 + shot.goalLoc.y * 37} r="4" fill={shot.result === "goal" ? "#22c55e" : "#ef4444"} stroke="white" strokeWidth="0.8" />
-                          {shot.result === "goal" && <circle cx={10 + shot.goalLoc.x * 80} cy={15 + shot.goalLoc.y * 37} r="7" fill="none" stroke="#22c55e" strokeWidth="0.6" opacity="0.6" />}
-                        </g>
-                      ) : <text x="50" y="38" textAnchor="middle" fontSize="9" fill="rgba(255,255,255,0.4)">Fora do alvo</text>}
-                    </svg>
+                {shot.goalLoc && (
+                  <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
+                    <div className="text-xs font-semibold text-sv-muted mb-2 tracking-wide text-center">MAPA DO GOL</div>
+                    <div className="relative mx-auto rounded-lg overflow-hidden border border-white/10" style={{ background: "#0f172a", aspectRatio: "16 / 10", width: "100%", maxWidth: 240 }}>
+                      <div className="absolute inset-2 rounded-md border-2 border-white/85" />
+                      <svg viewBox="0 0 100 62" className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
+                        {Array.from({ length: 11 }).map((_, i) => <line key={`gv-${i}`} x1={10 + i * 8} y1="15" x2={10 + i * 8} y2="52" stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" />)}
+                        {Array.from({ length: 6 }).map((_, i) => <line key={`gh-${i}`} x1="10" y1={15 + i * 7.2} x2="90" y2={15 + i * 7.2} stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" />)}
+                        {shot.goalLoc ? (
+                          <g>
+                            <circle cx={10 + shot.goalLoc.x * 80} cy={15 + shot.goalLoc.y * 37} r="4" fill={shot.result === "goal" ? "#22c55e" : "#ef4444"} stroke="white" strokeWidth="0.8" />
+                            {shot.result === "goal" && <circle cx={10 + shot.goalLoc.x * 80} cy={15 + shot.goalLoc.y * 37} r="7" fill="none" stroke="#22c55e" strokeWidth="0.6" opacity="0.6" />}
+                          </g>
+                        ) : null}
+                      </svg>
+                    </div>
+                    {shot.goalZone && <div className="text-center text-[11px] text-sv-muted mt-2">Zona: <span className="text-white/85 font-medium">{shot.goalZone}</span></div>}
                   </div>
-                  {shot.goalZone && <div className="text-center text-[11px] text-sv-muted mt-2">Zona: <span className="text-white/85 font-medium">{shot.goalZone}</span></div>}
-                </div>
+                )}
     </>
   );
 }
