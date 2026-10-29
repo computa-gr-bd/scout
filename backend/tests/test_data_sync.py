@@ -37,7 +37,7 @@ def payload():
             "squad": [{"id": 50, "name": "Atleta A"}]}
     away = {"id": 2, "name": "B"}
     return {
-        "competition": {"id": 10, "name": "League", "code": "BSA", "type": "LEAGUE",
+        "competition": {"id": 10, "name": "League", "code": "PD", "type": "LEAGUE",
                         "currentSeason": season},
         "teams": {"season": season, "teams": [home, away]},
         "matches": {"matches": [{
@@ -90,13 +90,13 @@ def test_provider_identity_is_not_shared(factory, payload):
 def test_invalid_data_rolls_back_and_failure_is_recorded(factory, payload):
     client = Mock()
     client.fetch_competition.return_value = payload
-    sync_football_data_for_competitions(["BSA"], client=client, factory=factory)
+    sync_football_data_for_competitions(["PD"], client=client, factory=factory)
     with factory() as db:
         previous = db.scalar(select(CollectionState)).last_success_at
     payload["teams"]["teams"][0]["name"] = "Should roll back"
     payload["matches"]["matches"][0]["utcDate"] = "bad date"
     with pytest.raises(RuntimeError):
-        sync_football_data_for_competitions(["BSA"], client=client, factory=factory)
+        sync_football_data_for_competitions(["PD"], client=client, factory=factory)
     with factory() as db:
         assert db.scalar(select(Team).where(Team.external_id == "1")).name == "A"
         state = db.scalar(select(CollectionState))
@@ -109,12 +109,12 @@ def test_sync_continues_after_a_competition_failure(factory, payload):
     second_competition["competition"]["code"] = "PL"
     client = Mock()
     client.fetch_competition.side_effect = [RuntimeError("provider unavailable"), second_competition]
-    with pytest.raises(RuntimeError, match="BSA.*demais competições"):
-        sync_football_data_for_competitions(["BSA", "PL"], client=client, factory=factory)
+    with pytest.raises(RuntimeError, match="PD.*demais competições"):
+        sync_football_data_for_competitions(["PD", "PL"], client=client, factory=factory)
     assert client.fetch_competition.call_args_list[1].args == ("PL",)
     with factory() as db:
         states = {state.resource: state.status for state in db.scalars(select(CollectionState))}
-        assert states == {"BSA": "failed", "PL": "success"}
+        assert states == {"PD": "failed", "PL": "success"}
 
 
 def test_season_validation_and_undefined_teams(factory, payload):
@@ -151,7 +151,7 @@ def test_auth_failure_does_not_retry_or_leak_key():
     session.get.return_value = Mock(status_code=403)
     client = FootballDataClient("private-test-token", session=session)
     with pytest.raises(RuntimeError, match="HTTP 403") as exc:
-        client.get("competitions/BSA")
+        client.get("competitions/PD")
     assert "private-test-token" not in str(exc.value)
     assert session.get.call_count == 1
 

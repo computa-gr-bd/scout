@@ -1,6 +1,6 @@
 """football-data.org -> validation -> transactional PostgreSQL upserts.
 
-Run with: python -m app.services.data_sync --competitions BSA
+Run with: python -m app.services.data_sync --competitions PL
 No files, paid endpoints, background threads or fabricated advanced metrics.
 """
 from __future__ import annotations
@@ -21,6 +21,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.services.scope import EXCLUDED_COMPETITION_CODES
 from app.db import SessionLocal
 from app.db.models import (
     CollectionState, Competition, DataSource, DataSourceRecord, Match,
@@ -289,6 +290,9 @@ def sync_football_data_for_competitions(codes=None, *, client=None, factory=Sess
     settings = get_settings()
     codes = list(dict.fromkeys(c.strip().upper() for c in
                  (codes or settings.SYNC_COMPETITIONS.split(",")) if c.strip()))
+    # Competições removidas do projeto (ex.: Brasileirão/BSA) nunca são coletadas,
+    # mesmo que ainda estejam numa variável de ambiente antiga.
+    codes = [c for c in codes if c not in EXCLUDED_COMPETITION_CODES]
     if not codes or len(codes) > 12 or any(not c.isalnum() for c in codes):
         raise ValueError("Informe de 1 a 12 codigos de competicao.")
     owned_client = client is None

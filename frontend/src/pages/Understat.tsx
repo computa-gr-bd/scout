@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getUnderstatLeagueTable, getUnderstatMatchShots, getUnderstatPlayerShots, getUnderstatStats,
   getUnderstatSyncStatus, getUnderstatTeamForm, listUnderstatLeagues, listUnderstatMatches,
-  triggerUnderstatSync,
+  syncUnderstatFast, triggerUnderstatSync,
   type UnderstatLeague, type UnderstatMatch, type UnderstatStats, type UnderstatTableRow,
 } from "../api/client";
 import { ShotExplorer } from "../components/ShotExplorer";
@@ -595,6 +595,76 @@ function MatchList({ leagueKey, seasonId }: { leagueKey: string; seasonId?: numb
   );
 }
 
+// ---------------------------------------------------------------- Sincronização rápida
+
+/**
+ * Botão "Sincronizar agora": só Understat, todas as ligas. Cada chamada ao backend tem um
+ * orçamento de tempo curto; repetimos até não faltar mais nada (ou a fonte não ter mais
+ * chutes publicados), mostrando o andamento.
+ */
+function FastSyncButton({ season, className = "sv-btn-primary" }: { season: number; className?: string }) {
+  const qc = useQueryClient();
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const [detail, setDetail] = useState<string>("");
+
+  const run = useMutation({
+    mutationFn: async () => {
+      let added = 0;
+      let empty = 0;
+      let errors = 0;
+      const samples: string[] = [];
+      const failedLeagues = new Set<string>();
+      let last: Awaited<ReturnType<typeof syncUnderstatFast>> | null = null;
+      for (let round = 1; round <= 15; round++) {
+        setMsg(round === 1 ? "Sincronizando…" : `Sincronizando… +${added} partidas, faltam ${last?.remaining ?? "?"}`);
+        // Calendário só na 1ª rodada; as demais só buscam chutes (rodadas curtas, sem estourar o tempo).
+        last = await syncUnderstatFast({ season, max_seconds: 8, max_matches: 24, calendar: round === 1 });
+        added += last.progress;
+        for (const [lg, v] of Object.entries(last.leagues)) {
+          empty += v.empty ?? 0;
+          errors += v.shot_errors ?? 0;
+          if (v.error) failedLeagues.add(lg);
+          for (const s of v.error_samples ?? []) if (samples.length < 6) samples.push(`${lg} ${s}`);
+        }
+        // Para quando acabou o que falta ou quando não há mais nada novo para tentar.
+        if (last.done || last.candidates === 0) break;
+      }
+      return { added, empty, errors, samples, failedLeagues: [...failedLeagues], last: last! };
+    },
+    onSuccess: ({ added, empty, errors, samples, failedLeagues, last }) => {
+      const parts = [`+${added} partidas com chutes`];
+      if (last.remaining > 0) {
+        const why: string[] = [];
+        if (empty > 0) why.push(`${empty} a fonte ainda não publicou`);
+        if (errors > 0) why.push(`${errors} com erro`);
+        parts.push(`${last.remaining} sem chutes${why.length ? ` (${why.join(", ")})` : ""}`);
+      }
+      if (failedLeagues.length) parts.push(`calendário falhou em: ${failedLeagues.join(", ")}`);
+      setMsg(parts.join(" · "));
+      setDetail(samples.join("\n"));
+      if (samples.length) console.warn("Understat sync — amostras de erro:\n" + samples.join("\n"));
+      for (const key of ["understat", "matches-analysis", "match-studio"]) qc.invalidateQueries({ queryKey: [key] });
+    },
+    onError: (err: unknown) => {
+      const e = err as { response?: { status?: number; data?: { detail?: string } }; message?: string };
+      setMsg(e.response?.status === 409
+        ? "Já existe uma sincronização em andamento. Aguarde um instante."
+        : `Falha ao sincronizar: ${e.response?.data?.detail ?? e.message ?? "erro desconhecido"}. O que já foi coletado ficou salvo: clique de novo para continuar.`);
+    },
+  });
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button className={className} onClick={() => run.mutate()} disabled={run.isPending}
+        title="Atualiza calendário, resultados e chutes de todas as ligas do Understat">
+        {run.isPending ? "Sincronizando…" : "Sincronizar agora"}
+      </button>
+      {msg && <span className="text-xs text-sv-muted max-w-[320px]" title={detail || undefined}>{msg}</span>}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- Página
 
 export default function UnderstatPage() {
@@ -678,15 +748,7 @@ export default function UnderstatPage() {
         <EmptyState
           title="Sem cobertura Understat"
           description="Nenhuma liga foi sincronizada ainda. Execute a sincronização para carregar os dados da temporada."
-          action={
-            auth.role === "admin" ? (
-              <button className="sv-btn-primary" onClick={() => sync.mutate()} disabled={sync.isPending}>
-                {sync.isPending ? "Sincronizando…" : "Sincronizar Premier League 2026"}
-              </button>
-            ) : (
-              <span className="text-xs text-sv-muted">A sincronização requer usuário administrador.</span>
-            )
-          }
+          action={<FastSyncButton season={2026} />}
         />
       </div>
     );
@@ -724,9 +786,11 @@ export default function UnderstatPage() {
                 <option key={s.id} value={s.id}>Temporada {s.name}</option>
               ))}
             </select>
+            <FastSyncButton season={current?.seasons?.[0] ? Number(current.seasons[0].name) || 2026 : 2026} />
             {auth.role === "admin" && (
-              <button className="sv-btn" onClick={() => sync.mutate()} disabled={sync.isPending}>
-                {sync.isPending ? "Sincronizando…" : "Atualizar dados"}
+              <button className="sv-btn" onClick={() => sync.mutate()} disabled={sync.isPending}
+                title="Sincronização completa (tabela, jogadores e agregados) — mais lenta">
+                {sync.isPending ? "Sincronizando…" : "Sincronização completa"}
               </button>
             )}
           </div>

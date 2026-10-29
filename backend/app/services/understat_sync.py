@@ -25,6 +25,7 @@ import argparse
 import asyncio
 import json
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
@@ -35,7 +36,7 @@ except Exception as exc:  # pragma: no cover - dependência opcional
     print(f"Dependências da Understat não instaladas: {exc}")
     raise
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, selectinload
@@ -210,23 +211,37 @@ class UnderstatMapper:
         self._players_by_name: dict[str, Player] = {}
         self._matches: dict[str, Match] = {}
 
-    def preload(self, season_id: int | None = None) -> None:
+    def preload(self, season_id: int | None = None, players: bool = True) -> None:
         """Carrega de uma vez times/jogadores/partidas já existentes.
 
         Sem isso, cada `get_or_create_*` faz um SELECT por entidade, o que é
         proibitivo com banco remoto (centenas de round-trips por liga).
+        `players=False` pula a carga dos jogadores (use `preload_players_for_teams`).
         """
         sid = season_id if season_id is not None else self.season_id
         for t in self.db.scalars(select(Team).where(Team.data_source == SOURCE)).all():
             self._teams[t.external_id] = t
-        for p in self.db.scalars(select(Player).where(Player.data_source == SOURCE)).all():
-            self._players[p.external_id] = p
-            if p.display_name:
-                self._players_by_name.setdefault(p.display_name, p)
+        if players:
+            for p in self.db.scalars(select(Player).where(Player.data_source == SOURCE)).all():
+                self._players[p.external_id] = p
+                if p.display_name:
+                    self._players_by_name.setdefault(p.display_name, p)
         for m in self.db.scalars(
             select(Match).where(Match.data_source == SOURCE, Match.season_id == sid)
         ).all():
             self._matches[m.external_id] = m
+
+    def preload_players_for_teams(self, team_ids: Iterable[int]) -> None:
+        """Carrega só os jogadores dos times informados (sync rápido)."""
+        ids = {i for i in team_ids if i is not None}
+        if not ids:
+            return
+        for p in self.db.scalars(
+            select(Player).where(Player.data_source == SOURCE, Player.team_id.in_(ids))
+        ).all():
+            self._players.setdefault(p.external_id, p)
+            if p.display_name:
+                self._players_by_name.setdefault(p.display_name, p)
 
     def get_or_create_team(self, external_id: str, title: str, short_title: str | None = None) -> Team:
         key = str(external_id)
@@ -302,7 +317,11 @@ class UnderstatMapper:
     ) -> Match:
         key = str(external_id)
         if key in self._matches:
-            return self._matches[key]
+            # Antes devolvia direto do cache: uma partida salva como "scheduled" nunca virava
+            # "finished" (nem ganhava placar) nas execuções seguintes, e por isso ficava sem chutes.
+            match = self._matches[key]
+            self._refresh_match(match, kickoff, home_goals, away_goals, is_result)
+            return match
         match = self.db.scalar(
             select(Match).where(Match.data_source == SOURCE, Match.external_id == key)
         )
@@ -322,17 +341,36 @@ class UnderstatMapper:
             self.db.add(match)
             self.db.flush()
         else:
-            if home_goals is not None:
-                match.home_score = home_goals
-            if away_goals is not None:
-                match.away_score = away_goals
-            if match.status != status:
-                match.status = status
-            if kickoff is not None:
-                match.kickoff_time = kickoff
-            self.db.flush()
+            self._refresh_match(match, kickoff, home_goals, away_goals, is_result)
         self._matches[key] = match
         return match
+
+    def _refresh_match(
+        self,
+        match: Match,
+        kickoff: datetime | None,
+        home_goals: int | None,
+        away_goals: int | None,
+        is_result: bool,
+    ) -> bool:
+        """Atualiza status/placar/horário só quando mudou. Devolve True se alterou algo."""
+        changed = False
+        status = "finished" if is_result else "scheduled"
+        if home_goals is not None and match.home_score != home_goals:
+            match.home_score = home_goals
+            changed = True
+        if away_goals is not None and match.away_score != away_goals:
+            match.away_score = away_goals
+            changed = True
+        if match.status != status:
+            match.status = status
+            changed = True
+        if kickoff is not None and match.kickoff_time != kickoff:
+            match.kickoff_time = kickoff
+            changed = True
+        if changed:
+            self.db.flush()
+        return changed
 
 
 # ---------------------------------------------------------------------------
@@ -604,7 +642,12 @@ async def _ingest_league_structure(
     db.flush()
 
     # Partidas: resultados + jogos futuros vêm de datesData.
-    for item in list(results_raw or []) + list(fixtures_raw or []):
+    _ingest_match_items(mapper, list(results_raw or []) + list(fixtures_raw or []), counts)
+
+
+def _ingest_match_items(mapper: UnderstatMapper, items: list, counts: dict) -> None:
+    """Cria/atualiza partidas (resultados + calendário) a partir do datesData da Understat."""
+    for item in items:
         try:
             home = mapper.get_or_create_team(
                 str(item["h"]["id"]), item["h"].get("title"), item["h"].get("short_title")
@@ -634,17 +677,19 @@ async def _ingest_match_shots(
     mapper: UnderstatMapper,
     match: Match,
     counts: dict,
+    shots_by_side: Any = None,
 ) -> None:
     understat_match_id = match.external_id
     if not understat_match_id:
         return
 
-    try:
-        shots_by_side = await client.match_shots(understat_match_id)
-    except Exception as exc:  # falha isolada por partida não interrompe a liga
-        counts["shot_errors"] += 1
-        print(f"Aviso: falha ao buscar shots da partida {understat_match_id}: {exc}")
-        return
+    if shots_by_side is None:  # sync rápido já baixa os chutes em paralelo e passa aqui
+        try:
+            shots_by_side = await client.match_shots(understat_match_id)
+        except Exception as exc:  # falha isolada por partida não interrompe a liga
+            counts["shot_errors"] += 1
+            print(f"Aviso: falha ao buscar shots da partida {understat_match_id}: {exc}")
+            return
 
     if not isinstance(shots_by_side, dict):
         return
@@ -928,6 +973,214 @@ async def sync_understat_league(
 
 
 # ---------------------------------------------------------------------------
+# Sincronização RÁPIDA (botão da tela Understat e rotina agendada)
+# ---------------------------------------------------------------------------
+def _count_shot_events(db: Session, season_id: int) -> int:
+    """Total de chutes da Understat gravados para a temporada (o card da tela usa isso)."""
+    return int(db.scalar(
+        select(func.count())
+        .select_from(Event)
+        .join(Match, Match.id == Event.match_id)
+        .where(Event.data_source == SOURCE, Event.type == EventType.SHOT, Match.season_id == season_id)
+    ) or 0)
+
+
+def _pending_finished_matches(db: Session, season_id: int) -> list[Match]:
+    """Partidas finalizadas da Understat que ainda não têm chutes (mais recentes primeiro)."""
+    finished = db.scalars(
+        select(Match)
+        .options(selectinload(Match.home_team), selectinload(Match.away_team))
+        .where(Match.season_id == season_id, Match.data_source == SOURCE, Match.status == "finished")
+        .order_by(Match.kickoff_time.desc())
+    ).all()
+    if not finished:
+        return []
+    with_shots = set(db.scalars(
+        select(Event.match_id)
+        .join(Match, Match.id == Event.match_id)
+        .where(Event.data_source == SOURCE, Event.type == EventType.SHOT, Match.season_id == season_id)
+        .distinct()
+    ).all())
+    return [m for m in finished if m.id not in with_shots]
+
+
+async def _fetch_calendar(client: UnderstatClient, league: str, season: int) -> list:
+    results, fixtures = await asyncio.gather(
+        client.league_results(league, season), client.league_fixtures(league, season)
+    )
+    return list(results or []) + list(fixtures or [])
+
+
+# Partidas já tentadas sem sucesso (fonte sem chutes ou erro): vão para o FIM da fila por um tempo,
+# para que as mais novas ainda não publicadas não bloqueiem as mais antigas.
+_RECENT_ATTEMPTS: dict[int, float] = {}
+_ATTEMPT_TTL = 20 * 60  # segundos
+
+
+async def _fetch_shots_safe(client: UnderstatClient, match: Match, counts: dict, timeout: float):
+    """Baixa os chutes de uma partida. Tenta 2x (falha transitória/limite de taxa) e registra o erro."""
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            data = await asyncio.wait_for(client.match_shots(match.external_id), timeout=timeout)
+            return data if isinstance(data, dict) else None
+        except Exception as exc:  # noqa: BLE001 - falha isolada por partida
+            last_exc = exc
+            if attempt == 0:
+                await asyncio.sleep(0.8)
+    counts["shot_errors"] += 1
+    samples = counts.setdefault("error_samples", [])
+    if len(samples) < 3:
+        samples.append(f"{match.external_id}: {type(last_exc).__name__}: {str(last_exc)[:120]}")
+    print(f"Aviso: falha ao buscar shots da partida {match.external_id}: {last_exc}")
+    return None
+
+
+async def sync_understat_fast(
+    client: UnderstatClient,
+    leagues: list[str],
+    season: int = DEFAULT_SEASON,
+    *,
+    max_seconds: float = 8.0,
+    max_matches: int = 40,
+    concurrency: int = 4,
+    refresh_calendar: bool = True,
+    session_factory=None,
+) -> dict[str, Any]:
+    """Sincronização incremental e rápida, só da Understat.
+
+    Diferenças para `sync_understat_league`:
+      * só atualiza o calendário/resultados (sem tabela, sem milhares de jogadores);
+      * baixa os chutes de várias partidas em paralelo, das mais recentes para as antigas;
+      * o orçamento `max_seconds` vale para a fase de chutes (o calendário não o consome);
+      * partidas que a fonte ainda não publicou vão para o fim da fila (não travam as antigas);
+      * pode ser chamada de novo enquanto `candidates > 0` (nas chamadas seguintes use
+        `refresh_calendar=False`: pula a rede do calendário e várias consultas ao banco);
+      * não recalcula agregados de temporada (isso fica para a rotina completa).
+    """
+    session_factory = session_factory or SessionLocal
+    started = time.monotonic()
+    results: dict[str, dict[str, Any]] = {
+        lg: {"league": lg, "season": season, "matches": 0, "shots": 0, "events": 0,
+             "tms_rows": 0, "shot_errors": 0, "empty": 0}
+        for lg in leagues
+    }
+    dbs: dict[str, Session] = {}
+    mappers: dict[str, UnderstatMapper] = {}
+    season_ids: dict[str, int] = {}
+    ingested: dict[str, int] = {lg: 0 for lg in leagues}
+    progress = 0
+    attempted = 0
+    candidates = 0
+    remaining = 0
+    try:
+        # Fase 1 — calendário e resultados de todas as ligas em paralelo (só rede).
+        if refresh_calendar:
+            calendars = await asyncio.gather(
+                *[_fetch_calendar(client, lg, season) for lg in leagues], return_exceptions=True
+            )
+        else:
+            calendars = [[] for _ in leagues]
+        pending_all: list[tuple[Any, str, Match]] = []
+        for lg, cal in zip(leagues, calendars):
+            counts = results[lg]
+            if isinstance(cal, BaseException):
+                counts["error"] = f"{type(cal).__name__}: {cal}"
+                continue
+            db = session_factory()
+            dbs[lg] = db
+            _, season_row = _get_or_create_competition(db, lg, season)
+            season_ids[lg] = season_row.id
+            mapper = UnderstatMapper(db, season_row.id)
+            mapper.preload(season_row.id, players=False)
+            mappers[lg] = mapper
+            if refresh_calendar:
+                _ingest_match_items(mapper, cal, counts)
+                db.commit()
+            pending = _pending_finished_matches(db, season_row.id)
+            counts["pending_before"] = len(pending)
+            pending_all.extend((m.kickoff_time, lg, m) for m in pending)
+
+        # Fila: primeiro as não tentadas há pouco (mais novas antes), depois as já tentadas sem sucesso.
+        now = time.time()
+        fresh = [r for r in pending_all if now - _RECENT_ATTEMPTS.get(r[2].id, 0) > _ATTEMPT_TTL]
+        stale = [r for r in pending_all if now - _RECENT_ATTEMPTS.get(r[2].id, 0) <= _ATTEMPT_TTL]
+        fresh.sort(key=lambda r: r[0], reverse=True)
+        stale.sort(key=lambda r: r[0], reverse=True)
+        candidates = len(fresh)
+        queue = (fresh + stale)[:max_matches]
+        for lg, mapper in mappers.items():
+            mapper.preload_players_for_teams(
+                tid for _, qlg, m in queue if qlg == lg for tid in (m.home_team_id, m.away_team_id)
+            )
+
+        # Fase 2 — chutes em lotes paralelos; o orçamento conta a partir daqui.
+        deadline = time.monotonic() + max_seconds
+        idx = 0
+        while idx < len(queue) and (idx == 0 or time.monotonic() < deadline - 1.0):
+            chunk = queue[idx: idx + concurrency]
+            idx += len(chunk)
+            budget = max(2.0, deadline - time.monotonic())
+            fetched = await asyncio.gather(
+                *[_fetch_shots_safe(client, m, results[lg], budget) for _, lg, m in chunk]
+            )
+            for (_, lg, m), data in zip(chunk, fetched):
+                if time.monotonic() >= deadline:
+                    break  # tempo esgotado: as demais ficam pendentes para a próxima rodada
+                attempted += 1
+                if data is None:
+                    _RECENT_ATTEMPTS[m.id] = time.time()  # erro (já contado)
+                    continue
+                if not (data.get("h") or data.get("a")):
+                    results[lg]["empty"] += 1  # a fonte ainda não publicou os chutes desta partida
+                    _RECENT_ATTEMPTS[m.id] = time.time()
+                    continue
+                try:
+                    await _ingest_match_shots(
+                        dbs[lg], client, mappers[lg], m, results[lg], shots_by_side=data
+                    )
+                    progress += 1
+                    ingested[lg] += 1
+                    _RECENT_ATTEMPTS.pop(m.id, None)
+                except Exception as exc:  # noqa: BLE001
+                    dbs[lg].rollback()
+                    results[lg]["shot_errors"] += 1
+                    _RECENT_ATTEMPTS[m.id] = time.time()
+                    samples = results[lg].setdefault("error_samples", [])
+                    if len(samples) < 3:
+                        samples.append(f"{m.external_id}: gravação: {type(exc).__name__}: {str(exc)[:120]}")
+                    print(f"Aviso: falha ao gravar shots da partida {m.external_id}: {exc}")
+            for db in dbs.values():
+                db.commit()
+
+        for lg, db in dbs.items():
+            left = max(0, results[lg].get("pending_before", 0) - ingested[lg])
+            results[lg]["pending_after"] = left
+            remaining += left
+            # Só grava o estado se algo mudou (evita idas ao banco remoto à toa nas rodadas seguintes).
+            if refresh_calendar or ingested[lg] or results[lg]["shot_errors"]:
+                # "parcial" só quando houve ERRO; partidas que a fonte ainda não publicou não são erro.
+                status = "partial" if results[lg]["shot_errors"] > 0 else "success"
+                # `shots` = total gravado na temporada (e não só o desta rodada), senão o card zera.
+                summary = {**results[lg], "shots": _count_shot_events(db, season_ids[lg]), "fast": True}
+                _save_collection_state(db, lg, status, summary)
+                db.commit()
+        candidates = max(0, candidates - attempted)
+    finally:
+        for db in dbs.values():
+            db.close()
+
+    return {
+        "leagues": results,
+        "progress": progress,      # partidas que ganharam chutes nesta chamada
+        "attempted": attempted,    # partidas consultadas na fonte nesta chamada
+        "candidates": candidates,  # ainda não tentadas há pouco: vale chamar de novo
+        "remaining": remaining,    # finalizadas ainda sem chutes (a fonte pode não ter publicado)
+        "elapsed": round(time.monotonic() - started, 1),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Ponto de entrada
 # ---------------------------------------------------------------------------
 async def _async_main(
@@ -962,6 +1215,25 @@ async def _async_main(
     return results
 
 
+async def _async_fast(leagues: list[str], season: int, max_seconds: float, max_matches: int) -> int:
+    connector = aiohttp.TCPConnector(limit=8)
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+        client = UnderstatClient(session, rate_sleep=0.15)
+        for round_no in range(1, 16):  # no máximo 15 rodadas
+            out = await sync_understat_fast(
+                client, leagues, season, max_seconds=max_seconds, max_matches=max_matches
+            )
+            print(f"Rodada {round_no}: +{out['progress']} partidas com chutes, "
+                  f"{out['attempted']} consultadas, faltam {out['remaining']} ({out['elapsed']}s)")
+            errors = [k for k, v in out["leagues"].items() if v.get("error")]
+            if errors:
+                print(f"Ligas com erro: {errors}")
+            if out["remaining"] == 0 or out["candidates"] == 0:
+                return 1 if errors else 0
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--leagues", nargs="+", default=["epl"],
@@ -972,6 +1244,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="Apenas atualiza chutes das partidas já cadastradas.")
     parser.add_argument("--max-matches", type=int, default=None,
                         help="Limita o número de partidas processadas para shots (útil para smoke test).")
+    parser.add_argument("--fast", action="store_true",
+                        help="Modo rápido (calendário + chutes em paralelo, só o que falta). Repete até zerar.")
+    parser.add_argument("--max-seconds", type=float, default=240.0,
+                        help="Orçamento de tempo por rodada no modo --fast (padrão: 240).")
     args = parser.parse_args(argv)
 
     leagues = [l.strip().lower() for l in args.leagues]
@@ -983,6 +1259,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"Iniciando sincronização Understat: ligas={leagues}, temporada={args.season}")
+    if args.fast:
+        return asyncio.run(_async_fast(leagues, args.season, args.max_seconds, args.max_matches or 400))
     results = asyncio.run(_async_main(leagues, args.season, args.shots_only, args.max_matches))
     failed = [k for k, v in results.items() if isinstance(v, dict) and v.get("error")]
     print("\nSincronização concluída.")

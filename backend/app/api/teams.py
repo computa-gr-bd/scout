@@ -24,7 +24,7 @@ def list_teams(q: Optional[str] = None, skip: int = 0, limit: int = 50,
     else:
         if season_id is not None:
             # Só times que têm estatísticas na temporada (times da própria competição)
-            # evita que times do StatsBomb (ex: Argentina) apareçam no filtro BSA
+            # evita que times do StatsBomb (ex: Argentina) apareçam no filtro da competição
             sub = select(TeamStatistics.team_id).where(TeamStatistics.season_id == season_id).distinct()
             teams = list(db.scalars(
                 select(team_repo.model).where(team_repo.model.id.in_(sub))

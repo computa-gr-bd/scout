@@ -1,0 +1,50 @@
+name: Sincronizar Understat (rápido)
+
+# Rotina só do Understat: calendário/resultados + chutes das partidas que faltam,
+# das mais recentes para as antigas, baixando várias partidas em paralelo.
+# O botão "Sincronizar agora" da tela Understat usa a mesma lógica (POST /api/understat/sync/fast).
+
+on:
+  workflow_dispatch:
+    inputs:
+      leagues:
+        description: "Ligas (all ou lista separada por espaço: epl la_liga bundesliga serie_a ligue_1)"
+        default: "all"
+  schedule:
+    # A cada 3 horas. Atrasos do agendador do GitHub são normais.
+    - cron: "17 */3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scout-understat-sync
+  cancel-in-progress: false
+
+jobs:
+  understat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validar secrets sem exibir valores
+        shell: bash
+        run: test -n "$DATABASE_URL" || { echo "Configure DATABASE_URL nos Actions secrets"; exit 1; }
+      - name: Instalar somente dependencias da coleta
+        run: >-
+          pip install SQLAlchemy==2.0.35 alembic==1.13.3
+          "psycopg[binary]==3.2.3" pydantic-settings==2.5.2
+          pydantic==2.9.2 requests==2.32.3 aiohttp==3.14.5
+      - name: Atualizar schema
+        working-directory: backend
+        run: python -m alembic upgrade head
+      - name: Sincronizar Understat (modo rápido)
+        working-directory: backend
+        run: >-
+          python -m app.services.understat_sync --fast
+          --leagues ${{ github.event.inputs.leagues || vars.UNDERSTAT_LEAGUES || 'all' }}

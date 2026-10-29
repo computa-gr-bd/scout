@@ -210,7 +210,7 @@ From `backend/`:
 
 ```powershell
 python -m alembic upgrade head
-python -m app.services.data_sync --competitions BSA
+python -m app.services.data_sync --competitions PL
 python -m app.services.statsbomb_importer --competition 43 --season 106 --match-ids 3869685
 ```
 
@@ -222,7 +222,7 @@ are in `collection_state`; standings are served at `/api/seasons/{id}/standings`
 Match list and standings data are served by backend endpoints; Studio event
 visualizations remain illustrative only.
 
-StatsBomb Open Data is a limited historical catalog, not a current Brasileirão feed.
+StatsBomb Open Data is a limited historical catalog, not a current league feed. The Brasileirão (BSA) was removed from the project.
 It requires no API key. Only selected JSONs are fetched, and unchanged matches are
 skipped using the provider's update timestamp. Raw events remain in `event.details`;
 coordinates are normalized from 120x80 to 100x100, relative to the attacking team.

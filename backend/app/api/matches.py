@@ -1,14 +1,18 @@
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_, select
+from sqlalchemy.orm import Session, selectinload
 
 from app.db import get_db
 from app.core.auth import get_current_user
-from app.db.models import Match
+from app.db.models import DataSource, Match, Season, Team
 from app.repositories.repositories import (
     MatchRepository, TeamRepository, TeamStatisticsRepository, PlayerRepository
 )
 from app.services.crests import resolve_crest
+from app.services.scope import excluded_season_ids
+from app.services.studio import _same_team_name, norm_team
 from app.schemas import (
     MatchOut, MatchDetailedOut, MatchAnalysisOut, PredictionGenerateRequest,
     PredictionGenerateResponse, MatchTeamPreview, LineupPlayer,
@@ -21,7 +25,31 @@ ts_repo = TeamStatisticsRepository()
 player_repo = PlayerRepository()
 
 
-def _to_match_out(m: Match) -> MatchOut:
+def _logo_index(db: Session) -> Dict[str, str]:
+    """Escudos conhecidos por nome normalizado (times da Understat vêm sem logo)."""
+    idx: Dict[str, str] = {}
+    for name, url in db.execute(select(Team.name, Team.logo_url).where(Team.logo_url.isnot(None))).all():
+        if url:
+            idx.setdefault(norm_team(name), url)
+    return idx
+
+
+def _lookup_logo(team: Optional[Team], idx: Optional[Dict[str, str]]) -> Optional[str]:
+    if team is None:
+        return None
+    if team.logo_url or not idx:
+        return resolve_crest(team.name, team.logo_url)
+    key = norm_team(team.name)
+    url = idx.get(key)
+    if url is None:
+        for other_key, other_url in idx.items():
+            if _same_team_name(key, other_key):
+                url = other_url
+                break
+    return resolve_crest(team.name, url)
+
+
+def _to_match_out(m: Match, logo_idx: Optional[Dict[str, str]] = None) -> MatchOut:
     return MatchOut(
         id=m.id,
         season_id=m.season_id,
@@ -31,10 +59,10 @@ def _to_match_out(m: Match) -> MatchOut:
         kickoff_time=m.kickoff_time,
         status=m.status,
         home_team=MatchTeamPreview(id=m.home_team.id, name=m.home_team.name,
-                                    short_name=m.home_team.short_name, logo_url=resolve_crest(m.home_team.name, m.home_team.logo_url))
+                                    short_name=m.home_team.short_name, logo_url=_lookup_logo(m.home_team, logo_idx))
                  if m.home_team else MatchTeamPreview(id=m.home_team_id, name="?", short_name=None),
         away_team=MatchTeamPreview(id=m.away_team.id, name=m.away_team.name,
-                                    short_name=m.away_team.short_name, logo_url=resolve_crest(m.away_team.name, m.away_team.logo_url))
+                                    short_name=m.away_team.short_name, logo_url=_lookup_logo(m.away_team, logo_idx))
                  if m.away_team else MatchTeamPreview(id=m.away_team_id, name="?", short_name=None),
         home_score=m.home_score, away_score=m.away_score,
         stadium_name=(m.stadium.name if m.stadium else None),
@@ -43,38 +71,87 @@ def _to_match_out(m: Match) -> MatchOut:
     )
 
 
+def _same_fixture(a: Match, b: Match) -> bool:
+    if not (a.home_team and a.away_team and b.home_team and b.away_team):
+        return False
+    if abs(a.kickoff_time - b.kickoff_time) > timedelta(days=1):
+        return False
+    return (_same_team_name(norm_team(a.home_team.name), norm_team(b.home_team.name))
+            and _same_team_name(norm_team(a.away_team.name), norm_team(b.away_team.name)))
+
+
+def _list_analysis_matches(db: Session, scope: str, skip: int, limit: int,
+                           competition_id: Optional[int], team_id: Optional[int]) -> List[Match]:
+    """Partidas da tela de Análise.
+
+    * Jogos que JÁ ACONTECERAM: só Understat e finalizados (têm chutes e gols reais).
+    * Jogos FUTUROS: qualquer fonte (a análise pré-jogo usa a forma recente dos times).
+    Se o mesmo jogo existir em duas fontes, fica a versão da Understat.
+    """
+    now = datetime.utcnow()
+    base = [Match.season_id.notin_(excluded_season_ids())]
+    if competition_id:
+        base.append(Match.season_id.in_(select(Season.id).where(Season.competition_id == competition_id)))
+    if team_id:
+        base.append(or_(Match.home_team_id == team_id, Match.away_team_id == team_id))
+    opts = (selectinload(Match.home_team), selectinload(Match.away_team),
+            selectinload(Match.season).selectinload(Season.competition))
+
+    def _fetch(cond, order, n):
+        q = select(Match).options(*opts).where(cond, *base).order_by(order).limit(n)
+        return list(db.scalars(q).all())
+
+    pool = max(limit * 2, 40)  # folga para as duplicatas removidas abaixo
+    upcoming = _fetch(Match.kickoff_time >= now, Match.kickoff_time, pool) if scope in ("upcoming", "all") else []
+    played = _fetch(
+        and_(Match.kickoff_time < now, Match.status == "finished", Match.data_source == DataSource.UNDERSTAT),
+        Match.kickoff_time.desc(), pool,
+    ) if scope in ("recent", "all") else []
+
+    ordered = upcoming + played
+    kept: List[Match] = []
+    for m in sorted(ordered, key=lambda x: 0 if x.data_source == DataSource.UNDERSTAT else 1):
+        if not any(_same_fixture(m, k) for k in kept):
+            kept.append(m)
+    kept_ids = {m.id for m in kept}
+    final = [m for m in ordered if m.id in kept_ids]
+    return final[skip: skip + limit]
+
+
 @router.get("/matches", response_model=List[MatchOut])
 def list_matches(scope: str = Query("upcoming", pattern="^(upcoming|recent|all)$"),
                  competition_id: Optional[int] = None,
                  team_id: Optional[int] = None,
                  skip: int = 0, limit: int = 50,
+                 analysis: bool = Query(False, description="Lista da tela de Análise: jogos passados só da "
+                                                           "Understat; jogos futuros de qualquer fonte."),
                  db: Session = Depends(get_db)):
+    if analysis:
+        matches = _list_analysis_matches(db, scope, skip, limit, competition_id, team_id)
+        idx = _logo_index(db)
+        return [_to_match_out(m, idx) for m in matches]
     if scope == "upcoming":
         matches = match_repo.upcoming(db, skip=skip, limit=limit,
                                       competition_id=competition_id, team_id=team_id)
     elif scope == "recent":
         matches = match_repo.recent(db, skip=skip, limit=limit, team_id=team_id)
     else:
-        filters = []
+        filters = [Match.season_id.notin_(excluded_season_ids())]
         if competition_id:
-            from app.db.models import Season
-            from sqlalchemy import select, and_
             sub = select(Season.id).where(Season.competition_id == competition_id)
             filters.append(Match.season_id.in_(sub))
         if team_id:
-            from sqlalchemy import or_
             filters.append(or_(Match.home_team_id == team_id, Match.away_team_id == team_id))
         matches = match_repo.list(db, skip=skip, limit=limit, filters=filters,
                                   order_by=Match.kickoff_time.desc())
         # eager-load teams for display
-        from sqlalchemy.orm import selectinload
-        from sqlalchemy import select as _s
         ids = [m.id for m in matches]
         if ids:
-            q = _s(Match).options(selectinload(Match.home_team), selectinload(Match.away_team),
+            q = select(Match).options(selectinload(Match.home_team), selectinload(Match.away_team),
                                    selectinload(Match.season)).where(Match.id.in_(ids))
             matches = list(db.scalars(q).all())
-    return [_to_match_out(m) for m in matches]
+    idx = _logo_index(db)
+    return [_to_match_out(m, idx) for m in matches]
 
 
 @router.get("/matches/{match_id}", response_model=MatchDetailedOut)

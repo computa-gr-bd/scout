@@ -247,7 +247,11 @@ export async function getGoalProbability(playerId: number, opponentTeamId: numbe
   return api.get(`/players/${playerId}/goal-probability`, { params: { opponent_team_id: opponentTeamId, venue } }).then((r) => r.data);
 }
 
-export async function listMatches(params?: { scope?: "upcoming" | "recent" | "all"; team_id?: number; skip?: number; limit?: number }) {
+export async function listMatches(params?: {
+  scope?: "upcoming" | "recent" | "all"; team_id?: number; skip?: number; limit?: number;
+  /** Tela de Análise: jogos passados só da Understat; jogos futuros de qualquer fonte. */
+  analysis?: boolean;
+}) {
   return api.get<Match[]>("/matches", { params }).then((r) => r.data);
 }
 
@@ -540,6 +544,33 @@ export interface UnderstatSyncStatus {
 }
 export async function getUnderstatSyncStatus() {
   return api.get<UnderstatSyncStatus>("/understat/sync/status").then((r) => r.data);
+}
+/** Resultado de uma rodada da sincronização rápida (POST /understat/sync/fast). */
+export interface UnderstatFastSyncResult {
+  /** Partidas que ganharam chutes nesta rodada. */
+  progress: number;
+  /** Partidas consultadas na Understat nesta rodada. */
+  attempted: number;
+  /** Ainda não tentadas há pouco: vale chamar de novo. */
+  candidates: number;
+  /** Finalizadas ainda sem chutes (algumas a Understat ainda não publicou). */
+  remaining: number;
+  done: boolean;
+  elapsed: number;
+  leagues: Record<string, {
+    error?: string; matches?: number; shots?: number; pending_after?: number;
+    /** Partidas em que a fonte ainda não tem chutes. */
+    empty?: number; shot_errors?: number; error_samples?: string[];
+  }>;
+}
+export async function syncUnderstatFast(params?: {
+  leagues?: string; season?: number; max_seconds?: number; max_matches?: number;
+  /** false nas rodadas seguintes: não refaz o calendário (mais rápido). */
+  calendar?: boolean;
+}) {
+  return api
+    .post<UnderstatFastSyncResult>("/understat/sync/fast", null, { params, timeout: 120000 })
+    .then((r) => r.data);
 }
 export async function triggerUnderstatSync(params: {
   leagues?: string; season?: number; shots_only?: boolean; max_matches?: number;

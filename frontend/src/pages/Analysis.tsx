@@ -54,7 +54,8 @@ export default function AnalysisPage() {
 
   const matchesQuery = useQuery({
     queryKey: ["matches-analysis", scope],
-    queryFn: () => listMatches({ scope, limit: 60 }),
+    // Passados: só Understat (têm chutes e gols reais). Futuros: qualquer fonte.
+    queryFn: () => listMatches({ scope, limit: 60, analysis: true }),
     retry: 1,
     retryDelay: 600,
   });
@@ -197,7 +198,7 @@ export default function AnalysisPage() {
       <div className="grid lg:grid-cols-[320px_1fr] gap-5">
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Partidas" hint={demoMode ? `${rawMatches.length} partidas de exemplo` : `${rawMatches.length} partidas reais`}>
+            <SectionTitle title="Partidas" hint={demoMode ? `${rawMatches.length} partidas de exemplo` : `${rawMatches.length} partidas · passadas: Understat`}>
               <div className="flex gap-1">
                 {([["all", "todas"], ["upcoming", "próximas"], ["recent", "recentes"]] as const).map(([s, label]) => (
                   <button key={s} onClick={() => setScope(s as any)}
@@ -208,7 +209,10 @@ export default function AnalysisPage() {
             <div className="space-y-2 max-h-[640px] overflow-auto pr-1">
               {matchesQuery.isLoading && <div className="text-xs text-sv-muted p-3">Carregando partidas…</div>}
               {!matchesQuery.isLoading && rawMatches.length === 0 && (
-                <div className="text-xs text-sv-muted p-3">Nenhuma partida neste filtro.</div>
+                <div className="text-xs text-sv-muted p-3">
+                  Nenhuma partida neste filtro. Para trazer os jogos já disputados, use{" "}
+                  <Link to="/understat" className="underline text-sv-accent3">Sincronizar agora</Link> na tela Understat.
+                </div>
               )}
               {(rawMatches || []).slice(0, 60).map((m: Match) => (
                 <button key={m.id}

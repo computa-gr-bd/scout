@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     API_FOOTBALL_KEY: str = ""
     FOOTBALL_DATA_TOKEN: str = ""
-    SYNC_COMPETITIONS: str = "BSA,PL,BL1,PD,SA,FL1,CL"
+    SYNC_COMPETITIONS: str = "PL,PD,BL1,SA,FL1,CL"
     SYNC_INTERVAL_HOURS: int = Field(default=12, ge=1, le=168)
     STATSBOMB_LOCAL_DATA_PATH: str = ""
 

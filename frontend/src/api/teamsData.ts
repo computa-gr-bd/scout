@@ -2,7 +2,7 @@ import type { Team, TeamStatistics } from "./client";
 
 /**
  * Ligas disponíveis no seletor da tela de Times.
- * Por enquanto só Brasileirão e Bundesliga têm times mockados;
+ * Por enquanto só a Bundesliga tem times mockados;
  * La Liga e Premier League ficam na lista aguardando dados.
  */
 export interface League {
@@ -16,7 +16,6 @@ export interface League {
 }
 
 export const LEAGUES: League[] = [
-  { id: "brasileirao", name: "Brasileirão Série A", short_name: "Brasileirão", country: "Brasil", season: "2026", matches_per_season: 38 },
   { id: "bundesliga", name: "Bundesliga", short_name: "Bundesliga", country: "Alemanha", season: "2026/27", matches_per_season: 34 },
   { id: "laliga", name: "La Liga", short_name: "La Liga", country: "Espanha", season: "2026/27", matches_per_season: 38 },
   { id: "premierleague", name: "Premier League", short_name: "Premier League", country: "Inglaterra", season: "2026/27", matches_per_season: 38 },
@@ -25,30 +24,8 @@ export const LEAGUES: League[] = [
 /** Time mockado = mesmo shape do `Team` da API + liga de origem. */
 export type MockTeam = Team & { league_id: string };
 
-/** Temporada 2026 (Brasileirão) e 2026/27 (Bundesliga) — listas reais. */
+/** Temporada 2026/27 (Bundesliga) — lista real. */
 const TEAM_NAMES: Record<string, [name: string, code: string][]> = {
-  brasileirao: [
-    ["Flamengo", "FLA"],
-    ["Palmeiras", "PAL"],
-    ["Cruzeiro", "CRU"],
-    ["Mirassol", "MIR"],
-    ["Fluminense", "FLU"],
-    ["Bahia", "BAH"],
-    ["Botafogo", "BOT"],
-    ["São Paulo", "SAO"],
-    ["Red Bull Bragantino", "RBB"],
-    ["Corinthians", "COR"],
-    ["Grêmio", "GRE"],
-    ["Vasco da Gama", "VAS"],
-    ["Atlético-MG", "CAM"],
-    ["Santos", "SAN"],
-    ["Vitória", "VIT"],
-    ["Internacional", "INT"],
-    ["Coritiba", "CTR"],
-    ["Athletico-PR", "ATH"],
-    ["Chapecoense", "CHA"],
-    ["Remo", "REM"],
-  ],
   bundesliga: [
     ["Bayern Munich", "BAY"],
     ["Borussia Dortmund", "BVB"],
@@ -144,7 +121,7 @@ function buildTeam(name: string, code: string, league: League, id: number): Mock
   };
 }
 
-/** Base mock da tela de Times: 20 do Brasileirão + 18 da Bundesliga. */
+/** Base mock da tela de Times: 18 da Bundesliga. */
 export const MOCK_TEAMS: MockTeam[] = LEAGUES.flatMap((league, li) => {
   const baseId = 1001 + li * 100; // ids reservados p/ mock (não colidem com a API)
   return (TEAM_NAMES[league.id] || []).map(([name, code], i) => buildTeam(name, code, league, baseId + i));

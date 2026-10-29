@@ -11,17 +11,13 @@ pip install -r requirements.txt
 
 # token gratuito: https://www.football-data.org/client/register
 set FOOTBALL_DATA_TOKEN=SEU_TOKEN          # Windows
-python football_data_collector.py --competitions BSA --days 14 --outdir data
+python football_data_collector.py --competitions PL --days 14 --outdir data
 ```
 
 Gera, entre outros:
 
 | Arquivo | Conteúdo |
 |---|---|
-| `data/BSA_standings.csv` | classificação da Série A |
-| `data/BSA_scorers.csv` | artilheiros da temporada |
-| `data/BSA_upcoming_matches.csv` | próximas partidas |
-| `data/BSA_matches_raw.json` | payload bruto (times + escudos + datas) |
 
 ## 2. Tratar / consumir no projeto (frontend)
 
@@ -48,4 +44,4 @@ vindos da API para alternar os dados ao vivo.
 ```bash
 cd teste-api
 python -m unittest -v
-```
+```sssss

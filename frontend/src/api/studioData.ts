@@ -440,7 +440,7 @@ export function buildApiStudioDataset(f: FixtureRow): StudioDataset {
       id: f.id,
       source: "api",
       competition: `${FOOTBALL_DATA_SOURCE.competition} · Rodada ${f.matchday}`,
-      title: `Brasileirão Série A · Rodada ${f.matchday}`,
+      title: `${FOOTBALL_DATA_SOURCE.competition} · Rodada ${f.matchday}`,
       home: f.home,
       away: f.away,
       scoreHome: homeGoals,

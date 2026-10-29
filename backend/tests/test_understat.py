@@ -288,6 +288,53 @@ async def test_sync_shots_only_is_idempotent(db_session):
     assert _count(db, Event, data_source=DataSource.UNDERSTAT) == 4
 
 
+@pytest.mark.asyncio
+async def test_resync_promotes_scheduled_match_to_finished(db_session):
+    """Regressão: partida salva como 'scheduled' nunca virava 'finished' (cache do mapper)."""
+    db = db_session
+
+    class Before(FakeClient):
+        async def league_results(self, league, season):
+            return []
+
+        async def league_fixtures(self, league, season):
+            return [{
+                "id": "12345", "isResult": False,
+                "h": {"id": "89", "title": "Manchester United", "short_title": "Man Utd"},
+                "a": {"id": "87", "title": "Liverpool", "short_title": "Liverpool"},
+                "goals": {"h": None, "a": None}, "datetime": "2026-08-15 15:00:00",
+            }]
+
+    await us.sync_understat_league(db, Before(), "epl", 2026)
+    match = db.scalar(select(Match).where(Match.external_id == "12345"))
+    assert match.status == "scheduled" and match.home_score is None
+    assert _count(db, Shot) == 0
+
+    # O jogo terminou: a Understat agora devolve o resultado.
+    await us.sync_understat_league(db, FakeClient(), "epl", 2026)
+    db.refresh(match)
+    assert match.status == "finished"
+    assert (match.home_score, match.away_score) == (2, 1)
+    assert _count(db, Shot) == 3  # e os chutes foram coletados
+
+
+@pytest.mark.asyncio
+async def test_fast_sync_collects_shots_and_is_idempotent(db_session):
+    db = db_session
+    out = await us.sync_understat_fast(
+        FakeClient(), ["epl"], 2026, max_seconds=5, session_factory=lambda: db,
+    )
+    assert out["progress"] == 1 and out["remaining"] == 0
+    assert _count(db, Shot) == 3
+    assert _count(db, Match, data_source=DataSource.UNDERSTAT) == 2  # 1 resultado + 1 jogo futuro
+
+    again = await us.sync_understat_fast(
+        FakeClient(), ["epl"], 2026, max_seconds=5, session_factory=lambda: db,
+    )
+    assert again["progress"] == 0 and again["remaining"] == 0
+    assert _count(db, Shot) == 3  # nada duplicado
+
+
 # ---------------------------------------------------------------------------
 # API
 # ---------------------------------------------------------------------------
@@ -303,6 +350,11 @@ def test_understat_endpoints_on_empty_db(client):
     assert client.get("/api/understat/sync/status").status_code == 200
     assert client.get("/api/understat/league-table/epl").status_code == 404
     assert client.get("/api/understat/matches?league_key=epl").json() == []
+
+
+def test_fast_sync_rejects_invalid_league(client):
+    r = client.post("/api/understat/sync/fast", params={"leagues": "brasileirao"})
+    assert r.status_code == 400
 
 
 def test_understat_sync_requires_admin(client):

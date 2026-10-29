@@ -2,7 +2,8 @@
 
 Endpoints:
 - GET    /api/understat/leagues              — ligas disponíveis
-- POST   /api/understat/sync                 — dispara sincronização (background)
+- POST   /api/understat/sync                 — dispara sincronização completa (background, admin)
+- POST   /api/understat/sync/fast            — sincronização rápida e incremental (botão da tela)
 - GET    /api/understat/matches              — partidas da Understat com filtro
 - GET    /api/understat/matches/{id}/shots   — chutes de uma partida (com coordenadas e xG)
 - GET    /api/understat/matches/{id}/events  — todos os eventos de uma partida (gols, chutes)
@@ -17,6 +18,7 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any, Optional
 
 from app.vendor.understat import Understat
@@ -32,7 +34,7 @@ from app.db.models import (
     TeamMatchStatistics, TeamStatistics, User,
 )
 from app.services.understat_sync import (
-    DEFAULT_SEASON, UNDERSTAT_LEAGUES, UnderstatClient, sync_understat_league,
+    DEFAULT_SEASON, UNDERSTAT_LEAGUES, UnderstatClient, sync_understat_fast, sync_understat_league,
 )
 from app.db import SessionLocal
 from app.services.crests import resolve_crest
@@ -126,6 +128,54 @@ def understat_sync_status(db: Session = Depends(get_db)):
             for s in states
         ],
     }
+
+
+# Evita duas sincronizações rápidas ao mesmo tempo (cliques repetidos / várias abas).
+_fast_sync_lock = threading.Lock()
+
+
+@router.post("/understat/sync/fast")
+def sync_understat_now(
+    leagues: Optional[str] = Query(
+        None, description="Ligas separadas por vírgula (ex.: epl,ligue_1). Padrão: todas."
+    ),
+    season: int = Query(DEFAULT_SEASON, description="Temporada (ano de início)."),
+    max_seconds: float = Query(8.0, ge=2.0, le=25.0, description="Orçamento de tempo da fase de chutes."),
+    calendar: bool = Query(True, description="Atualiza calendário/resultados. Use false nas chamadas seguintes."),
+    max_matches: int = Query(40, ge=1, le=120, description="Máximo de partidas com chutes por chamada."),
+):
+    """Sincronização rápida e incremental, SÓ da Understat (botão da tela Understat).
+
+    Roda dentro da requisição (nada de background: na Vercel ele seria cortado) e respeita
+    um orçamento de tempo. Se `remaining > 0` e `progress > 0`, é só chamar de novo.
+    """
+    if aiohttp is None:
+        raise HTTPException(status_code=503, detail="aiohttp indisponível no servidor")
+    league_list = [l.strip().lower() for l in leagues.split(",")] if leagues else list(UNDERSTAT_LEAGUES.keys())
+    invalid = [l for l in league_list if l not in UNDERSTAT_LEAGUES]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Ligas inválidas: {invalid}")
+    if not _fast_sync_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Já existe uma sincronização em andamento. Aguarde um instante.")
+
+    async def _go():
+        connector = aiohttp.TCPConnector(limit=8)
+        timeout = aiohttp.ClientTimeout(total=max_seconds + 5)
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+            client = UnderstatClient(session, rate_sleep=0.1)
+            return await sync_understat_fast(
+                client, league_list, season, max_seconds=max_seconds, max_matches=max_matches,
+                refresh_calendar=calendar,
+            )
+
+    try:
+        out = _run_async(_go())
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Falha ao falar com a Understat: {exc}") from exc
+    finally:
+        _fast_sync_lock.release()
+    out["done"] = out["remaining"] == 0
+    return out
 
 
 @router.post("/understat/sync")

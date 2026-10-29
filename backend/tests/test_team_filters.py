@@ -120,7 +120,7 @@ def test_squad_ingest_links_player_to_team():
             "squad": [{"id": 50, "name": "Atleta A", "position": "Goalkeeper"}]}
     away = {"id": 2, "name": "B"}
     payload = {
-        "competition": {"id": 10, "name": "League", "code": "BSA", "type": "LEAGUE",
+        "competition": {"id": 10, "name": "League", "code": "PD", "type": "LEAGUE",
                         "currentSeason": season},
         "teams": {"season": season, "teams": [home, away]},
         "matches": {"matches": []},

@@ -63,7 +63,7 @@ def test_data_status_does_not_mark_manual_statsbomb_import_as_stale(_setup):
     db = _setup
     db.add_all([
         CollectionState(
-            provider="football_data", resource="BSA", status="success",
+            provider="football_data", resource="PD", status="success",
             last_success_at=datetime.now() - timedelta(hours=settings.SYNC_INTERVAL_HOURS * 3),
         ),
         CollectionState(

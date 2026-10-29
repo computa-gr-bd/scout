@@ -48,13 +48,16 @@ type PlayerDetail = {
   };
 };
 
+/** O replay 3D tem corrida, chute, mergulho do goleiro e desfecho: dura mais que o 2D. */
+const REPLAY_3D_FACTOR = 2.4;
+
 const HOME_COLOR = "#3b82f6";
 const AWAY_COLOR = "#e1534e";
 const HOME_COLOR_SOFT = "rgba(59,130,246,0.15)";
 const AWAY_COLOR_SOFT = "rgba(225,83,78,0.15)";
 
 const MOCK_MATCH = {
-  title: "Brasileirão Série A · Rodada 22",
+  title: "Campeonato (exemplo) · Rodada 22",
   home: "Flamengo", away: "Palmeiras", scoreHome: 2, scoreAway: 1,
   date: "Sáb, 21 Set 2026 · 16:00",
 };
@@ -310,7 +313,7 @@ export const DEMO_STUDIO: StudioDataset = {
   match: {
     id: 1,
     source: "demo",
-    competition: "Brasileirão Série A · Rodada 22",
+    competition: "Campeonato (exemplo) · Rodada 22",
     title: MOCK_MATCH.title,
     home: MOCK_MATCH.home,
     away: MOCK_MATCH.away,
@@ -597,7 +600,7 @@ export function PitchStudio({
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       return;
     }
-    const dur = (current.duration || 1.8) * 1000;
+    const dur = (current.duration || 1.8) * 1000 * (replayMode === "3d" ? REPLAY_3D_FACTOR : 1);
     let last = performance.now();
     const step = (now: number) => {
       const dt = now - last; last = now; progressRef.current += dt;
@@ -621,7 +624,7 @@ export function PitchStudio({
     };
     rafRef.current = requestAnimationFrame(step);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [started, playing, current, view, idx, filtered.length]);
+  }, [started, playing, current, view, idx, filtered.length, replayMode]);
 
   /** Inicia a reprodução do lance atual (limpa progresso e toca). */
   const startPlayback = () => {
@@ -655,7 +658,7 @@ export function PitchStudio({
     setPlaying(false);
   };
   const togglePlayback = () => {
-    if (!started || progressRef.current >= (current?.duration ?? 1.8) * 1000) startPlayback();
+    if (!started || progressRef.current >= (current?.duration ?? 1.8) * 1000 * (replayMode === "3d" ? REPLAY_3D_FACTOR : 1)) startPlayback();
     else setPlaying((wasPlaying) => !wasPlaying);
   };
   const goPrev = () => { if (idx > 0) selectShot(idx - 1); };

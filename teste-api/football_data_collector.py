@@ -10,10 +10,10 @@ Coleta os dados mais recentes possíveis:
 
 Uso:
     export FOOTBALL_DATA_TOKEN="apifutbol"
-    python football_data_collector.py --competitions PL BSA CL --days 7 --outdir data
+    python football_data_collector.py --competitions PL PD CL --days 7 --outdir data
 
 Token gratuito: https://www.football-data.org/client/register
-Plano gratuito (12 competições): WC, CL, BL1, DED, BSA, PD, FL1, ELC, PPL, EC, SA, PL
+Plano gratuito (12 competições): WC, CL, BL1, DED, PD, FL1, ELC, PPL, EC, SA, PL
 Limite gratuito: 10 requisições por minuto (o código respeita isso automaticamente).
 """
 from __future__ import annotations
@@ -226,8 +226,8 @@ def collect(client: FootballDataClient, codes: list[str], days: int, outdir: Pat
 def main() -> int:
     p = argparse.ArgumentParser(description="Coletor football-data.org v4")
     p.add_argument("--token", default=os.getenv("FOOTBALL_DATA_TOKEN"))
-    p.add_argument("--competitions", nargs="+", default=["PL", "BSA"],
-                   help="códigos das competições (ex.: PL BSA CL SA PD BL1 FL1)")
+    p.add_argument("--competitions", nargs="+", default=["PL", "PD"],
+                   help="códigos das competições (ex.: PL PD CL SA BL1 FL1)")
     p.add_argument("--days", type=int, default=7, help="janela de dias para trás e para frente")
     p.add_argument("--outdir", default="data")
     args = p.parse_args()

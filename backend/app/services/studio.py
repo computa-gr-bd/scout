@@ -8,9 +8,11 @@ quando a fonte não traz um dado, o campo vem ``None`` e a tela mostra "—".
 Modos devolvidos em ``mode``:
 
 * ``match``        — a própria partida (ou a "gêmea" em outra fonte) tem chutes.
-* ``recent_form``  — partida sem eventos (ex.: futura): agrega os chutes dos
-                     últimos jogos de cada time (pré-jogo).
-* ``none``         — nenhuma fonte tem chutes para esses times.
+* ``recent_form``  — partida FUTURA (ainda sem eventos): agrega os chutes dos
+                     últimos jogos de cada time (pré-jogo). Nunca é usado para
+                     partida já finalizada: lá seria misturar outros jogos.
+* ``none``         — sem chutes: nenhuma fonte tem dados para esses times, ou a
+                     partida já terminou e a fonte ainda não publicou os chutes.
 
 Convenção de coordenadas devolvida (já pronta para o campo do Studio):
 x/y em 0..100, mandante ataca para a direita (gol em x=100) e visitante ataca
@@ -427,40 +429,56 @@ def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]
     linked_match_id: Optional[int] = None
     recent_ids: Dict[str, List[int]] = {"home": [], "away": []}
 
+    finished = (m.status or "").lower() == "finished"
+
     own = _load_shot_events(db, [m.id])
+    twin: Optional[Match] = None
+    if not own:
+        twin = _twin_match(db, m, home_ids, away_ids)
+
     if own:
         mode = "match"
         sources = {m.id: m}
         shots = _serialize_shots(own, {m.home_team_id}, sources)
         used_match_ids = [m.id]
         data_source = getattr(m.data_source, "value", m.data_source)
+    elif twin is not None:
+        mode = "match"
+        linked_match_id = twin.id
+        shots = _serialize_shots(_load_shot_events(db, [twin.id]), {twin.home_team_id}, {twin.id: twin})
+        used_match_ids = [twin.id]
+        data_source = getattr(twin.data_source, "value", twin.data_source)
+        notes.append("Chutes vindos da mesma partida em outra fonte de dados (vínculo por times e data).")
+    elif finished:
+        # Jogo que já aconteceu: nunca mistura chutes de outros jogos no lugar.
+        mode = "none"
+        shots = []
+        used_match_ids = []
+        data_source = None
+        notes.append(
+            "Esta partida já terminou, mas a fonte ainda não publicou os chutes dela "
+            "(o Understat cobre Premier League, La Liga, Bundesliga, Serie A e Ligue 1, e publica com atraso). "
+            "Não exibimos chutes de outros jogos no lugar."
+        )
     else:
-        twin = _twin_match(db, m, home_ids, away_ids)
-        if twin is not None:
-            mode = "match"
-            linked_match_id = twin.id
-            shots = _serialize_shots(_load_shot_events(db, [twin.id]), {twin.home_team_id}, {twin.id: twin})
-            used_match_ids = [twin.id]
-            data_source = getattr(twin.data_source, "value", twin.data_source)
-            notes.append("Chutes vindos da mesma partida em outra fonte de dados (vínculo por times e data).")
+        # Jogo futuro: padrão recente de cada time (pré-jogo).
+        h_shots, h_ids = _team_shots_recent(db, home_ids, m.kickoff_time, RECENT_MATCHES, "home")
+        a_shots, a_ids = _team_shots_recent(db, away_ids, m.kickoff_time, RECENT_MATCHES, "away")
+        shots = h_shots + a_shots
+        recent_ids = {"home": h_ids, "away": a_ids}
+        used_match_ids = h_ids + a_ids
+        mode = "recent_form" if shots else "none"
+        data_source = None
+        if shots:
+            notes.append(
+                f"Sem eventos desta partida: exibindo os chutes dos últimos jogos de cada time "
+                f"({len(h_ids)} do mandante, {len(a_ids)} do visitante)."
+            )
         else:
-            h_shots, h_ids = _team_shots_recent(db, home_ids, m.kickoff_time, RECENT_MATCHES, "home")
-            a_shots, a_ids = _team_shots_recent(db, away_ids, m.kickoff_time, RECENT_MATCHES, "away")
-            shots = h_shots + a_shots
-            recent_ids = {"home": h_ids, "away": a_ids}
-            used_match_ids = h_ids + a_ids
-            mode = "recent_form" if shots else "none"
-            data_source = None
-            if shots:
-                notes.append(
-                    f"Sem eventos desta partida: exibindo os chutes dos últimos jogos de cada time "
-                    f"({len(h_ids)} do mandante, {len(a_ids)} do visitante)."
-                )
-            else:
-                notes.append(
-                    "Nenhuma fonte tem chutes para estes times. O Understat cobre apenas Premier League, "
-                    "La Liga, Bundesliga, Serie A e Ligue 1 (não cobre o Brasileirão)."
-                )
+            notes.append(
+                "Nenhuma fonte tem chutes para estes times. O Understat cobre apenas Premier League, "
+                "La Liga, Bundesliga, Serie A e Ligue 1 (não cobre o Brasileirão)."
+            )
 
     if shots and not any(s["end_known"] for s in shots):
         notes.append("A fonte não informa onde a bola foi: a linha do chute aponta para o centro do gol.")

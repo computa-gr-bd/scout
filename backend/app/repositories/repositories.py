@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, and_, or_, func
 
 from app.repositories.base import BaseRepository
+from app.services.scope import excluded_season_ids
 from app.db.models import (
     Competition, Season, Team, Player, Stadium, Match, Event, Lineup,
     TeamStatistics, PlayerStatistics, PlayerMatchStatistics, TeamMatchStatistics,
@@ -82,7 +83,7 @@ class MatchRepository(BaseRepository[Match]):
         now = datetime.utcnow()
         q = select(Match).options(selectinload(Match.home_team), selectinload(Match.away_team),
                                   selectinload(Match.season), selectinload(Match.stadium))
-        q = q.where(Match.kickoff_time >= now).order_by(Match.kickoff_time)
+        q = q.where(Match.kickoff_time >= now, Match.season_id.notin_(excluded_season_ids())).order_by(Match.kickoff_time)
         if competition_id:
             q = q.join(Season).where(Season.competition_id == competition_id)
         if team_id:
@@ -94,7 +95,8 @@ class MatchRepository(BaseRepository[Match]):
         now = datetime.utcnow()
         q = select(Match).options(selectinload(Match.home_team), selectinload(Match.away_team),
                                   selectinload(Match.season))
-        q = q.where(Match.kickoff_time < now, Match.status != "scheduled").order_by(Match.kickoff_time.desc())
+        q = q.where(Match.kickoff_time < now, Match.status != "scheduled",
+                    Match.season_id.notin_(excluded_season_ids())).order_by(Match.kickoff_time.desc())
         if team_id:
             q = q.where(or_(Match.home_team_id == team_id, Match.away_team_id == team_id))
         q = q.offset(skip).limit(limit)

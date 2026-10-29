@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.repositories.repositories import CompetitionRepository, SeasonRepository
 from app.schemas import CompetitionOut, SeasonOut
 from app.services.crests import resolve_crest
+from app.services.scope import EXCLUDED_COMPETITION_CODES
 
 router = APIRouter(tags=["competitions & seasons"])
 comp_repo = CompetitionRepository()
@@ -16,7 +17,8 @@ season_repo = SeasonRepository()
 
 @router.get("/competitions", response_model=List[CompetitionOut])
 def list_competitions(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
-    return comp_repo.list(db, skip=skip, limit=limit, order_by=Competition.name)
+    return comp_repo.list(db, skip=skip, limit=limit, order_by=Competition.name,
+                          filters=[Competition.code.is_(None) | Competition.code.notin_(EXCLUDED_COMPETITION_CODES)])
 
 
 @router.get("/seasons", response_model=List[SeasonOut])

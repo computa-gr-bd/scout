@@ -6,7 +6,7 @@ const DEMO_MATCHES: Match[] = [
   {
     id: 1,
     season_id: 1,
-    competition_name: "Brasileirão Série A",
+    competition_name: "Campeonato (exemplo)",
     round_name: "Rodada 22",
     matchday: 22,
     kickoff_time: "2026-09-21T16:00:00Z",
@@ -22,7 +22,7 @@ const DEMO_MATCHES: Match[] = [
   {
     id: 2,
     season_id: 1,
-    competition_name: "Brasileirão Série A",
+    competition_name: "Campeonato (exemplo)",
     round_name: "Rodada 22",
     matchday: 22,
     kickoff_time: "2026-09-21T20:00:00Z",
@@ -54,7 +54,7 @@ const DEMO_MATCHES: Match[] = [
   {
     id: 4,
     season_id: 1,
-    competition_name: "Brasileirão Série A",
+    competition_name: "Campeonato (exemplo)",
     round_name: "Rodada 23",
     matchday: 23,
     kickoff_time: "2026-09-28T19:00:00Z",

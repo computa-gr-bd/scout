@@ -139,6 +139,81 @@ def test_upcoming_match_uses_recent_form_of_each_team(client, db_session):
     assert any("Sem eventos desta partida" in n for n in body["coverage"]["notes"])
 
 
+def test_finished_match_without_events_does_not_fall_back_to_recent_form(client, db_session):
+    """Jogo que já aconteceu mas ainda sem chutes: NÃO mistura chutes de jogos anteriores."""
+    db = db_session
+    season, home, away = _world(db)
+    old = _match(db, season, home, away, datetime(2026, 9, 1, 14), ext="o1")
+    pl = _player(db, "Bukayo Saka", home, "p1")
+    cp = _player(db, "Cole Palmer", away, "p3")
+    _shot(db, old, home, pl, 10, "Goal", 0.3, 90, 50)
+    _shot(db, old, away, cp, 20, "BlockedShot", 0.1, 82, 45)
+    played = _match(db, season, home, away, datetime(2026, 10, 25, 14), ext="m2")  # finished, sem chutes
+    db.commit()
+
+    body = client.get(f"/api/matches/{played.id}/studio").json()
+    assert body["mode"] == "none"
+    assert body["shots"] == []
+    assert body["recent_match_ids"] == {"home": [], "away": []}
+    assert any("já terminou" in n for n in body["coverage"]["notes"])
+
+
+def test_analysis_list_prioritizes_understat_and_dedupes_upcoming(client, db_session):
+    """Análise: jogo passado só da Understat; futuro de qualquer fonte, sem duplicata."""
+    db = db_session
+    now = datetime.utcnow()
+    us_season, us_home, us_away = _world(db)
+    fd_season, fd_home, fd_away = _world(db, DataSource.FOOTBALL_DATA)
+    everton = Team(external_id="ev", name="Everton FC", data_source=DataSource.FOOTBALL_DATA)
+    fulham = Team(external_id="fu", name="Fulham FC", data_source=DataSource.FOOTBALL_DATA)
+    db.add_all([everton, fulham]); db.flush()
+
+    played_us = _match(db, us_season, us_home, us_away, now - timedelta(days=3), ext="u1")
+    played_fd = _match(db, fd_season, fd_home, fd_away, now - timedelta(days=3), src=DataSource.FOOTBALL_DATA, ext="f1")
+    future_us = _match(db, us_season, us_home, us_away, now + timedelta(days=3), status="scheduled", hs=None, as_=None, ext="u2")
+    future_fd = _match(db, fd_season, fd_home, fd_away, now + timedelta(days=3), status="scheduled", hs=None, as_=None, src=DataSource.FOOTBALL_DATA, ext="f2")
+    future_only_fd = _match(db, fd_season, everton, fulham, now + timedelta(days=4), status="scheduled", hs=None, as_=None, src=DataSource.FOOTBALL_DATA, ext="f3")
+    db.commit()
+
+    body = client.get("/api/matches", params={"scope": "all", "analysis": "true"}).json()
+    ids = [m["id"] for m in body]
+    assert played_us.id in ids and future_us.id in ids and future_only_fd.id in ids
+    assert played_fd.id not in ids      # jogo passado de outra fonte fica fora da Análise
+    assert future_fd.id not in ids      # duplicata do jogo futuro: fica a da Understat
+
+    recent = client.get("/api/matches", params={"scope": "recent", "analysis": "true"}).json()
+    assert [m["id"] for m in recent] == [played_us.id]
+
+
+def test_excluded_competition_is_hidden_and_purged(client, db_session):
+    """Brasileirão (BSA) foi removido: some das listagens e o purge apaga do banco."""
+    from app.services.purge_competition import purge
+
+    db = db_session
+    now = datetime.utcnow()
+    comp = Competition(external_id="bsa", name="Campeonato Brasileiro Série A", code="BSA",
+                       data_source=DataSource.FOOTBALL_DATA)
+    db.add(comp); db.flush()
+    season = Season(competition_id=comp.id, name="2026", current=True, data_source=DataSource.FOOTBALL_DATA)
+    db.add(season); db.flush()
+    a = Team(external_id="fla", name="Flamengo", data_source=DataSource.FOOTBALL_DATA)
+    b = Team(external_id="pal", name="Palmeiras", data_source=DataSource.FOOTBALL_DATA)
+    db.add_all([a, b]); db.flush()
+    _match(db, season, a, b, now + timedelta(days=2), status="scheduled", hs=None, as_=None,
+           src=DataSource.FOOTBALL_DATA, ext="b1")
+    db.commit()
+
+    assert client.get("/api/matches", params={"scope": "upcoming"}).json() == []
+    assert client.get("/api/matches", params={"scope": "all", "analysis": "true"}).json() == []
+    assert client.get("/api/competitions").json() == []
+
+    summary = purge(db)
+    assert summary["competitions"] == 1 and summary["matches"] == 1 and summary["teams"] == 2
+    assert db.query(Competition).count() == 0
+    assert db.query(Match).count() == 0
+    assert db.query(Team).count() == 0
+
+
 def test_football_data_match_links_to_understat_twin(client, db_session):
     """Partida do football-data sem eventos puxa os chutes da mesma partida no Understat."""
     db = db_session

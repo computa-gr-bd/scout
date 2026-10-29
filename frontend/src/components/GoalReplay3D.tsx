@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { MaterialIcon } from "./MaterialIcon";
@@ -10,6 +10,8 @@ const GOAL_LINE_Z = -1.35;
 const KICK_AT = 0.22;
 /** A bola só sai depois do contato do pé. */
 const BALL_START = KICK_AT + 0.05;
+/** Fim do voo da bola; o resto do replay mostra o desfecho (rebote, bola na rede...). */
+const FLIGHT_END = 0.84;
 
 const BALL_PATCH_NORMALS = [
   [0, 0, 1], [0.8, 0.3, 0.5], [-0.8, 0.3, 0.5],
@@ -51,6 +53,103 @@ function SoccerBall() {
   );
 }
 
+type BodyParts = {
+  torso: RefObject<THREE.Group>;
+  legR: RefObject<THREE.Group>;
+  legL: RefObject<THREE.Group>;
+  armR: RefObject<THREE.Group>;
+  armL: RefObject<THREE.Group>;
+};
+
+function useBodyParts(): BodyParts {
+  return {
+    torso: useRef<THREE.Group>(null),
+    legR: useRef<THREE.Group>(null),
+    legL: useRef<THREE.Group>(null),
+    armR: useRef<THREE.Group>(null),
+    armL: useRef<THREE.Group>(null),
+  };
+}
+
+/** Corpo low-poly (olha para -Z, pés em y=0, quadril em y=0.88). Pivôs expostos via `parts`. */
+function Humanoid({ parts, shirt, shorts = "#f1f5f9", socks, glove }: {
+  parts: BodyParts;
+  shirt: string;
+  shorts?: string;
+  socks: string;
+  glove?: string;
+}) {
+  const skin = "#d8a47f";
+  const boot = "#0f172a";
+  return (
+    <group>
+      {/* pernas (pivô no quadril) */}
+      {([
+        { ref: parts.legR, x: 0.11 },
+        { ref: parts.legL, x: -0.11 },
+      ] as const).map(({ ref, x }) => (
+        <group key={x} ref={ref} position={[x, 0.88, 0]}>
+          <mesh position={[0, -0.16, 0]} castShadow>
+            <boxGeometry args={[0.18, 0.32, 0.2]} />
+            <meshStandardMaterial color={shorts} roughness={0.8} />
+          </mesh>
+          <mesh position={[0, -0.57, 0]} castShadow>
+            <boxGeometry args={[0.12, 0.5, 0.14]} />
+            <meshStandardMaterial color={socks} roughness={0.8} />
+          </mesh>
+          <mesh position={[0, -0.84, -0.05]} castShadow>
+            <boxGeometry args={[0.13, 0.09, 0.27]} />
+            <meshStandardMaterial color={boot} roughness={0.6} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* tronco + cabeça */}
+      <group ref={parts.torso} position={[0, 0.88, 0]}>
+        <mesh position={[0, 0.33, 0]} castShadow>
+          <boxGeometry args={[0.48, 0.6, 0.26]} />
+          <meshStandardMaterial color={shirt} roughness={0.7} />
+        </mesh>
+        <mesh position={[0, 0.69, 0]}>
+          <cylinderGeometry args={[0.055, 0.065, 0.1, 10]} />
+          <meshStandardMaterial color={skin} roughness={0.8} />
+        </mesh>
+        <mesh position={[0, 0.84, 0]} castShadow>
+          <sphereGeometry args={[0.14, 16, 12]} />
+          <meshStandardMaterial color={skin} roughness={0.8} />
+        </mesh>
+        <mesh position={[0, 0.86, 0.015]}>
+          <sphereGeometry args={[0.148, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55]} />
+          <meshStandardMaterial color="#1f2937" roughness={0.9} />
+        </mesh>
+
+        {/* braços (pivô no ombro) */}
+        {([
+          { ref: parts.armR, x: 0.3 },
+          { ref: parts.armL, x: -0.3 },
+        ] as const).map(({ ref, x }) => (
+          <group key={x} ref={ref} position={[x, 0.56, 0]}>
+            <mesh position={[0, -0.1, 0]}>
+              <boxGeometry args={[0.12, 0.2, 0.13]} />
+              <meshStandardMaterial color={shirt} roughness={0.7} />
+            </mesh>
+            <mesh position={[0, -0.34, 0]}>
+              <boxGeometry args={[0.09, 0.3, 0.1]} />
+              <meshStandardMaterial color={skin} roughness={0.8} />
+            </mesh>
+            {glove && (
+              <mesh position={[0, -0.53, 0]}>
+                <boxGeometry args={[0.14, 0.14, 0.14]} />
+                <meshStandardMaterial color={glove} roughness={0.6} />
+              </mesh>
+            )}
+          </group>
+        ))}
+      </group>
+    </group>
+  );
+}
+
 /**
  * Jogador (low-poly) que corre até a bola e chuta. O modelo olha para -Z (em direção ao gol).
  * Perna direita = perna do chute. Ângulo positivo em X = perna balançando PARA A FRENTE.
@@ -61,11 +160,8 @@ function Kicker({ progress, start, teamColor }: {
   teamColor: string;
 }) {
   const root = useRef<THREE.Group>(null);
-  const torso = useRef<THREE.Group>(null);
-  const legR = useRef<THREE.Group>(null);
-  const legL = useRef<THREE.Group>(null);
-  const armR = useRef<THREE.Group>(null);
-  const armL = useRef<THREE.Group>(null);
+  const parts = useBodyParts();
+  const { torso, legR, legL, armR, armL } = parts;
 
   useFrame(() => {
     const p = clamp01(progress);
@@ -104,10 +200,6 @@ function Kicker({ progress, start, teamColor }: {
     }
   });
 
-  const skin = "#d8a47f";
-  const shorts = "#f1f5f9";
-  const boot = "#0f172a";
-
   return (
     <group ref={root}>
       {/* sombra */}
@@ -115,63 +207,80 @@ function Kicker({ progress, start, teamColor }: {
         <circleGeometry args={[0.5, 20]} />
         <meshBasicMaterial color="#000000" transparent opacity={0.22} />
       </mesh>
+      <Humanoid parts={parts} shirt={teamColor} socks={teamColor} />
+    </group>
+  );
+}
 
-      {/* pernas (pivô no quadril) */}
-      {([
-        { ref: legR, x: 0.11 },
-        { ref: legL, x: -0.11 },
-      ] as const).map(({ ref, x }) => (
-        <group key={x} ref={ref} position={[x, 0.88, 0]}>
-          <mesh position={[0, -0.16, 0]} castShadow>
-            <boxGeometry args={[0.18, 0.32, 0.2]} />
-            <meshStandardMaterial color={shorts} roughness={0.8} />
-          </mesh>
-          <mesh position={[0, -0.57, 0]} castShadow>
-            <boxGeometry args={[0.12, 0.5, 0.14]} />
-            <meshStandardMaterial color={teamColor} roughness={0.8} />
-          </mesh>
-          <mesh position={[0, -0.84, -0.05]} castShadow>
-            <boxGeometry args={[0.13, 0.09, 0.27]} />
-            <meshStandardMaterial color={boot} roughness={0.6} />
-          </mesh>
+/**
+ * Goleiro: fica na linha, faz uma pequena "dança" antes do chute e mergulha conforme o resultado.
+ *  - defendido: mergulha exatamente na bola (e o rebote é feito na cena);
+ *  - gol: mergulha para o lado certo, mas não alcança;
+ *  - pra fora / bloqueado: só acompanha a bola.
+ */
+function Keeper({ progress, result, end, shooterX }: {
+  progress: number;
+  result: ShotResult;
+  end: THREE.Vector3;
+  shooterX: number;
+}) {
+  const root = useRef<THREE.Group>(null);
+  const lean = useRef<THREE.Group>(null);
+  const parts = useBodyParts();
+
+  // Alcance do corpo esticado (do quadril até a ponta da luva).
+  const REACH = 1.2;
+  const plan = useMemo(() => {
+    const dir = Math.abs(end.x) < 0.4 ? (shooterX > 0 ? -1 : 1) : Math.sign(end.x);
+    const dives = result === "saved" || result === "goal";
+
+    /** Calcula o mergulho para a PONTA DA LUVA chegar em (ax, ay). */
+    const reachTo = (ax: number, ay: number) => {
+      const side = Math.abs(ax) < 0.05 ? dir : Math.sign(ax);
+      const absX = Math.abs(ax);
+      const tiltForHeight = Math.acos(Math.max(0, Math.min(1, (ay - 0.4) / REACH))); // bola baixa => corpo deitado
+      const tiltMaxForX = Math.asin(Math.min(1, absX / REACH));                      // sem passar do alvo
+      // Mergulho largo sempre inclina (>= ~35°), senão ele deslizaria em pé.
+      const tilt = Math.min(Math.max(tiltForHeight, 0.6), tiltMaxForX);
+      const hipX = side * Math.max(0, absX - REACH * Math.sin(tilt));
+      // Quadril nunca abaixo do corpo: em pé ~0.9, deitado ~0.45 (pernas não atravessam o gramado).
+      const hipY = Math.max(0.45 + 0.45 * Math.cos(tilt), Math.min(1.6, ay - REACH * Math.cos(tilt)));
+      return { side, tilt, hipX, hipY };
+    };
+
+    if (result === "saved") return { dives, ...reachTo(end.x, end.y) };
+    if (result === "goal") {
+      // vai pro lado certo, mas chega curto: a bola passa da ponta dos dedos.
+      return { dives, ...reachTo(end.x - dir * 0.75, end.y - 0.35) };
+    }
+    const follow = result === "off_target" ? Math.max(-1.2, Math.min(1.2, end.x * 0.25)) : 0;
+    return { dives, side: dir, tilt: 0, hipX: follow, hipY: 0.9 };
+  }, [result, end, shooterX]);
+
+  useFrame((state) => {
+    const flightP = clamp01((progress - BALL_START) / (FLIGHT_END - BALL_START));
+    const d = smooth((flightP - 0.1) / 0.85); // 0 = em pé, 1 = esticado na bola
+    const shuffle = progress < BALL_START ? Math.sin(state.clock.elapsedTime * 4) * 0.22 : 0;
+
+    if (root.current) {
+      root.current.position.set(lerp(shuffle, plan.hipX, d), lerp(0.9, plan.hipY, d), GOAL_LINE_Z + 0.25);
+    }
+    if (lean.current) lean.current.rotation.z = -plan.side * plan.tilt * d;
+
+    const { armR, armL, legR, legL } = parts;
+    if (armR.current) armR.current.rotation.set(lerp(0.2, Math.PI * 0.95, d), 0, lerp(0.55, 0.15, d));
+    if (armL.current) armL.current.rotation.set(lerp(0.2, Math.PI * 0.95, d), 0, -lerp(0.55, 0.15, d));
+    if (legR.current) legR.current.rotation.z = lerp(0.1, 0.35, d);
+    if (legL.current) legL.current.rotation.z = -lerp(0.1, 0.35, d);
+  });
+
+  return (
+    <group ref={root} position={[0, 0.9, GOAL_LINE_Z + 0.25]}>
+      <group ref={lean}>
+        {/* pivô no quadril: o corpo (pés em y=0) é deslocado para baixo */}
+        <group position={[0, -0.88, 0]} rotation={[0, Math.PI, 0]}>
+          <Humanoid parts={parts} shirt="#f59e0b" shorts="#111827" socks="#111827" glove="#22c55e" />
         </group>
-      ))}
-
-      {/* tronco + cabeça */}
-      <group ref={torso} position={[0, 0.88, 0]}>
-        <mesh position={[0, 0.33, 0]} castShadow>
-          <boxGeometry args={[0.48, 0.6, 0.26]} />
-          <meshStandardMaterial color={teamColor} roughness={0.7} />
-        </mesh>
-        <mesh position={[0, 0.69, 0]}>
-          <cylinderGeometry args={[0.055, 0.065, 0.1, 10]} />
-          <meshStandardMaterial color={skin} roughness={0.8} />
-        </mesh>
-        <mesh position={[0, 0.84, 0]} castShadow>
-          <sphereGeometry args={[0.14, 16, 12]} />
-          <meshStandardMaterial color={skin} roughness={0.8} />
-        </mesh>
-        <mesh position={[0, 0.86, 0.015]}>
-          <sphereGeometry args={[0.148, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55]} />
-          <meshStandardMaterial color="#1f2937" roughness={0.9} />
-        </mesh>
-
-        {/* braços (pivô no ombro) */}
-        {([
-          { ref: armR, x: 0.3 },
-          { ref: armL, x: -0.3 },
-        ] as const).map(({ ref, x }) => (
-          <group key={x} ref={ref} position={[x, 0.56, 0]}>
-            <mesh position={[0, -0.1, 0]}>
-              <boxGeometry args={[0.12, 0.2, 0.13]} />
-              <meshStandardMaterial color={teamColor} roughness={0.7} />
-            </mesh>
-            <mesh position={[0, -0.34, 0]}>
-              <boxGeometry args={[0.09, 0.3, 0.1]} />
-              <meshStandardMaterial color={skin} roughness={0.8} />
-            </mesh>
-          </group>
-        ))}
       </group>
     </group>
   );
@@ -248,7 +357,7 @@ function ShotScene({ goalLoc, shotOrigin, team, result, teamColor, progress }: {
     if (result === "blocked") {
       return new THREE.Vector3(start.x * 0.9, 0.22, start.z - 1.7);
     }
-    if (result === "saved") return new THREE.Vector3(tx, ty, GOAL_LINE_Z + 0.3);
+    if (result === "saved") return new THREE.Vector3(tx, ty, GOAL_LINE_Z + 0.55); // na mão do goleiro
     return new THREE.Vector3(tx, ty, GOAL_LINE_Z - 0.9); // gol: dentro da rede
   }, [goalX, goalY, result, start]);
 
@@ -258,6 +367,14 @@ function ShotScene({ goalLoc, shotOrigin, team, result, teamColor, progress }: {
     return new THREE.QuadraticBezierCurve3(start, new THREE.Vector3(mid.x, lift, mid.z), end);
   }, [start, end, result]);
 
+  // Defesa: o goleiro espalma e a bola sai pro lado (rebote).
+  const rebound = useMemo(() => {
+    const dir = Math.abs(end.x) < 0.4 ? (start.x > 0 ? -1 : 1) : Math.sign(end.x);
+    const to = new THREE.Vector3(end.x + dir * 2.0, 0.22, GOAL_LINE_Z + 3.0);
+    const ctrl = new THREE.Vector3(end.x + dir * 0.9, Math.max(end.y, 1) + 1.0, GOAL_LINE_Z + 1.5);
+    return new THREE.QuadraticBezierCurve3(end, ctrl, to);
+  }, [end, start]);
+
   // Câmera atrás do jogador, mirando o gol.
   useEffect(() => {
     camera.position.set(start.x * 0.55, 2.7, start.z + 5.8);
@@ -266,20 +383,33 @@ function ShotScene({ goalLoc, shotOrigin, team, result, teamColor, progress }: {
   }, [camera, start]);
 
   useFrame((state) => {
-    const ballP = clamp01((progress - BALL_START) / (1 - BALL_START));
-    const eased = 1 - (1 - ballP) ** 3;
+    const flightP = clamp01((progress - BALL_START) / (FLIGHT_END - BALL_START));
+    const afterP = clamp01((progress - FLIGHT_END) / (1 - FLIGHT_END));
+    const eased = 1 - (1 - flightP) ** 1.5; // sai forte e desacelera um pouco
     if (ball.current) {
-      if (ballP <= 0) {
+      if (flightP <= 0) {
         ball.current.position.copy(start);
         ball.current.rotation.set(0, 0, 0);
-      } else {
+      } else if (afterP <= 0) {
         ball.current.position.copy(curve.getPoint(eased));
         ball.current.rotation.set(eased * 6, eased * 8, eased * 3);
+      } else if (result === "saved") {
+        ball.current.position.copy(rebound.getPoint(smooth(afterP)));
+        ball.current.rotation.set(6 + afterP * 5, 8 + afterP * 4, 3);
+      } else if (result === "goal") {
+        // bola cai na rede
+        const settle = smooth(afterP);
+        ball.current.position.set(end.x, lerp(end.y, 0.22, settle), end.z - 0.45 * settle);
+        ball.current.rotation.set(6 + settle * 2, 8, 3);
+      } else {
+        ball.current.position.copy(end);
       }
     }
 
     if (net.current) {
-      const impact = result === "goal" ? Math.max(0, 1 - Math.abs(ballP - 1) / 0.16) : 0;
+      const impact = result === "goal"
+        ? (afterP <= 0 ? Math.max(0, (flightP - 0.85) / 0.15) : Math.max(0, 1 - afterP * 1.5))
+        : 0;
       net.current.position.z = GOAL_LINE_Z - 1.7 - impact * 0.08;
     }
     if (pulse.current) {
@@ -363,6 +493,7 @@ function ShotScene({ goalLoc, shotOrigin, team, result, teamColor, progress }: {
         </mesh>
       )}
 
+      <Keeper progress={progress} result={result} end={end} shooterX={start.x} />
       <Kicker progress={progress} start={start} teamColor={teamColor} />
       <group ref={ball}>
         <SoccerBall />

@@ -1,4 +1,4 @@
-name: Coleta gratuita de futebol
+name: Coleta football-data (calendário e times)
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
-      SYNC_COMPETITIONS: ${{ vars.SYNC_COMPETITIONS || 'BSA' }}
+      SYNC_COMPETITIONS: ${{ vars.SYNC_COMPETITIONS || 'PL,PD,BL1,SA,FL1,CL' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -42,6 +42,7 @@ jobs:
       - name: Coletar football-data.org e atualizar Neon
         working-directory: backend
         run: python -m app.services.data_sync
-      - name: Coletar Understat e atualizar Neon
+      - name: Remover competições descartadas (Brasileirão) do banco
         working-directory: backend
-        run: python -m app.services.understat_sync --leagues ${{ vars.UNDERSTAT_LEAGUES || 'epl' }}
+        run: python -m app.services.purge_competition
+      # O Understat tem rotina própria e mais rápida: .github/workflows/understat-sync.yml
