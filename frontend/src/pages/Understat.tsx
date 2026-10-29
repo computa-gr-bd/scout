@@ -6,6 +6,7 @@ import {
   syncUnderstatFast, triggerUnderstatSync,
   type UnderstatLeague, type UnderstatMatch, type UnderstatStats, type UnderstatTableRow,
 } from "../api/client";
+import { Link } from "react-router-dom";
 import { ShotExplorer } from "../components/ShotExplorer";
 import { TeamCompare, type CompareTeam } from "../components/TeamCompare";
 import { XgScatter, type ScatterPoint } from "../components/XgScatter";
@@ -530,9 +531,9 @@ function MatchList({ leagueKey, seasonId }: { leagueKey: string; seasonId?: numb
         </div>
         <ul className="divide-y divide-sv-border/60">
           {matches.map((m) => (
-            <li key={m.id}>
+            <li key={m.id} className="flex items-center hover:bg-sv-panel2/60">
               <button
-                className="w-full text-left px-4 py-3 hover:bg-sv-panel2/60 flex items-center gap-3"
+                className="flex-1 min-w-0 text-left px-4 py-3 flex items-center gap-3"
                 onClick={() => setSelected(m)}
               >
                 <div className="flex-1 min-w-0 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
@@ -555,6 +556,17 @@ function MatchList({ leagueKey, seasonId }: { leagueKey: string; seasonId?: numb
                   {m.has_shots ? <Badge kind="good">chutes</Badge> : <Badge>—</Badge>}
                 </div>
               </button>
+              {/* Abre esta partida direto no Estúdio de análise (chutes, gols, replay 2D/3D) */}
+              <Link
+                to={`/analysis/${m.id}`}
+                className={`sv-btn shrink-0 mr-4 !px-3 !py-1 !text-xs ${m.has_shots ? "" : "opacity-60"}`}
+                title={m.has_shots
+                  ? "Abrir esta partida no Estúdio de análise"
+                  : "Esta partida ainda não tem chutes coletados — a análise abrirá sem eventos"}
+                aria-label={`Analisar ${m.home_team?.name ?? "casa"} contra ${m.away_team?.name ?? "fora"} no Estúdio`}
+              >
+                Análise
+              </Link>
             </li>
           ))}
           {!matches.length && <li className="px-4 py-6 text-sm text-sv-muted">Nenhuma partida encontrada para “{search}”.</li>}

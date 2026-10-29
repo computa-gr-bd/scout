@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  listMatches, generatePredictions, getMatchZones, getMatchStudio, type PlayerMatchPrediction,
+  listMatches, generatePredictions, getMatch, getMatchZones, getMatchStudio, type PlayerMatchPrediction,
   type ZoneOpportunity, type MatchupScore, type Match,
 } from "../api/client";
 import {
@@ -68,6 +68,10 @@ export default function AnalysisPage() {
   );
 
   const [selected, setSelected] = useState<number | null>(matchId ? Number(matchId) : null);
+  // Link direto (/analysis/:id, ex.: botão "Análise" da tela Understat): acompanha o parâmetro.
+  useEffect(() => {
+    if (matchId) setSelected(Number(matchId));
+  }, [matchId]);
   useEffect(() => {
     if (!rawMatches.length) return;
     if (selected != null && (rawMatches.some((m) => m.id === selected) || (matchId && selected === Number(matchId)))) return;
@@ -159,7 +163,19 @@ export default function AnalysisPage() {
     venue: p.venue,
   }));
 
-  const selMatch = rawMatches.find((m) => m.id === selected) || rawMatches[0] || MOCK_MATCHES[0];
+  // A partida pedida por link pode não estar na lista lateral (limite de 60 / filtro de escopo):
+  // nesse caso busca só ela, para o cabeçalho e o estúdio mostrarem a partida certa.
+  const inList = rawMatches.some((m) => m.id === selected);
+  const extraMatchQuery = useQuery({
+    queryKey: ["match-by-id", selected],
+    enabled: !!selected && !demoMode && !inList && !matchesQuery.isLoading,
+    queryFn: () => getMatch(selected!) as Promise<Match>,
+    staleTime: 5 * 60_000,
+    retry: 0,
+  });
+  const selMatch = rawMatches.find((m) => m.id === selected)
+    || (extraMatchQuery.data as Match | undefined)
+    || rawMatches[0] || MOCK_MATCHES[0];
   const studioReady = !demoMode && !!studioDataset;
 
   return (

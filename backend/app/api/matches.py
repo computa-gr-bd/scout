@@ -159,7 +159,7 @@ def get_match(match_id: int, db: Session = Depends(get_db)):
     m = match_repo.get_detailed(db, match_id)
     if not m:
         raise HTTPException(404, "Match not found")
-    out = _to_match_out(m)
+    out = _to_match_out(m, _logo_index(db))  # escudos também para times da Understat
     # Pre-load all lineup players in a single query (avoid N+1).
     player_ids = [lu.player_id for lu in m.lineups]
     players_by_id = {}
