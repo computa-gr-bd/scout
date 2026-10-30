@@ -277,6 +277,32 @@ def get_match_predictions(match_id: int, target: Optional[str] = None,
     }
 
 
+# Cache curto: o cálculo lê dezenas de partidas, e a tela pede ao abrir cada partida.
+_INSIGHTS_CACHE: Dict[int, tuple] = {}
+_INSIGHTS_TTL = 300  # segundos
+
+
+@router.get("/matches/{match_id}/insights")
+def get_match_insights(match_id: int, db: Session = Depends(get_db)):
+    """Zonas fracas, probabilidades por jogador e confrontos, calculados dos chutes reais (Understat).
+
+    Público (não grava nada). `available=false` quando não há chutes anteriores para os times.
+    """
+    import time
+    from app.services.shot_insights import match_insights
+
+    cached = _INSIGHTS_CACHE.get(match_id)
+    if cached and time.time() - cached[0] < _INSIGHTS_TTL:
+        return cached[1]
+    m = match_repo.get_detailed(db, match_id)
+    if not m:
+        raise HTTPException(404, "Match not found")
+    result = match_insights(db, m)
+    if result.get("available"):
+        _INSIGHTS_CACHE[match_id] = (time.time(), result)
+    return result
+
+
 @router.get("/matches/{match_id}/zones")
 def get_match_zones(match_id: int, db: Session = Depends(get_db)):
     from app.repositories.repositories import (DefensiveWeaknessRepository, PlayerZoneStatsRepository,

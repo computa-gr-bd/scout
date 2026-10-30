@@ -275,6 +275,24 @@ export async function getStandings(seasonId: number) {
 export async function getMatch(id: number) { return api.get(`/matches/${id}`).then((r) => r.data); }
 export async function getMatchAnalysis(id: number) { return api.get<MatchAnalysis>(`/matches/${id}/analysis`).then((r) => r.data); }
 export async function getMatchPredictions(id: number) { return api.get(`/matches/${id}/predictions`).then((r) => r.data); }
+/** Análise tática calculada dos chutes reais (Understat): zonas fracas, previsões por jogador e confrontos. */
+export interface MatchInsights {
+  available: boolean;
+  match_id: number;
+  method?: string;
+  notes?: string[];
+  sample?: { home_matches: number; away_matches: number; league_matches: number };
+  zones?: {
+    home_team_weaknesses: any[]; away_team_weaknesses: any[];
+    home_team_attack?: any[]; away_team_attack?: any[];
+  };
+  predictions?: PlayerMatchPrediction[];
+  matchups?: Array<MatchupScore & { attacker_name?: string; defender_name?: string | null }>;
+}
+export async function getMatchInsights(id: number) {
+  return api.get<MatchInsights>(`/matches/${id}/insights`, { timeout: 60000 }).then((r) => r.data);
+}
+
 export async function getMatchZones(id: number) { return api.get(`/matches/${id}/zones`).then((r) => r.data); }
 
 /** Escalação da partida: oficial quando existe no banco, provável XI pelo elenco. */

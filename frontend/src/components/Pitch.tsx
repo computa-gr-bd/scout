@@ -89,7 +89,8 @@ export function Pitch2D({
   height?: number;
   homeWeakness?: Record<string, number>; // zone -> weakness score
   awayWeakness?: Record<string, number>; // zone -> weakness score (from attacking-to-right perspective: this should be flipped)
-  opportunityZones?: { zone: PitchZone; value: number }[];
+  /** `side: "away"` desenha a zona espelhada (o visitante ataca para a esquerda). */
+  opportunityZones?: { zone: PitchZone; value: number; side?: "home" | "away" }[];
   homePlayers?: { x: number; y: number; label: string; pos?: string }[];
   awayPlayers?: { x: number; y: number; label: string; pos?: string }[];
   /** Chutes sobre o gramado (coordenadas 0-100, ataque para a direita). */
@@ -126,7 +127,7 @@ export function Pitch2D({
   };
 
   const opps = opportunityZones?.map((o, i) => {
-    const g = ZONE_GEOMETRY[o.zone];
+    const g = ZONE_GEOMETRY[o.side === "away" ? flipZone(o.zone) : o.zone];
     if (!g) return null;
     const maxV = Math.max(0.001, ...(opportunityZones?.map((a) => a.value) || [1]));
     return (

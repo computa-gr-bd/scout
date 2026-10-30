@@ -214,6 +214,73 @@ def test_excluded_competition_is_hidden_and_purged(client, db_session):
     assert db.query(Team).count() == 0
 
 
+def _history(db, season, home, away, hp, ap, count=6):
+    """Jogos anteriores com chutes dos dois times (base do cálculo de insights)."""
+    now = datetime.utcnow()
+    for i in range(count):
+        m = _match(db, season, home, away, now - timedelta(days=3 + i * 3), ext=f"h{i}")
+        _shot(db, m, home, hp, 10, "Goal", 0.35, 94, 50)          # área central
+        _shot(db, m, home, hp, 30, "SavedShot", 0.12, 88, 45)     # fora da área
+        _shot(db, m, home, hp, 55, "MissedShots", 0.05, 75, 20)   # corredor
+        _shot(db, m, away, ap, 20, "SavedShot", 0.2, 92, 40)      # o visitante finaliza de perto
+        _shot(db, m, away, ap, 70, "BlockedShot", 0.06, 80, 60)
+
+
+def test_insights_compute_zones_predictions_and_matchups_from_real_shots(client, db_session):
+    db = db_session
+    season, home, away = _world(db)
+    hp = _player(db, "Bukayo Saka", home, "p1")
+    ap = _player(db, "Cole Palmer", away, "p2")
+    _history(db, season, home, away, hp, ap)
+    target = _match(db, season, home, away, datetime.utcnow() + timedelta(days=2),
+                    status="scheduled", hs=None, as_=None, ext="next")
+    db.commit()
+
+    body = client.get(f"/api/matches/{target.id}/insights").json()
+    assert body["available"] is True
+    assert body["sample"]["home_matches"] == 6 and body["sample"]["away_matches"] == 6
+
+    # Zonas: 18 por time, pontuação entre 0 e 1; o visitante finaliza de perto, então a defesa do mandante tem fraqueza real.
+    hw = body["zones"]["home_team_weaknesses"]
+    assert len(hw) == 18 and all(0 <= z["weakness_score"] <= 1 for z in hw)
+    assert any(z["xga_per_90"] > 0 for z in hw)
+
+    # Previsões: 4 alvos por jogador, probabilidades coerentes (gol <= chute).
+    preds = body["predictions"]
+    saka = {p["target"]: p for p in preds if p["player_name"] == "Bukayo Saka"}
+    assert set(saka) == {"shot", "shot_on_target", "goal", "goal_involvement"}
+    assert all(0 < p["probability"] < 1 for p in saka.values())
+    assert saka["goal"]["probability"] <= saka["shot"]["probability"]
+    assert saka["shot"]["venue"] == "home" and saka["shot"]["zone_opportunities"]
+    assert saka["shot"]["positive_factors"]
+
+    # Confrontos com nomes e explicação.
+    mu = body["matchups"]
+    assert mu and all(m["attacker_name"] and 0 <= m["score"] <= 1 and m["weaknesses"] for m in mu)
+
+
+def test_insights_unavailable_without_prior_shots(client, db_session):
+    db = db_session
+    season, home, away = _world(db)
+    target = _match(db, season, home, away, datetime.utcnow() + timedelta(days=2),
+                    status="scheduled", hs=None, as_=None, ext="next")
+    db.commit()
+    body = client.get(f"/api/matches/{target.id}/insights").json()
+    assert body["available"] is False and body["notes"]
+
+
+def test_insights_ignore_the_match_itself_and_later_games(client, db_session):
+    """Jogo já disputado: só chutes ANTERIORES entram (sem vazar o próprio resultado)."""
+    db = db_session
+    season, home, away = _world(db)
+    hp = _player(db, "Bukayo Saka", home, "p1")
+    ap = _player(db, "Cole Palmer", away, "p2")
+    played = _match(db, season, home, away, datetime.utcnow() - timedelta(days=1), ext="played")
+    _shot(db, played, home, hp, 10, "Goal", 0.9, 95, 50)
+    db.commit()
+    assert client.get(f"/api/matches/{played.id}/insights").json()["available"] is False
+
+
 def test_football_data_match_links_to_understat_twin(client, db_session):
     """Partida do football-data sem eventos puxa os chutes da mesma partida no Understat."""
     db = db_session

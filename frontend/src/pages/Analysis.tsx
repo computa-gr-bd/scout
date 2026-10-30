@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  listMatches, generatePredictions, getMatch, getMatchZones, getMatchStudio, type PlayerMatchPrediction,
+  listMatches, generatePredictions, getMatch, getMatchInsights, getMatchZones, getMatchStudio, type PlayerMatchPrediction,
   type ZoneOpportunity, type MatchupScore, type Match,
 } from "../api/client";
 import {
   MOCK_MATCHES, MOCK_HOME_WEAKNESSES, MOCK_AWAY_WEAKNESSES, MOCK_PREDICTIONS,
 } from "../api/mockData";
 import { payloadToDataset } from "../api/studioReal";
+import { ZONE_GEOMETRY_M } from "../lib/pitchZones";
 import { Badge, ConfidenceBadge, EmptyState, ProbabilityBar, SectionTitle, TeamLogo } from "../components/ui";
 import { Pitch2D } from "../components/Pitch";
 import { Pitch3D } from "../components/Pitch3D";
@@ -95,11 +96,24 @@ export default function AnalysisPage() {
   );
 
   // Zonas e previsões: no modo real, se o backend não tem como calcular, mostra vazio (nunca jogadores de exemplo).
+  // Fonte principal (modo real): cálculo ao vivo a partir dos chutes reais do Understat.
+  // Se não houver chutes anteriores para os times, cai no fluxo antigo (tabelas/modelo, só com dados semeados).
+  const insightsQuery = useQuery({
+    queryKey: ["match-insights", selected],
+    enabled: !!selected && !demoMode,
+    queryFn: () => getMatchInsights(selected!),
+    staleTime: 5 * 60_000,
+    retry: 0,
+  });
+  const insights = insightsQuery.data?.available ? insightsQuery.data : null;
+  const insightsSettled = demoMode || insightsQuery.isFetched;
+
   const zonesQuery = useQuery({
-    queryKey: ["match-zones-analysis", selected, demoMode],
-    enabled: !!selected,
+    queryKey: ["match-zones-analysis", selected, demoMode, !!insights, insightsSettled],
+    enabled: !!selected && insightsSettled,
     queryFn: async () => {
       if (demoMode) return { data: { home_team_weaknesses: MOCK_HOME_WEAKNESSES, away_team_weaknesses: MOCK_AWAY_WEAKNESSES } as any, ok: true };
+      if (insights?.zones) return { data: insights.zones as any, ok: true };
       try { return { data: (await getMatchZones(selected!)) as any, ok: true }; }
       catch { return { data: EMPTY_ZONES as any, ok: false }; }
     },
@@ -108,10 +122,13 @@ export default function AnalysisPage() {
   const zones = zonesQuery.data?.data ?? EMPTY_ZONES;
 
   const predsQuery = useQuery({
-    queryKey: ["predictions", selected, demoMode],
-    enabled: !!selected,
+    queryKey: ["predictions", selected, demoMode, !!insights, insightsSettled],
+    enabled: !!selected && insightsSettled,
     queryFn: async () => {
       if (demoMode) return { data: MOCK_PREDICTIONS as any, ok: true, reason: "" };
+      if (insights) {
+        return { data: { predictions: insights.predictions ?? [], matchups: insights.matchups ?? [] } as any, ok: true, reason: "" };
+      }
       try {
         return {
           data: (await generatePredictions(selected!, {
@@ -122,9 +139,11 @@ export default function AnalysisPage() {
         };
       } catch (err) {
         const status = (err as any)?.response?.status;
+        const why = insightsQuery.data?.notes?.[0];
         return {
           data: EMPTY_PREDS as any, ok: false,
-          reason: status === 401 ? "É preciso entrar na conta (botão Entrar) para gerar previsões." : describeError(err),
+          // Sem chutes anteriores o motivo real é esse (e não "entre na conta").
+          reason: why ?? (status === 401 ? "É preciso entrar na conta (botão Entrar) para gerar previsões." : describeError(err)),
         };
       }
     },
@@ -157,7 +176,10 @@ export default function AnalysisPage() {
 
   const scatter = targetPreds.slice(0, 40).map((p: any) => ({
     name: p.player_name,
-    x: +((p.zone_opportunities || []).reduce((a: number, z: any) => a + z.player_frequency, 0).toFixed(2)),
+    // % dos chutes em zonas de ataque (área e arredores): varia por jogador (somar todas as zonas dava sempre 1).
+    x: +(100 * (p.zone_opportunities || [])
+      .filter((z: any) => zoneCols.includes(z.zone))
+      .reduce((a: number, z: any) => a + z.player_frequency, 0)).toFixed(0),
     y: +(p.probability * 100).toFixed(1),
     z: +((p.zone_opportunities || []).reduce((a: number, z: any) => a + z.opportunity_score, 0).toFixed(2)) * 200,
     venue: p.venue,
@@ -299,16 +321,22 @@ export default function AnalysisPage() {
                     } />
                   {!demoMode && zonesQuery.data?.ok === false && (
                     <div className="text-[11.5px] text-sv-muted mb-2">
-                      Sem vulnerabilidades por zona calculadas para esta partida (faltam eventos com zona ou elenco).
+                      {insightsQuery.data?.notes?.[0]
+                        ?? "Sem vulnerabilidades por zona calculadas para esta partida (faltam eventos com zona ou elenco)."}
                     </div>
                   )}
+                  {!demoMode && insights?.notes?.length ? (
+                    <div className="text-[11.5px] text-sv-muted mb-2">{insights.notes.slice(0, 2).join(" ")}</div>
+                  ) : null}
                   <Pitch2D
                     homeWeakness={hw}
                     awayWeakness={aw}
                     opportunityZones={(preds.predictions || [])
                       .filter((p: any) => p.target === "shot")
                       .flatMap((p: PlayerMatchPrediction) =>
-                        (p.zone_opportunities || []).slice(0, 3).map((z: ZoneOpportunity) => ({ zone: z.zone, value: z.opportunity_score })))}
+                        (p.zone_opportunities || []).slice(0, 3).map((z: ZoneOpportunity) => ({
+                          zone: z.zone, value: z.opportunity_score, side: p.venue,
+                        })))}
                     title="Zonas defensivas (vermelho = fraqueza) · ofensivas (verde = oportunidade)"
                   />
                 </div>
@@ -349,7 +377,11 @@ export default function AnalysisPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <div className="font-semibold">Probabilidades de eventos por jogador</div>
-                      <div className="text-xs text-sv-muted">Linha vertical = referência do baseline; estimativas não validadas.</div>
+                      <div className="text-xs text-sv-muted">
+                        {insights
+                          ? "Chance de pelo menos 1 evento na partida · linha vertical = taxa recente do jogador sem ajuste do adversário · estimativas não validadas."
+                          : "Linha vertical = referência do baseline; estimativas não validadas."}
+                      </div>
                     </div>
                     <div className="flex gap-1">
                       {[["shot", "chute"], ["shot_on_target", "no alvo"], ["goal", "gol"], ["goal_involvement", "particip. em gol"]].map(([t, label]) => (
@@ -400,12 +432,12 @@ export default function AnalysisPage() {
                 <div className="sv-card">
                   <div className="sv-card-inner">
                     <SectionTitle title="Dispersão Oportunidade × Frequência"
-                      hint="Cada bolha = um jogador · x = frequência de zona · y = probabilidade · tamanho = oportunidade total" />
+                      hint="Cada bolha = um jogador · x = % dos chutes em zonas de ataque · y = probabilidade (%) · tamanho = oportunidade total" />
                     <div className="h-80">
                       <SResponsiveContainer>
                         <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 0 }}>
                           <CartesianGrid stroke="#22314f" />
-                          <SXAxis type="number" dataKey="x" name="Freq. zona" stroke="#8794ad" fontSize={10} />
+                          <SXAxis type="number" dataKey="x" name="% chutes em zonas de ataque" unit="%" domain={[0, 100]} stroke="#8794ad" fontSize={10} />
                           <SYAxis type="number" dataKey="y" name="Prob %" stroke="#8794ad" fontSize={10} />
                           <ZAxis type="number" dataKey="z" range={[40, 400]} name="Oportunidade" />
                           <STooltip cursor={{ strokeDasharray: "3 3" }}
@@ -430,7 +462,7 @@ export default function AnalysisPage() {
                                 {(mu.score * 100).toFixed(0)}%
                               </Badge>
                               <span className="font-medium truncate">
-                                Ata#{mu.attacker_id} vs Def#{mu.defender_id}
+                                {mu.attacker_name ?? `Ata#${mu.attacker_id}`} vs {mu.defender_name ?? `Def#${mu.defender_id}`}
                               </span>
                             </div>
                             <span className="sv-chip">{mu.score > 0.55 ? "Vantagem ataque" : "Vantagem defesa"}</span>
@@ -469,7 +501,7 @@ export default function AnalysisPage() {
                             <th>Jogador</th>
                             {zoneCols.map((z) => (
                               <th key={z} className="text-right !py-3 whitespace-nowrap">
-                                {z.replace(/_/g, " ").slice(0, 14)}
+                                {ZONE_GEOMETRY_M[z as keyof typeof ZONE_GEOMETRY_M]?.label ?? z.replace(/_/g, " ")}
                               </th>
                             ))}
                           </tr>
