@@ -301,7 +301,7 @@ export function Pitch3D({
 
       <div ref={wrapRef} className="relative p-3 md:p-5" style={{ height: 520 }}
         onPointerDown={(e) => { downRef.current = [e.clientX, e.clientY]; }}>
-        <Canvas shadows camera={{ position: [0, 70, 75], fov: 42 }} dpr={[1, 2]}
+        <Canvas shadows camera={{ position: [0, 140, 0.01], up: [0, 0, -1], fov: 42 }} dpr={[1, 2]}
           onPointerMissed={() => setSelectedZone(null)}>
           <color attach="background" args={["#0a0f1a"]} />
           <ambientLight intensity={0.6} />

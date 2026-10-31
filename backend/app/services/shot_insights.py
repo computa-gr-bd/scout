@@ -30,7 +30,7 @@ from app.services.studio import (
 WINDOW = 10            # jogos recentes de cada time
 LEAGUE_WINDOW = 120    # jogos da temporada usados como média da liga
 PRIOR_MATCHES = 3.0    # "jogos fictícios na média" que suavizam amostras pequenas
-TOP_PLAYERS = 8        # jogadores por time na lista de previsões
+TOP_PLAYERS = 10       # jogadores por time na lista de estimativas
 
 ZONE_LABEL_PT = {
     "central_box": "área central",
