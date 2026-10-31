@@ -674,7 +674,13 @@ export function PitchStudio({
           </div>
         ) : view === "positions" ? (
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="sv-chip-accent"><MaterialIcon name="groups" className="mr-1 align-middle text-[15px]" />{allPlayers.length} jogadores em escalação oficial</span>
+            <span className="sv-chip-accent">
+              <MaterialIcon name="groups" className="mr-1 align-middle text-[15px]" />
+              {allPlayers.length} jogadores em campo
+              {allPlayers.some((player) => player.estimated)
+                ? " · escalação provável"
+                : allPlayers.length > 0 ? " · escalação oficial" : ""}
+            </span>
             {matchInfo.source === "real" ? (
               <span className="text-xs text-sv-muted">
                 {Object.keys(ds.players).length

@@ -183,7 +183,11 @@ export interface MatchAnalysis {
 }
 
 export interface PredictionFactor {
-  feature: string; factor: string; weight: number; value: number; direction: "positive" | "negative";
+  feature: string;
+  factor: string;
+  weight?: number;
+  value?: number;
+  direction?: "positive" | "negative";
 }
 
 export interface ZoneOpportunity {

@@ -91,9 +91,8 @@ export function payloadToDataset(p: MatchStudioPayload): StudioDataset {
   const keyToId = new Map<string, number>();
   p.players.forEach((pl, i) => keyToId.set(pl.key, i + 1));
 
-  const hasOfficialLineup = p.lineups.source?.toLowerCase() === "official";
-  const homeLineup = hasOfficialLineup ? p.lineups.home.filter((lp) => !lp.estimated) : [];
-  const awayLineup = hasOfficialLineup ? p.lineups.away.filter((lp) => !lp.estimated) : [];
+  const homeLineup = p.lineups.home;
+  const awayLineup = p.lineups.away;
   const lineupByKey = new Map<string, StudioApiLineupPlayer>();
   [...homeLineup, ...awayLineup].forEach((lp) => { if (lp.detail_key) lineupByKey.set(lp.detail_key, lp); });
 
@@ -151,12 +150,14 @@ export function payloadToDataset(p: MatchStudioPayload): StudioDataset {
       position: lp.line_label ?? lp.position ?? "—",
       pitchPos: { x: lp.pitch_x, y: lp.pitch_y },
       detailKey: lp.detail_key ? keyToId.get(lp.detail_key) : undefined,
-      estimated: false,
+      estimated: lp.estimated,
     }));
 
-  const notes = p.coverage.notes.filter((note) => !/escalação provável/i.test(note));
-  if (p.lineups.source && p.lineups.source.toLowerCase() !== "official") {
-    notes.push("A escalação não foi confirmada pela fonte e foi omitida.");
+  const notes = p.coverage.notes.filter((note) =>
+    !/escalação provável|escalação não foi confirmada.*omitida/i.test(note)
+  );
+  if (p.lineups.source?.toLowerCase() === "estimated") {
+    notes.push("Escalação provável baseada no elenco e nos minutos da temporada; não é oficial.");
   }
   if (p.mode === "recent_form") notes.unshift("Pré-jogo: mapa e chutes mostram o padrão recente de cada time, não esta partida.");
 

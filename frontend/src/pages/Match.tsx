@@ -223,17 +223,26 @@ export default function MatchPage() {
 
       {/* Escalação no campo + gols da partida */}
       <div className="space-y-4">
+        {lineupData?.source === "estimated" && (
+          <div className="sv-card">
+            <div className="sv-card-inner text-sm text-sv-muted">
+              Provável escalação baseada no elenco e nos minutos da temporada; não é oficial.
+            </div>
+          </div>
+        )}
         <SectionTitle title="Escalação"
           hint={
             lineupData?.source === "official"
               ? "Escalação oficial da partida"
-                : "Escalação oficial indisponível para esta partida"
+              : lineupData?.source === "estimated"
+                ? "Provável XI · não confirmado pelo provedor"
+                : "Escalação indisponível para esta partida"
           }
           right={lineupData?.formation ? <span className="sv-chip">{lineupData.formation}</span> : undefined}
         />
         {lineups.isLoading ? (
           <div className="sv-card h-64 skeleton" />
-        ) : lineupData?.source === "official" ? (
+        ) : lineupData?.source === "official" || lineupData?.source === "estimated" ? (
           <>
             <div className="grid lg:grid-cols-2 gap-4">
               <LineupPitch data={lineupData} />
