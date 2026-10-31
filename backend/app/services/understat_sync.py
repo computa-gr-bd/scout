@@ -967,6 +967,8 @@ async def sync_understat_league(
         db.commit()
 
     counts["matches_with_shots"] = len(pending)
+    from app.services.match_reconciliation import reconcile_matches
+    counts["match_reconciliation"] = reconcile_matches(db)
     _save_collection_state(db, league_key, "success", counts)
     db.commit()
     return counts

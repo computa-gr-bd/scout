@@ -89,7 +89,7 @@ def _list_analysis_matches(db: Session, scope: str, skip: int, limit: int,
     Se o mesmo jogo existir em duas fontes, fica a versão da Understat.
     """
     now = datetime.utcnow()
-    base = [Match.season_id.notin_(excluded_season_ids())]
+    base = [Match.season_id.notin_(excluded_season_ids()), Match.canonical_match_id.is_(None)]
     if competition_id:
         base.append(Match.season_id.in_(select(Season.id).where(Season.competition_id == competition_id)))
     if team_id:
@@ -136,7 +136,10 @@ def list_matches(scope: str = Query("upcoming", pattern="^(upcoming|recent|all)$
     elif scope == "recent":
         matches = match_repo.recent(db, skip=skip, limit=limit, team_id=team_id)
     else:
-        filters = [Match.season_id.notin_(excluded_season_ids())]
+        filters = [
+            Match.season_id.notin_(excluded_season_ids()),
+            Match.canonical_match_id.is_(None),
+        ]
         if competition_id:
             sub = select(Season.id).where(Season.competition_id == competition_id)
             filters.append(Match.season_id.in_(sub))
@@ -159,6 +162,10 @@ def get_match(match_id: int, db: Session = Depends(get_db)):
     m = match_repo.get_detailed(db, match_id)
     if not m:
         raise HTTPException(404, "Match not found")
+    if m.canonical_match_id is not None:
+        m = match_repo.get_detailed(db, m.canonical_match_id)
+        if not m:
+            raise HTTPException(404, "Canonical match not found")
     out = _to_match_out(m, _logo_index(db))  # escudos também para times da Understat
     # Pre-load all lineup players in a single query (avoid N+1).
     player_ids = [lu.player_id for lu in m.lineups]

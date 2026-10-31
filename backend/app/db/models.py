@@ -201,6 +201,7 @@ class Match(Base, TimestampMixin):
     away_ht_score = Column(Integer)
     referee = Column(String(255))
     attendance = Column(Integer)
+    canonical_match_id = Column(Integer, ForeignKey("match.id", ondelete="SET NULL"), index=True)
     data_source = Column(stored_enum(DataSource), default=DataSource.DEMO, nullable=False)
     season = relationship("Season", back_populates="matches")
     home_team = relationship("Team", foreign_keys=[home_team_id], back_populates="home_matches")

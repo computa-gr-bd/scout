@@ -276,6 +276,8 @@ def ingest_competition(db, payload):
             standings += 1
     upsert_entities(db, Player, player_rows)
     upsert_entities(db, Match, match_rows)
+    from app.services.match_reconciliation import reconcile_matches
+    reconcile_matches(db)
     summary = {"teams": len(teams), "matches": matches, "standings": standings,
                "unresolved_matches": unresolved, "season_id": season.id}
     checkpoint(db, SOURCE.value, comp.code, "success", summary)
