@@ -27,7 +27,7 @@ export type StudioAction = {
   teamName: string; type: "shot" | "goal" | "assist_shot"; from: StudioCoord; to: StudioCoord;
   assistant?: { name: string; number: number; from?: StudioCoord };
   /** xGOT: `null` quando a fonte não fornece (Understat não tem). */
-  xg: number; xgot: number | null; situation: string; shotType: string;
+  xg: number | null; xgot: number | null; situation: string; shotType: string;
   goalZone?: string; goalLoc?: StudioCoord; result: "goal" | "saved" | "off_target" | "blocked";
   duration?: number;
   /** `false` quando a fonte não informa onde a bola chegou (o `to` é só o centro do gol). */
@@ -60,6 +60,7 @@ export type StudioPlayerDetail = {
   id: number; number: number; name: string; nick?: string; position: string;
   team: "home" | "away"; teamName: string;
   pitchPos: StudioCoord;
+  positionKnown?: boolean;
   rating: number; injured?: boolean; minutes: number;
   avatar: string;
   stats: {
@@ -301,7 +302,7 @@ function buildScorerDetail(
   const assists = allShots.filter((s) => s.team === team && s.assistant?.number === a.number).length;
   const shotsCount = Math.max(myShots.length, goals + 1);
   const sot = Math.max(goals, Math.round(shotsCount * (0.45 + rnd() * 0.2)));
-  const xG = round2(myShots.reduce((acc, s) => acc + s.xg, 0));
+  const xG = round2(myShots.reduce((acc, s) => acc + (s.xg ?? 0), 0));
   const xGOT = round2(myShots.filter((s) => s.result === "goal" || s.result === "saved").reduce((acc, s) => acc + (s.xgot ?? 0), 0));
   const passes = Math.round(14 + rnd() * 30);
   const passAccPct = Math.round(72 + rnd() * 20);

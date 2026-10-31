@@ -103,11 +103,12 @@ function shotZone(s: StudioApiShot): Zone {
 
 function teamTotals(shots: StudioApiShot[], team: "home" | "away") {
   const own = shots.filter((s) => s.team === team);
+  const hasCompleteXg = own.length > 0 && own.every((shot) => shot.xg != null);
   return {
     shots: own.length,
     onTarget: own.filter((s) => s.on_target === true || s.result === "goal" || s.result === "saved").length,
     goals: own.filter((s) => s.result === "goal").length,
-    xg: own.reduce((acc, s) => acc + (s.xg ?? 0), 0),
+    xg: hasCompleteXg ? own.reduce((acc, s) => acc + (s.xg ?? 0), 0) : null,
     own,
   };
 }
@@ -117,7 +118,7 @@ function MatchSummary({ payload, match }: { payload: MatchStudioPayload; match: 
   const away = teamTotals(payload.shots, "away");
   const rows: Array<[string, string, string]> = [
     ["Gols", String(match.status === "finished" ? match.home_score : home.goals), String(match.status === "finished" ? match.away_score : away.goals)],
-    ["xG", home.xg.toFixed(2), away.xg.toFixed(2)],
+    ["xG", home.xg?.toFixed(2) ?? "—", away.xg?.toFixed(2) ?? "—"],
     ["Chutes", String(home.shots), String(away.shots)],
     ["No alvo", String(home.onTarget), String(away.onTarget)],
   ];
@@ -372,7 +373,7 @@ export default function Dashboard() {
               ? "A API está indisponível. Confira a conexão e tente novamente."
               : "Sincronize o Understat para trazer partidas e chutes reais."} />
         : studioDataset
-          ? <PitchStudio dataset={studioDataset} selectedMatch={highlightMatch} selectedMatchId={highlightMatch.id} />
+          ? <PitchStudio dataset={studioDataset} />
           : studioQ.isError
             ? <EmptyState title="Não foi possível carregar os lances" description="Tente sortear outra partida ou abra o estúdio completo." />
             : <EmptyState title="Carregando lances da partida…" />}

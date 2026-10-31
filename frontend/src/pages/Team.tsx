@@ -1,6 +1,4 @@
 import { useParams, Link } from "react-router-dom";
-import MockTeamDetail from "./TeamMock";
-import { MOCK_TEAMS } from "../api/teamsData";
 import { useQuery } from "@tanstack/react-query";
 import {
   getTeam, getTeamStatistics, getTeamWeaknesses, listMatches, listPlayers, getStandings,
@@ -352,15 +350,11 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
 }
 
 
-/**
- * Rota `/teams/:id` — ids mockados (≥1001, ex.: Bayern) renderizam a página
- * mock com elenco/classificação/estatísticas; ids da API seguem para a
- * página com dados reais do backend.
- */
 export default function TeamPage() {
   const { id } = useParams();
   const teamId = Number(id);
-  const mockTeam = MOCK_TEAMS.find((t) => t.id === teamId);
-  if (mockTeam) return <MockTeamDetail team={mockTeam} />;
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    return <EmptyState title="Time não encontrado" description="Selecione um time cadastrado no banco de dados." />;
+  }
   return <ApiTeamPage teamId={teamId} />;
 }

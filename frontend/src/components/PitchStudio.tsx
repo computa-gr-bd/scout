@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { STUDIO_DATASETS, studioDatasetForMatch, type StudioDataset, type StudioRealInfo } from "../api/studioData";
+import { type StudioDataset, type StudioRealInfo } from "../api/studioData";
 import { crestFor } from "../api/footballDataOrg";
 import { JerseyGlyph, JerseyDefs, JerseyBadge, BallGlyph } from "./Jersey";
 import { TeamLogo } from "./ui";
-import type { Match } from "../api/client";
 import { GoalReplay3D } from "./GoalReplay3D";
 import { MaterialIcon } from "./MaterialIcon";
 
@@ -15,7 +14,7 @@ type Action = {
   id: number; minute: string; player: string; number: number; team: "home" | "away";
   teamName: string; type: "shot" | "goal" | "assist_shot"; from: Coord; to: Coord;
   assistant?: { name: string; number: number; from?: Coord };
-  xg: number; xgot: number | null; situation: string; shotType: string;
+  xg: number | null; xgot: number | null; situation: string; shotType: string;
   goalZone?: string; goalLoc?: Coord; result: "goal" | "saved" | "off_target" | "blocked"; duration?: number;
   endKnown?: boolean;
   matchLabel?: string;
@@ -27,6 +26,7 @@ type PlayerDetail = {
   id: number; number: number; name: string; nick?: string; position: string;
   team: "home" | "away"; teamName: string;
   pitchPos: Coord;
+  positionKnown?: boolean;
   rating: number; injured?: boolean; minutes: number;
   avatar: string;
   stats: {
@@ -332,52 +332,6 @@ export const DEMO_STUDIO: StudioDataset = {
   players: MOCK_PLAYERS,
 };
 
-function demoDatasetForMatch(match: Match): StudioDataset {
-  const home = match.home_team.name;
-  const away = match.away_team.name;
-  const kickoff = new Date(match.kickoff_time);
-  const date = Number.isNaN(kickoff.getTime())
-    ? "Data não disponível"
-    : kickoff.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
-  return {
-    ...DEMO_STUDIO,
-    match: {
-      ...DEMO_STUDIO.match,
-      id: match.id,
-      source: "demo",
-      title: match.competition_name || "Partida em análise",
-      competition: match.competition_name || "Partida em análise",
-      home,
-      away,
-      scoreHome: match.home_score,
-      scoreAway: match.away_score,
-      date,
-      venue: match.stadium_name || undefined,
-      dataSourceLabel: "Eventos demonstrativos",
-    },
-    shots: DEMO_STUDIO.shots.map((shot) => ({
-      ...shot,
-      teamName: shot.team === "home" ? home : away,
-    })),
-    players: Object.fromEntries(
-      Object.entries(DEMO_STUDIO.players).map(([id, player]) => [
-        id,
-        {
-          ...player,
-          teamName: player.team === "home" ? home : away,
-          actions: {
-            ...player.actions,
-            shots: player.actions.shots.map((shot) => ({
-              ...shot,
-              teamName: shot.team === "home" ? home : away,
-            })),
-          },
-        },
-      ]),
-    ),
-  };
-}
-
 /** xG/xGOT: "—" quando a fonte não fornece o valor. */
 const fmt2 = (n: number | null | undefined) => (n == null ? "—" : n.toFixed(2));
 
@@ -483,12 +437,9 @@ function ShotArrow({
 
 
 export function PitchStudio({
-  width = 1000, height = 620, datasets = STUDIO_DATASETS, selectedMatchId, selectedMatch, dataset,
+  width = 1000, height = 620, dataset,
 }: {
-  width?: number; height?: number; datasets?: StudioDataset[]; selectedMatchId?: number | null;
-  selectedMatch?: Match | null;
-  /** Dataset montado com dados reais (tem prioridade sobre demo/simulado). */
-  dataset?: StudioDataset | null;
+  width?: number; height?: number; dataset: StudioDataset;
 }) {
   // Margem extra no viewBox para a rede dos gols ficar FORA da linha de fundo
   // (geometria real: boca do gol na linha, rede atrás dela).
@@ -520,36 +471,7 @@ export function PitchStudio({
     setGoalPulse(0);
   };
 
-  const ds = useMemo(() => {
-    if (dataset) return dataset;
-    const matchId = selectedMatch?.id ?? selectedMatchId;
-    const candidate = datasets.find((dataset) => dataset.match.id === matchId)
-      ?? studioDatasetForMatch(matchId);
-    const existing = candidate && (
-      !selectedMatch
-      || (candidate.match.home === selectedMatch.home_team.name && candidate.match.away === selectedMatch.away_team.name)
-    ) ? candidate : undefined;
-    if (!selectedMatch) return existing ?? DEMO_STUDIO;
-    if (!existing) return demoDatasetForMatch(selectedMatch);
-    const kickoff = new Date(selectedMatch.kickoff_time);
-    return {
-      ...existing,
-      match: {
-        ...existing.match,
-        id: selectedMatch.id,
-        title: selectedMatch.competition_name || existing.match.title,
-        competition: selectedMatch.competition_name || existing.match.competition,
-        home: selectedMatch.home_team.name,
-        away: selectedMatch.away_team.name,
-        scoreHome: selectedMatch.home_score,
-        scoreAway: selectedMatch.away_score,
-        date: Number.isNaN(kickoff.getTime())
-          ? existing.match.date
-          : kickoff.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }),
-        venue: selectedMatch.stadium_name || existing.match.venue,
-      },
-    };
-  }, [dataset, datasets, selectedMatch, selectedMatchId]);
+  const ds = dataset;
   const matchInfo = ds.match;
   const shots = ds.shots;
   const homeStar = useMemo(() => Object.values(ds.players).find((p) => p.team === "home"), [ds]);
@@ -694,6 +616,10 @@ export function PitchStudio({
     return [...merge(ds.startingHome, "home"), ...merge(ds.startingAway, "away")];
   }, [ds]);
 
+  useEffect(() => {
+    if (!allPlayers.length && view === "positions") setView("heatmap");
+  }, [allPlayers.length, view]);
+
   return (
     <div className="sv-card overflow-hidden relative">
       {/* Header */}
@@ -723,7 +649,9 @@ export function PitchStudio({
           </div>
         </div>
         <div className="flex gap-1 flex-wrap w-full sm:w-auto">
-          {([ "heatmap", "shots", "onTarget", "goals", "positions" ] as ViewMode[]).map((m) => (
+          {([ "heatmap", "shots", "onTarget", "goals", "positions" ] as ViewMode[])
+            .filter((mode) => mode !== "positions" || allPlayers.length > 0)
+            .map((m) => (
             <button key={m} onClick={() => { setView(m); if (m === "positions") setStatTab("shot"); }}
               className={`sv-btn !py-1.5 !px-3 text-[12.5px] ${view === m ? "!bg-sv-accent text-white !border-sv-accent3 shadow-glow" : ""}`}>
               <MaterialIcon name={m === "heatmap" ? "map" : m === "shots" ? "sports_soccer" : m === "onTarget" ? "my_location" : m === "goals" ? "sports_score" : "groups"} className="mr-1 align-middle text-[15px]" />
@@ -746,7 +674,7 @@ export function PitchStudio({
           </div>
         ) : view === "positions" ? (
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="sv-chip-accent"><MaterialIcon name="groups" className="mr-1 align-middle text-[15px]" />{allPlayers.length} jogadores em campo{allPlayers.some((p) => p.estimated) ? " · escalação provável" : ""}</span>
+            <span className="sv-chip-accent"><MaterialIcon name="groups" className="mr-1 align-middle text-[15px]" />{allPlayers.length} jogadores em escalação oficial</span>
             {matchInfo.source === "real" ? (
               <span className="text-xs text-sv-muted">
                 {Object.keys(ds.players).length
@@ -1046,7 +974,7 @@ export function PitchStudio({
                 const target: Coord = endKnown ? aim : s.from;
                 return (
                   <g key={`sm-${s.id}`} style={{ cursor: "pointer" }} onClick={() => openShot(i)}>
-                    <title>{`${s.player} · ${s.minute}' · xG ${s.xg.toFixed(2)} — clique para ver o lance`}</title>
+                    <title>{`${s.player} · ${s.minute}' · xG ${fmt2(s.xg)} — clique para ver o lance`}</title>
                     {endKnown ? (
                       <ShotArrow
                         from={s.from}
@@ -1152,11 +1080,11 @@ export function PitchStudio({
               <>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
                   <div className="flex items-center gap-2 mb-2.5"><div className="w-3 h-3 rounded-sm" style={{ background: heatColor2(0.7, "home") }} /><div className="text-sm font-semibold">{matchInfo.home} · {matchInfo.source === "real" ? "Finalizações (xG)" : "Ocupação"}</div></div>
-                  <div className="text-xs text-sv-muted leading-relaxed">4-3-3 ofensivo: pontas altas e presença central na área.</div>
+                  <div className="text-xs text-sv-muted leading-relaxed">Distribuição espacial das finalizações registradas.</div>
                 </div>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
                   <div className="flex items-center gap-2 mb-2.5"><div className="w-3 h-3 rounded-sm" style={{ background: heatColor2(0.7, "away") }} /><div className="text-sm font-semibold">{matchInfo.away} · {matchInfo.source === "real" ? "Finalizações (xG)" : "Ocupação"}</div></div>
-                  <div className="text-xs text-sv-muted leading-relaxed">4-2-3-1 compacto: volantes centrais protegendo a área.</div>
+                  <div className="text-xs text-sv-muted leading-relaxed">Distribuição espacial das finalizações registradas.</div>
                 </div>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
                   <div className="text-sm font-semibold mb-2.5">Legenda</div>
@@ -1382,7 +1310,9 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
                   ))}
                 </g>
                 {/* position dot */}
-                <JerseyGlyph number={p.number} color={teamColor} x={p.pitchPos.x} y={(p.pitchPos.y / 100) * 68 + 1} size={5.4} outlineWidth={0.3} />
+                {p.positionKnown && (
+                  <JerseyGlyph number={p.number} color={teamColor} x={p.pitchPos.x} y={(p.pitchPos.y / 100) * 68 + 1} size={5.4} outlineWidth={0.3} />
+                )}
               </svg>
             </div>
           </details>
@@ -1484,7 +1414,7 @@ function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
                           </div>
                           {/* Info */}
                           <div className="flex-1 min-w-0 space-y-1.5 text-[11px]">
-                            <div className="flex justify-between gap-1"><span className="text-sv-muted">xG</span><span className="font-mono font-bold text-sv-accent3">{s.xg.toFixed(2)}</span></div>
+                            <div className="flex justify-between gap-1"><span className="text-sv-muted">xG</span><span className="font-mono font-bold text-sv-accent3">{fmt2(s.xg)}</span></div>
                             <div className="flex justify-between gap-1"><span className="text-sv-muted">xGOT</span><span className="font-mono font-bold text-emerald-400">{fmt2(s.xgot)}</span></div>
                             <div className="flex justify-between gap-1"><span className="text-sv-muted">Situação</span><span className="text-white/85 font-medium text-right">{s.situation}</span></div>
                             <div className="flex justify-between gap-1"><span className="text-sv-muted">Tipo</span><span className="text-white/85 font-medium text-right">{s.shotType}</span></div>
@@ -1715,8 +1645,10 @@ function ShotDetail({ shot }: { shot: Action }) {
                   </div>
                 </div>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5 space-y-2.5">
-                  <div className="flex items-center justify-between"><span className="text-xs text-sv-muted">xG (chance)</span><span className="font-mono font-bold text-sm">{shot.xg.toFixed(2)}</span></div>
-                  <div className="h-1.5 rounded-full bg-sv-panel overflow-hidden"><div className="h-full bg-gradient-to-r from-sv-accent to-sv-accent3 rounded-full" style={{ width: `${Math.min(100, shot.xg * 200)}%` }} /></div>
+                  <div className="flex items-center justify-between"><span className="text-xs text-sv-muted">xG (chance)</span><span className="font-mono font-bold text-sm">{fmt2(shot.xg)}</span></div>
+                  {shot.xg != null && (
+                    <div className="h-1.5 rounded-full bg-sv-panel overflow-hidden"><div className="h-full bg-gradient-to-r from-sv-accent to-sv-accent3 rounded-full" style={{ width: `${Math.min(100, shot.xg * 200)}%` }} /></div>
+                  )}
                   {shot.xgot != null && (
                     <>
                       <div className="flex items-center justify-between"><span className="text-xs text-sv-muted">xGOT (no alvo)</span><span className={`font-mono font-bold text-sm ${(shot.xgot ?? 0) >= 0.7 ? "text-emerald-400" : ""}`}>{fmt2(shot.xgot)}</span></div>
@@ -1885,7 +1817,7 @@ function GoalPopupVisual({
         {shot.assistant && (
           <div className="text-slate-500">Assistência: {shot.assistant.name} #{shot.assistant.number}</div>
         )}
-        <div className="text-slate-500">xG {shot.xg.toFixed(2)} · xGOT {fmt2(shot.xgot)} · {shot.situation}</div>
+        <div className="text-slate-500">xG {fmt2(shot.xg)} · xGOT {fmt2(shot.xgot)} · {shot.situation}</div>
       </div>
     </>
   );

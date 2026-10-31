@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { EmptyState, SectionTitle, TeamLogo } from "../components/ui";
 import type { League } from "../api/teamsData";
 import { listTeams, listCompetitions, listSeasons, type Competition, type Season, type Team } from "../api/client";
@@ -14,6 +14,36 @@ function seasonLabel(s: Season | undefined): string {
   if (y1) return String(y1);
   return "atual";
 }
+
+function normalizeLabel(value: string | null | undefined) {
+  return (value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+}
+
+function normalizeTeamName(value: string) {
+  return normalizeLabel(value)
+    .replace(/^(?:afc|fc|cf|sc)\s+|\s+(?:football club|fc|afc|cf|sc)$/g, "")
+    .trim();
+}
+
+function competitionKey(competition: Competition) {
+  const country = normalizeLabel(competition.country);
+  const code = competition.code?.trim().toUpperCase();
+  return `${country}:${code || normalizeLabel(competition.name)}`;
+}
+
+function competitionPriority(competition: Competition) {
+  const source = competition.data_source.toLowerCase();
+  return source === "understat" ? 0 : source === "football_data" ? 1 : 2;
+}
+
+function teamPriority(team: Team) {
+  const hasXg = team.statistics.some((stat) =>
+    stat.scope === "overall" && (stat.xg_per_90 != null || stat.xga_per_90 != null)
+  );
+  return (hasXg ? 2 : 0) + (team.data_source.toLowerCase() === "understat" ? 1 : 0);
+}
+
+const TEAM_PAGE_SIZE = 50;
 
 /**
  * Card for teams returned by the backend.
@@ -68,7 +98,13 @@ function TeamCard({ t, league }: { t: Team & { league_id: string }; league?: Lea
 
 export default function TeamsPage() {
   const [q, setQ] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   const [leagueId, setLeagueId] = useState("all");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchTerm(q.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [q]);
 
   // IMPORTANTE: as queries precisam ser declaradas ANTES de quem as referencia.
   // Referenciar compsQ/seasonsQ num useMemo declarado acima quebrava o render com
@@ -98,23 +134,46 @@ export default function TeamsPage() {
     return byEnd[0]?.id;
   }, [leagueId, seasonsQ.data]);
 
-  const teamsQ = useQuery({
-    queryKey: ["teams-page", leagueId, seasonIdForLeague],
-    queryFn: () => listTeams({ season_id: seasonIdForLeague, limit: 500 }),
+  const teamsQ = useInfiniteQuery({
+    queryKey: ["teams-page", leagueId, seasonIdForLeague, searchTerm],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => listTeams({
+      q: searchTerm || undefined,
+      season_id: seasonIdForLeague,
+      skip: pageParam,
+      limit: TEAM_PAGE_SIZE,
+    }),
+    getNextPageParam: (lastPage, pages) =>
+      lastPage.length === TEAM_PAGE_SIZE ? pages.length * TEAM_PAGE_SIZE : undefined,
     enabled: leagueId === "all" || seasonIdForLeague !== undefined,
     retry: 1, retryDelay: 600,
   });
 
-  const comps: League[] = (compsQ.data ?? []).map((c: Competition) => ({
-    id: String(c.id),
-    name: c.name,
-    short_name: c.code || c.name.slice(0, 12),
-    season: seasonLabel((seasonsQ.data ?? []).find((s) => s.competition_id === c.id && s.current)
-      ?? (seasonsQ.data ?? []).filter((s) => s.competition_id === c.id)
-        .sort((a, b) => String(b.end_date ?? "").localeCompare(String(a.end_date ?? "")))[0]),
-    country: c.country || "",
-    matches_per_season: 38,
-  }));
+  const comps: League[] = useMemo(() => {
+    const unique = new Map<string, Competition>();
+    for (const competition of compsQ.data ?? []) {
+      const name = normalizeLabel(competition.name);
+      if (name.includes("fifa") || name.includes("champions league")) continue;
+      const key = competitionKey(competition);
+      const current = unique.get(key);
+      if (!current || competitionPriority(competition) < competitionPriority(current)) {
+        unique.set(key, competition);
+      }
+    }
+
+    return [...unique.values()]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((competition) => ({
+        id: String(competition.id),
+        name: competition.name,
+        short_name: competition.code || competition.name.slice(0, 12),
+        season: seasonLabel((seasonsQ.data ?? []).find((s) => s.competition_id === competition.id && s.current)
+          ?? (seasonsQ.data ?? []).filter((s) => s.competition_id === competition.id)
+            .sort((a, b) => String(b.end_date ?? "").localeCompare(String(a.end_date ?? "")))[0]),
+        country: competition.country || "",
+        matches_per_season: 38,
+      }));
+  }, [compsQ.data, seasonsQ.data]);
 
   const leagueById: Record<string, League> = useMemo(() => {
     const r: Record<string, League> = {};
@@ -132,16 +191,80 @@ export default function TeamsPage() {
   }, [seasonsQ.data]);
 
   const teams = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    return (teamsQ.data ?? []).map((team) => {
-      const seasonId = team.statistics[0]?.season_id;
+    const competitionsById = new Map((compsQ.data ?? []).map((competition) => [competition.id, competition]));
+    const displayedCompetitionIdByKey = new Map<string, string>();
+    for (const competition of comps) {
+      const source = competitionsById.get(Number(competition.id));
+      if (source) displayedCompetitionIdByKey.set(competitionKey(source), competition.id);
+    }
+
+    const seasonsById = new Map((seasonsQ.data ?? []).map((season) => [season.id, season]));
+    const candidates = (teamsQ.data?.pages.flat() ?? []).flatMap((team) => {
+      const statistics = team.statistics.filter((stat) => {
+        if (stat.season_id == null) return true;
+        const competitionId = compIdBySeasonId[stat.season_id];
+        if (competitionId == null) return true;
+        const competition = competitionsById.get(competitionId);
+        return competition != null && displayedCompetitionIdByKey.has(competitionKey(competition));
+      });
+      if (!statistics.length) return [];
+
+      statistics.sort((a, b) => {
+        const hasXg = (stat: Team["statistics"][number]) =>
+          stat.xg_per_90 != null || stat.xga_per_90 != null;
+        const xgOrder = Number(hasXg(b)) - Number(hasXg(a));
+        if (xgOrder) return xgOrder;
+
+        const seasonA = a.season_id != null ? seasonsById.get(a.season_id) : undefined;
+        const seasonB = b.season_id != null ? seasonsById.get(b.season_id) : undefined;
+        const currentOrder = Number(Boolean(seasonB?.current)) - Number(Boolean(seasonA?.current));
+        if (currentOrder) return currentOrder;
+        return String(seasonB?.end_date ?? "").localeCompare(String(seasonA?.end_date ?? ""));
+      });
+
+      const seasonId = statistics[0]?.season_id;
       const competitionId = seasonId != null ? compIdBySeasonId[seasonId] : undefined;
-      return { ...team, league_id: competitionId != null ? String(competitionId) : "api-all" };
-    }).filter((team) =>
-      !term || team.name.toLowerCase().includes(term)
-      || (team.code || "").toLowerCase().includes(term)
-    );
-  }, [q, teamsQ.data, compIdBySeasonId]);
+      const competition = competitionId != null ? competitionsById.get(competitionId) : undefined;
+      return [{
+        team: { ...team, statistics },
+        name: normalizeTeamName(team.name),
+        country: normalizeLabel(team.country) || normalizeLabel(competition?.country),
+      }];
+    });
+
+    const countriesByName = new Map<string, Set<string>>();
+    for (const candidate of candidates) {
+      if (!candidate.country) continue;
+      const countries = countriesByName.get(candidate.name) ?? new Set<string>();
+      countries.add(candidate.country);
+      countriesByName.set(candidate.name, countries);
+    }
+
+    const unique = new Map<string, { team: Team; name: string; country: string }>();
+    for (const candidate of candidates) {
+      const knownCountries = countriesByName.get(candidate.name);
+      const country = candidate.country || (
+        knownCountries?.size === 1 ? [...knownCountries][0] : ""
+      );
+      const key = `${country}:${candidate.name}`;
+      const current = unique.get(key);
+      if (!current || teamPriority(candidate.team) > teamPriority(current.team)) {
+        unique.set(key, { ...candidate, country });
+      }
+    }
+
+    return [...unique.values()].map(({ team }) => {
+      const seasonId = team.statistics[0]?.season_id;
+      const sourceCompetitionId = seasonId != null ? compIdBySeasonId[seasonId] : undefined;
+      const sourceCompetition = sourceCompetitionId != null
+        ? competitionsById.get(sourceCompetitionId)
+        : undefined;
+      const displayedCompetitionId = sourceCompetition
+        ? displayedCompetitionIdByKey.get(competitionKey(sourceCompetition))
+        : undefined;
+      return { ...team, league_id: displayedCompetitionId ?? "api-all" };
+    });
+  }, [teamsQ.data, compIdBySeasonId, comps, compsQ.data, seasonsQ.data]);
 
   const loading = compsQ.isPending
     || (leagueId !== "all" && seasonsQ.isPending)
@@ -168,7 +291,7 @@ export default function TeamsPage() {
     <div className="space-y-5">
       <SectionTitle
         title="Times"
-        hint={`${teams.length} times · ${comps.length} ligas · estatísticas disponíveis na API`}
+        hint={`${teams.length} times carregados · ${comps.length} ligas · estatísticas disponíveis na API`}
       >
         <div className="flex gap-2 flex-wrap">
           <input
@@ -218,10 +341,24 @@ export default function TeamsPage() {
       {teams.length === 0 ? (
         <EmptyState title={emptyTitle} description={emptyDescription} />
       ) : (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-          {teams.map((t) => (
-            <TeamCard key={t.id} t={t} league={leagueById[t.league_id]} />
-          ))}
+        <div className="space-y-4">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+            {teams.map((t) => (
+              <TeamCard key={t.id} t={t} league={leagueById[t.league_id]} />
+            ))}
+          </div>
+          {teamsQ.hasNextPage && (
+            <div className="flex justify-center">
+              <button
+                type="button"
+                className="sv-btn"
+                onClick={() => teamsQ.fetchNextPage()}
+                disabled={teamsQ.isFetchingNextPage}
+              >
+                {teamsQ.isFetchingNextPage ? "Carregando…" : "Carregar mais times"}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

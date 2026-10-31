@@ -2,11 +2,9 @@ import { Link, useParams } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  getMatch, getMatchAnalysis, getMatchZones, getMatchTactical, getMatchLineups,
-  generatePredictions, type MatchAnalysis, type ZoneOpportunity, type PlayerMatchPrediction, type MatchupScore,
-  listPlayers, getPlayerZones, getTeamWeaknesses,
+  getMatch, getMatchAnalysis, getMatchZones, getMatchLineups, type MatchAnalysis,
 } from "../api/client";
-import { Badge, ConfidenceBadge, EmptyState, ProbabilityBar, SectionTitle, TeamLogo } from "../components/ui";
+import { EmptyState, SectionTitle, TeamLogo } from "../components/ui";
 import { Pitch2D } from "../components/Pitch";
 import { Pitch3D } from "../components/Pitch3D";
 import { GoalList, LineupLists, LineupPitch, type MatchLineups } from "../components/LineupPitch";
@@ -24,25 +22,12 @@ export default function MatchPage() {
   const { id } = useParams();
   const matchId = Number(id);
   const [view, setView] = useState<"2d" | "3d">("2d");
-  const [targets, setTargets] = useState<string[]>(["shot", "goal"]);
 
   const match = useQuery({ queryKey: ["match", matchId], queryFn: () => getMatch(matchId) });
   const analysis = useQuery({ queryKey: ["match-analysis", matchId], queryFn: () => getMatchAnalysis(matchId) });
   const zones = useQuery({ queryKey: ["match-zones", matchId], queryFn: () => getMatchZones(matchId) });
-  const tactical = useQuery({ queryKey: ["match-tactical", matchId], queryFn: () => getMatchTactical(matchId) });
   const lineups = useQuery({ queryKey: ["match-lineups", matchId], queryFn: () => getMatchLineups(matchId) });
   const lineupData = lineups.data as MatchLineups | undefined;
-  const players = useQuery({
-    queryKey: ["players"], queryFn: () => listPlayers(),
-  });
-
-  const predictions = useQuery({
-    queryKey: ["predictions-generate", matchId, targets.join(",")],
-    enabled: !!matchId,
-    queryFn: () => generatePredictions(matchId, {
-      targets: targets as any, include_zone_details: true, include_matchups: true,
-    }),
-  });
 
   const a = analysis.data as MatchAnalysis | undefined;
   const radarData = useMemo(() => {
@@ -88,31 +73,6 @@ export default function MatchPage() {
   const awayWeakness: Record<string, number> = {};
   zones.data?.home_team_weaknesses?.forEach((z: any) => { homeWeakness[z.zone] = z.weakness_score; });
   zones.data?.away_team_weaknesses?.forEach((z: any) => { awayWeakness[z.zone] = z.weakness_score; });
-
-  const oppZones = predictions.data?.predictions
-    ?.filter((p) => p.target === "shot")
-    .flatMap((p: PlayerMatchPrediction) =>
-      (p.zone_opportunities || []).slice(0, 2).map((z: ZoneOpportunity) => ({
-        zone: z.zone,
-        value: z.opportunity_score,
-        side: p.venue,
-        player_name: p.player_name,
-        offensive_strength: z.offensive_strength,
-        defensive_weakness: z.defensive_weakness,
-        player_frequency: z.player_frequency,
-      }))
-    ) || [];
-
-  const playerById: Record<number, { display_name?: string | null; first_name?: string | null; last_name: string }> = {};
-  (players.data || []).forEach((p) => {
-    playerById[p.id] = p as any;
-  });
-
-  const predictionsByTarget: Record<string, PlayerMatchPrediction[]> = {};
-  (predictions.data?.predictions || []).forEach((p) => {
-    (predictionsByTarget[p.target] ||= []).push(p);
-  });
-  Object.values(predictionsByTarget).forEach((arr) => arr.sort((a, b) => b.probability - a.probability));
 
   const m: any = match.data;
   const homeId = m?.home_team?.id;
@@ -226,7 +186,7 @@ export default function MatchPage() {
       )}
 
       {/* recent form / H2H */}
-      <div className="grid lg:grid-cols-2 gap-5">
+      <div>
         <div className="sv-card">
           <div className="sv-card-inner">
             <SectionTitle title="Confrontos diretos" hint="Últimos 6 encontros" />
@@ -259,36 +219,6 @@ export default function MatchPage() {
             ) : <EmptyState title="Sem dados de confronto direto" />}
           </div>
         </div>
-        <div className="sv-card">
-          <div className="sv-card-inner">
-            <SectionTitle title="Avaliação de confrontos" hint="Melhores duelos atacante × defensor" />
-            {tactical.data?.matchups?.length ? (
-              <div className="sv-table-wrap">
-                <table className="sv-table">
-                  <thead><tr><th>Atacante</th><th>Defensor</th><th>Nota</th><th>Vantagem</th></tr></thead>
-                  <tbody>
-                    {tactical.data.matchups.slice(0, 10).map((mu: MatchupScore, i: number) => {
-                      const a = playerById[mu.attacker_id]; const d = playerById[mu.defender_id];
-                      const good = mu.score > 0.55;
-                      return (
-                        <tr key={i}>
-                          <td>{a?.display_name || a?.last_name || "Ata " + mu.attacker_id}</td>
-                          <td>{d?.display_name || d?.last_name || "Def " + mu.defender_id}</td>
-                          <td className="font-mono">{(mu.score * 100).toFixed(0)}%</td>
-                          <td>
-                            <Badge kind={good ? "good" : "default"}>
-                              {good ? "Vantagem ataque" : "Vantagem defesa"}
-                            </Badge>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : <EmptyState title="Ainda sem dados de confrontos" description="Gere previsões para calcular os confrontos." />}
-          </div>
-        </div>
       </div>
 
       {/* Escalação no campo + gols da partida */}
@@ -297,26 +227,14 @@ export default function MatchPage() {
           hint={
             lineupData?.source === "official"
               ? "Escalação oficial da partida"
-              : lineupData?.source === "estimated"
-                ? `Provável XI (${lineupData.formation}) · estimativa pelo elenco e minutos jogados`
-                : "Sem elenco sincronizado para estimar a escalação"
+                : "Escalação oficial indisponível para esta partida"
           }
           right={lineupData?.formation ? <span className="sv-chip">{lineupData.formation}</span> : undefined}
         />
         {lineups.isLoading ? (
           <div className="sv-card h-64 skeleton" />
-        ) : lineupData && lineupData.source !== "none" ? (
+        ) : lineupData?.source === "official" ? (
           <>
-            {lineupData.source === "estimated" && (
-              <div className="sv-card">
-                <div className="sv-card-inner text-xs text-sv-muted">
-                  O provedor de dados não entrega escalação oficial, então este é o
-                  provável XI montado a partir do elenco sincronizado (1 goleiro,
-                  4 defensores, 3 meio-campistas e 3 atacantes, priorizando quem tem
-                  mais minutos na temporada).
-                </div>
-              </div>
-            )}
             <div className="grid lg:grid-cols-2 gap-4">
               <LineupPitch data={lineupData} />
               <LineupLists data={lineupData} />
@@ -325,14 +243,14 @@ export default function MatchPage() {
           </>
         ) : (
           <EmptyState title="Escalação indisponível"
-            description="Rode a coleta das ligas para importar os elencos dos times." />
+            description="A escalação oficial desta partida ainda não foi fornecida pelo provedor." />
         )}
       </div>
 
       {/* Pitch visualization */}
       <div>
         <SectionTitle title="Análise do campo"
-          hint="Visualize vulnerabilidades defensivas e as melhores zonas de oportunidade"
+          hint="Visualização das zonas registradas nas estatísticas da partida"
           right={
             <div className="flex gap-1">
               <button onClick={() => setView("2d")} className={`sv-btn !py-1.5 ${view === "2d" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>2D</button>
@@ -344,8 +262,8 @@ export default function MatchPage() {
           <Pitch2D
             homeWeakness={homeWeakness}
             awayWeakness={awayWeakness}
-            opportunityZones={oppZones}
-            title="Mapa de calor 2D · vermelho = fraqueza defensiva · verde = oportunidade do jogador"
+            opportunityZones={[]}
+            title="Mapa de calor 2D · zonas de fraqueza defensiva registradas"
           />
         ) : (
           <Pitch3D
@@ -355,79 +273,9 @@ export default function MatchPage() {
             homeWeaknessDetails={zones.data?.home_team_weaknesses}
             awayWeaknessDetails={zones.data?.away_team_weaknesses}
             teamNames={{ home: m?.home_team?.name, away: m?.away_team?.name }}
-            opportunityZones={oppZones}
+            opportunityZones={[]}
           />
         )}
-      </div>
-
-      {/* Probability predictions */}
-      <div className="sv-card">
-        <div className="sv-card-inner space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="font-semibold">Previsões por jogador</div>
-              <div className="text-xs text-sv-muted">Estimativas baseline experimentais, não validadas como previsões confiáveis · selecione os alvos</div>
-            </div>
-            <div className="flex gap-1">
-              {[
-                { k: "shot", label: "1+ chute" },
-                { k: "shot_on_target", label: "1+ no alvo" },
-                { k: "goal", label: "Gol" },
-                { k: "goal_involvement", label: "Part. em gol" },
-              ].map((t) => (
-                <button key={t.k}
-                  onClick={() => setTargets(targets.includes(t.k) ? targets.filter((x) => x !== t.k) : [...targets, t.k])}
-                  className={`sv-btn !py-1.5 ${targets.includes(t.k) ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {Object.keys(predictionsByTarget).length === 0 ? (
-            <EmptyState title="Ainda sem previsões" />
-          ) : (
-            <div className="grid md:grid-cols-2 gap-5">
-              {Object.entries(predictionsByTarget).map(([t, arr]) => (
-                <div key={t}>
-                  <div className="flex items-center justify-between mb-2">
-                    <Badge kind="accent">P(1+ {t.replace("_", " ")})</Badge>
-                    <ConfidenceBadge c={arr[0]?.confidence || "medium"} />
-                  </div>
-                  <div className="space-y-3">
-                    {arr.slice(0, 8).map((p, i) => (
-                      <div key={`${t}-${i}-${p.player_id}`} className="sv-card">
-                        <div className="p-3 space-y-2">
-                          <div className="flex items-center justify-between gap-3">
-                            <Link to={`/players/${p.player_id}`} className="font-medium hover:text-sv-accent3 min-w-0 truncate">
-                              {i + 1}. {p.player_name}
-                            </Link>
-                            <span className="sv-chip">{p.venue}</span>
-                          </div>
-                          <ProbabilityBar p={p.probability} baseline={p.baseline_probability} />
-                          {p.positive_factors.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5 pt-1">
-                              {p.positive_factors.slice(0, 4).map((f) => (
-                                <span key={f.feature} className="sv-chip-accent !py-0">{f.factor}</span>
-                              ))}
-                            </div>
-                          )}
-                          {p.negative_factors.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
-                              {p.negative_factors.slice(0, 3).map((f) => (
-                                <span key={f.feature} className="sv-chip !py-0 text-sv-warn border-sv-warn/40">{f.factor}</span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );

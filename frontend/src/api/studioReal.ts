@@ -60,7 +60,7 @@ function toAction(s: StudioApiShot, teamName: string): StudioAction {
     type: s.result === "goal" ? "goal" : "shot",
     from, to,
     assistant: s.assisted_by ? { name: s.assisted_by, number: 0 } : undefined,
-    xg: s.xg ?? 0,
+    xg: s.xg,
     xgot: s.xgot,
     situation: situationPt(s.situation),
     shotType: bodyPt(s.body_part, s.shot_type),
@@ -91,8 +91,11 @@ export function payloadToDataset(p: MatchStudioPayload): StudioDataset {
   const keyToId = new Map<string, number>();
   p.players.forEach((pl, i) => keyToId.set(pl.key, i + 1));
 
+  const hasOfficialLineup = p.lineups.source?.toLowerCase() === "official";
+  const homeLineup = hasOfficialLineup ? p.lineups.home.filter((lp) => !lp.estimated) : [];
+  const awayLineup = hasOfficialLineup ? p.lineups.away.filter((lp) => !lp.estimated) : [];
   const lineupByKey = new Map<string, StudioApiLineupPlayer>();
-  [...p.lineups.home, ...p.lineups.away].forEach((lp) => { if (lp.detail_key) lineupByKey.set(lp.detail_key, lp); });
+  [...homeLineup, ...awayLineup].forEach((lp) => { if (lp.detail_key) lineupByKey.set(lp.detail_key, lp); });
 
   const players: Record<number, StudioPlayerDetail> = {};
   p.players.forEach((pl: StudioApiPlayer, i) => {
@@ -104,12 +107,14 @@ export function payloadToDataset(p: MatchStudioPayload): StudioDataset {
     });
     const knownXgot = mine.map((s) => s.xgot).filter((v): v is number => v != null);
     const pos: StudioCoord = lp ? { x: lp.pitch_x, y: lp.pitch_y } : { x: pl.team === "home" ? 72 : 28, y: 50 };
-    const maxXg = Math.max(0.01, ...mine.map((s) => s.xg));
+    const knownXgs = mine.map((s) => s.xg).filter((xg): xg is number => xg != null);
+    const maxXg = Math.max(0.01, ...knownXgs);
     const crest = pl.team === "home" ? p.match.home.logo_url : p.match.away.logo_url;
     players[id] = {
       id, number: pl.shirt_number ?? 0, name: pl.name, nick: pl.name,
       position: pl.position ?? lp?.line_label ?? "—",
       team: pl.team, teamName: teamName(pl.team), pitchPos: pos,
+      positionKnown: lp != null,
       rating: 0, minutes: pl.minutes ?? 0, avatar: crest ?? "",
       stats: {
         goals: pl.match.goals, assists: pl.match.assists, shots: pl.match.shots,
@@ -120,7 +125,11 @@ export function payloadToDataset(p: MatchStudioPayload): StudioDataset {
         yellowCards: 0, redCards: 0, aerialWon: 0, offsides: 0, possessions: 0,
       },
       ratingBreakdown: { shooting: 0, passing: 0, dribbling: 0, defending: 0, impact: 0 },
-      personalHeatmap: mine.map((s, k) => ({ x: s.from.x, y: s.from.y, intensity: Math.max(0.35, s.xg / maxXg), label: `s${k}` })),
+      personalHeatmap: mine.map((s, k) => ({
+        x: s.from.x, y: s.from.y,
+        intensity: s.xg == null ? 0.35 : Math.max(0.35, s.xg / maxXg),
+        label: `s${k}`,
+      })),
       real: {
         xa: pl.match.xa, keyPasses: pl.match.key_passes,
         matchLabel: p.mode === "recent_form" ? `Últimos ${Math.max(p.recent_match_ids.home.length, p.recent_match_ids.away.length)} jogos` : undefined,
@@ -142,10 +151,13 @@ export function payloadToDataset(p: MatchStudioPayload): StudioDataset {
       position: lp.line_label ?? lp.position ?? "—",
       pitchPos: { x: lp.pitch_x, y: lp.pitch_y },
       detailKey: lp.detail_key ? keyToId.get(lp.detail_key) : undefined,
-      estimated: lp.estimated,
+      estimated: false,
     }));
 
-  const notes = [...p.coverage.notes];
+  const notes = p.coverage.notes.filter((note) => !/escalação provável/i.test(note));
+  if (p.lineups.source && p.lineups.source.toLowerCase() !== "official") {
+    notes.push("A escalação não foi confirmada pela fonte e foi omitida.");
+  }
   if (p.mode === "recent_form") notes.unshift("Pré-jogo: mapa e chutes mostram o padrão recente de cada time, não esta partida.");
 
   const sourceLabel = p.mode === "none"
@@ -168,8 +180,8 @@ export function payloadToDataset(p: MatchStudioPayload): StudioDataset {
       awayLogo: p.match.away.logo_url,
       date: formatKickoff(p.match.kickoff_time),
       venue: p.match.venue ?? undefined,
-      formationHome: p.lineups.home.length ? (p.lineups.formation ?? undefined) : undefined,
-      formationAway: p.lineups.away.length ? (p.lineups.formation ?? undefined) : undefined,
+      formationHome: homeLineup.length ? (p.lineups.formation ?? undefined) : undefined,
+      formationAway: awayLineup.length ? (p.lineups.formation ?? undefined) : undefined,
       dataSourceLabel: sourceLabel,
       mode: p.mode,
       notes,
@@ -177,8 +189,8 @@ export function payloadToDataset(p: MatchStudioPayload): StudioDataset {
     shots,
     heatmapHome: toHeat(p.heatmap.home, "xG"),
     heatmapAway: toHeat(p.heatmap.away, "xG"),
-    startingHome: toStarting(p.lineups.home, 0),
-    startingAway: toStarting(p.lineups.away, 100),
+    startingHome: toStarting(homeLineup, 0),
+    startingAway: toStarting(awayLineup, 100),
     players,
   };
 }

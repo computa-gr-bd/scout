@@ -20,7 +20,7 @@ dw_repo = DefensiveWeaknessRepository()
 def list_teams(q: Optional[str] = None, skip: int = 0, limit: int = 50,
                season_id: Optional[int] = None, db: Session = Depends(get_db)):
     if q:
-        teams = team_repo.search(db, q, skip=skip, limit=limit)
+        teams = team_repo.search(db, q, skip=skip, limit=limit, season_id=season_id)
     else:
         if season_id is not None:
             # Só times que têm estatísticas na temporada (times da própria competição)

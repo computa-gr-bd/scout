@@ -67,7 +67,10 @@ export interface TeamStatistics {
   xg_per_90: number | null; xga_per_90: number | null;
   goals_conceded_per_90: number | null; shots_conceded_per_90: number | null;
   corners_per_90: number | null; points_per_game: number;
-  recent_form: { result: "W" | "D" | "L"; opponent_id: number }[] | null;
+  recent_form:
+    | { result: "W" | "D" | "L"; opponent_id: number }[]
+    | Record<string, unknown>
+    | null;
 }
 
 export interface DefensiveWeakness {
@@ -236,7 +239,7 @@ export async function login(email: string, password: string) {
 
 export async function listCompetitions() { return api.get<Competition[]>("/competitions").then((r) => r.data); }
 export async function listSeasons(params?: { competition_id?: number }) { return api.get<Season[]>("/seasons", { params }).then((r) => r.data); }
-export async function listTeams(params?: { q?: string; season_id?: number; limit?: number }) { return api.get<Team[]>("/teams", { params }).then((r) => r.data); }
+export async function listTeams(params?: { q?: string; season_id?: number; skip?: number; limit?: number }) { return api.get<Team[]>("/teams", { params }).then((r) => r.data); }
 export async function getTeam(id: number) { return api.get<Team>(`/teams/${id}`).then((r) => r.data); }
 export async function getTeamStatistics(id: number) { return api.get<TeamStatistics[]>(`/teams/${id}/statistics`).then((r) => r.data); }
 export async function getTeamWeaknesses(id: number) { return api.get<DefensiveWeakness[]>(`/teams/${id}/weaknesses`).then((r) => r.data); }

@@ -1,10 +1,10 @@
 import { useParams, Link } from "react-router-dom";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  getPlayer, getPlayerZones, getShotProbability, getGoalProbability, listTeams, type PlayerZoneStat,
+  getPlayer, getPlayerZones, type PlayerZoneStat,
 } from "../api/client";
-import { Badge, Bar, ConfidenceBadge, EmptyState, ProbabilityBar, SectionTitle, StatCard, TeamLogo } from "../components/ui";
+import { Badge, Bar, EmptyState, SectionTitle, StatCard, TeamLogo } from "../components/ui";
 import { Pitch2D } from "../components/Pitch";
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer,
@@ -14,26 +14,12 @@ import {
 export default function PlayerPage() {
   const { id } = useParams();
   const playerId = Number(id);
-  const [oppId, setOppId] = useState<number | null>(null);
-  const [venue, setVenue] = useState<"home" | "away">("home");
 
   const player = useQuery({ queryKey: ["player", playerId], queryFn: () => getPlayer(playerId) });
   const zones = useQuery({ queryKey: ["player-zones", playerId], queryFn: () => getPlayerZones(playerId) });
-  const teams = useQuery({ queryKey: ["teams-opp"], queryFn: () => listTeams() });
 
   const pdata = player.data;
   const s = pdata?.statistics?.find((x: any) => x.scope === "overall");
-
-  const shotProb = useQuery({
-    queryKey: ["shotProb", playerId, oppId, venue],
-    enabled: oppId != null,
-    queryFn: () => getShotProbability(playerId, oppId!, venue),
-  });
-  const goalProb = useQuery({
-    queryKey: ["goalProb", playerId, oppId, venue],
-    enabled: oppId != null,
-    queryFn: () => getGoalProbability(playerId, oppId!, venue),
-  });
 
   const radarData = useMemo(() => {
     if (!s) return [];
@@ -122,65 +108,6 @@ export default function PlayerPage() {
                 </RadarChart>
               </ResponsiveContainer>
             </div>
-          </div>
-        </div>
-        <div className="sv-card">
-          <div className="sv-card-inner space-y-4">
-            <SectionTitle title="Estimativa experimental vs. adversário"
-              hint="Estimativa baseline, não validada como previsão confiável. A qualidade depende das estatísticas disponíveis." />
-            <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
-              <select
-                value={oppId ?? ""}
-                onChange={(e) => setOppId(e.target.value ? Number(e.target.value) : null)}
-                className="sv-btn w-full !py-1.5 text-left bg-sv-panel text-sv-text">
-                <option value="">Selecione um adversário…</option>
-                {(teams.data || []).map((t) => (
-                  <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
-                ))}
-              </select>
-              <div className="flex gap-1">
-                <button onClick={() => setVenue("home")} className={`sv-btn !py-1.5 ${venue === "home" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>Casa</button>
-                <button onClick={() => setVenue("away")} className={`sv-btn !py-1.5 ${venue === "away" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>Fora</button>
-              </div>
-            </div>
-
-            {oppId == null ? (
-              <EmptyState title="Escolha um adversário para ver a probabilidade" />
-            ) : (
-              <div className="space-y-4">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <Badge kind="good">P(1+ chute)</Badge>
-                    <ConfidenceBadge c={shotProb.data?.confidence || "medium"} />
-                  </div>
-                  {shotProb.data ? (
-                    <>
-                      <ProbabilityBar p={shotProb.data.probability} baseline={shotProb.data.baseline_probability} />
-                      <div className="flex flex-wrap gap-1.5 pt-2">
-                        {(shotProb.data.positive_factors || []).slice(0, 5).map((f: any) => <span key={f.feature} className="sv-chip-accent">{f.factor}</span>)}
-                        {(shotProb.data.negative_factors || []).slice(0, 4).map((f: any) => <span key={f.feature} className="sv-chip border-sv-warn/40 text-sv-warn">{f.factor}</span>)}
-                      </div>
-                    </>
-                  ) : <div className="h-8 skeleton" />}
-                </div>
-                <div className="sv-divider" />
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <Badge kind="warn">P(Gol)</Badge>
-                    <ConfidenceBadge c={goalProb.data?.confidence || "medium"} />
-                  </div>
-                  {goalProb.data ? (
-                    <>
-                      <ProbabilityBar p={goalProb.data.probability} baseline={goalProb.data.baseline_probability} />
-                      <div className="flex flex-wrap gap-1.5 pt-2">
-                        {(goalProb.data.positive_factors || []).slice(0, 5).map((f: any) => <span key={f.feature} className="sv-chip-accent">{f.factor}</span>)}
-                        {(goalProb.data.negative_factors || []).slice(0, 4).map((f: any) => <span key={f.feature} className="sv-chip border-sv-warn/40 text-sv-warn">{f.factor}</span>)}
-                      </div>
-                    </>
-                  ) : <div className="h-8 skeleton" />}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>

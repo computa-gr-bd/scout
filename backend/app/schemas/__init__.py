@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Literal, Union
 from enum import Enum
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -153,7 +153,7 @@ class TeamStatisticsOut(BaseModel):
     shots_conceded_per_90: Optional[float] = None
     corners_per_90: Optional[float] = None
     points_per_game: float
-    recent_form: Optional[List[Any]] = None
+    recent_form: Optional[Union[List[Any], Dict[str, Any]]] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -232,7 +232,7 @@ class PlayerStatisticsOut(BaseModel):
     pass_accuracy_pct: float
     pace: Optional[float] = None
     dribbling: Optional[float] = None
-    recent_form: Optional[List[Any]] = None
+    recent_form: Optional[Union[List[Any], Dict[str, Any]]] = None
     model_config = ConfigDict(from_attributes=True)
 
 

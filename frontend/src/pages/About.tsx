@@ -107,8 +107,8 @@ export default function AboutPage() {
             <li><strong>1. Partidas:</strong> use as abas para consultar próximos jogos, resultados recentes ou a lista completa. Horários e placares vêm da fonte conectada.</li>
             <li><strong>2. Times:</strong> consulte clubes, partidas e classificações importadas. Indicadores avançados aparecem apenas quando existem dados para calculá-los.</li>
             <li><strong>3. Jogadores:</strong> veja os atletas presentes nos elencos recebidos. O cadastro de um atleta não significa que existam estatísticas individuais disponíveis.</li>
-            <li><strong>4. Análise:</strong> explore as ferramentas disponíveis, mas confira o rótulo da visualização. Os lances, mapas e escalações de demonstração são simulados; não descrevem uma partida real.</li>
-            <li><strong>5. Modelos:</strong> a lista mostra baselines matemáticos embutidos. As métricas exibidas foram calculadas em dados sintéticos de demonstração, não nos dados reais do Neon.</li>
+            <li><strong>4. Análise:</strong> consulte lances registrados para partidas com cobertura de eventos. Quando a fonte não fornece finalizações, elas são indicadas como indisponíveis.</li>
+            <li><strong>5. Modelos:</strong> probabilidades e avaliações experimentais estão desativadas; o portal apresenta apenas dados observados.</li>
           </ol>
           <div className="flex flex-wrap gap-2">
             <Link to="/matches" className="sv-btn-primary">Consultar partidas</Link>
@@ -121,10 +121,14 @@ export default function AboutPage() {
       <section className="sv-card">
         <div className="sv-card-inner space-y-4">
           <SectionTitle title="O que os dados permitem — e o que não permitem" />
-          <div className="grid md:grid-cols-2 gap-4 text-sm">
+          <div className="grid md:grid-cols-3 gap-4 text-sm">
             <div>
               <h2 className="font-semibold mb-1">football-data.org</h2>
               <p className="text-sv-muted">É usado para calendário, resultados, clubes, elencos e classificações nas competições disponíveis na conta. Não fornece, neste projeto, xG, eventos detalhados ou estatísticas avançadas individuais.</p>
+            </div>
+            <div>
+              <h2 className="font-semibold mb-1">Understat</h2>
+              <p className="text-sv-muted">Fornece xG, xGA, chutes e estatísticas de times e jogadores nas ligas e temporadas sincronizadas. A cobertura varia; métricas ausentes são mostradas como indisponíveis.</p>
             </div>
             <div>
               <h2 className="font-semibold mb-1">StatsBomb Open Data</h2>
@@ -135,7 +139,7 @@ export default function AboutPage() {
             O provedor atual não entrega xG nem eventos atuais para todas as competições. Quando esses dados faltam, o portal deve apresentá-los como indisponíveis — não como zero ou como uma estimativa real.
           </div>
           <div className="text-sm text-sv-muted">
-            As probabilidades experimentais usam coeficientes baseline definidos manualmente. A etiqueta “Diferença vs. base” descreve apenas o quanto a estimativa se afasta desse valor de referência; não é uma medida de confiança estatística nem de desempenho validado. As métricas da área Modelos vêm de uma avaliação sintética de demonstração, não de partidas reais.
+            As telas de análise exibem resultados, estatísticas e eventos que foram registrados nas fontes conectadas. O portal não apresenta probabilidades ou previsões experimentais como dados de partidas.
           </div>
           <div className="text-xs text-sv-muted">
             Status football-data.org: {footballDataStates.length} recursos registrados · Status StatsBomb: {statsBombStates.length} importações registradas.

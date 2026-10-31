@@ -5,16 +5,21 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
 from app.main import app as fastapi_app
-from app.db.models import Match, Player, Season, Competition, Team, DataSource
+from app.db.models import Match, Player, Season, Competition, Team, TeamStatistics, DataSource
 from app.services.data_sync import ingest_competition, ingestion_session
 
 
 @pytest.fixture
 def db_session():
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(engine)
     TestingSession = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     sess = TestingSession()
@@ -106,6 +111,26 @@ def test_players_filter_by_team(seeded):
     assert len(rows) == 1
     assert rows[0]["last_name"] == "Jogador Alfa"
     assert rows[0]["team_id"] == seeded["home"]
+
+
+def test_teams_search_is_season_scoped_and_paginated(seeded, db_session):
+    unlinked = Team(external_id="3", name="Gamma FC", data_source=DataSource.FOOTBALL_DATA)
+    db_session.add(unlinked)
+    db_session.flush()
+    db_session.add_all([
+        TeamStatistics(team_id=seeded["home"], season_id=seeded["season"], scope="overall"),
+        TeamStatistics(team_id=seeded["away"], season_id=seeded["season"], scope="overall"),
+    ])
+    db_session.commit()
+
+    params = {"q": "FC", "season_id": seeded["season"], "limit": 1}
+    first_page = client.get("/api/teams", params={**params, "skip": 0})
+    second_page = client.get("/api/teams", params={**params, "skip": 1})
+
+    assert first_page.status_code == 200
+    assert second_page.status_code == 200
+    assert [team["name"] for team in first_page.json()] == ["Alpha FC"]
+    assert [team["name"] for team in second_page.json()] == ["Beta FC"]
 
 
 def test_players_without_team_still_listable(seeded):

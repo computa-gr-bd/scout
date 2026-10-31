@@ -38,11 +38,15 @@ class TeamRepository(BaseRepository[Team]):
              .where(Team.id == id))
         return db.scalar(q)
 
-    def search(self, db: Session, q_text: str, skip=0, limit=50):
+    def search(self, db: Session, q_text: str, skip=0, limit=50, season_id: Optional[int] = None):
         pattern = f"%{q_text}%"
-        return self.list(db, skip=skip, limit=limit, filters=[
-            or_(Team.name.ilike(pattern), Team.short_name.ilike(pattern), Team.code.ilike(pattern))
-        ], order_by=Team.name)
+        filters = [or_(Team.name.ilike(pattern), Team.short_name.ilike(pattern), Team.code.ilike(pattern))]
+        if season_id is not None:
+            season_team_ids = select(TeamStatistics.team_id).where(
+                TeamStatistics.season_id == season_id
+            ).distinct()
+            filters.append(Team.id.in_(season_team_ids))
+        return self.list(db, skip=skip, limit=limit, filters=filters, order_by=Team.name)
 
 
 class PlayerRepository(BaseRepository[Player]):
