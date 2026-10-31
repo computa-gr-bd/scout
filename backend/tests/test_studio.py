@@ -244,6 +244,9 @@ def test_insights_compute_zones_predictions_and_matchups_from_real_shots(client,
     hw = body["zones"]["home_team_weaknesses"]
     assert len(hw) == 18 and all(0 <= z["weakness_score"] <= 1 for z in hw)
     assert any(z["xga_per_90"] > 0 for z in hw)
+    # Zona em que ninguém finalizou (alas/meio-campo) não pode sair vermelha "na média".
+    empty = [z for z in hw if z["zone"] in ("neutral_left_flank", "neutral_right_flank", "own_left_flank")]
+    assert empty and all(z["weakness_score"] == 0 for z in empty)
 
     # Previsões: 4 alvos por jogador, probabilidades coerentes (gol <= chute).
     preds = body["predictions"]
@@ -252,6 +255,7 @@ def test_insights_compute_zones_predictions_and_matchups_from_real_shots(client,
     assert all(0 < p["probability"] < 1 for p in saka.values())
     assert saka["goal"]["probability"] <= saka["shot"]["probability"]
     assert saka["shot"]["venue"] == "home" and saka["shot"]["zone_opportunities"]
+    assert saka["shot"]["shots_per_match"] == 3.0  # 3 chutes em cada um dos 6 jogos
     assert saka["shot"]["positive_factors"]
 
     # Confrontos com nomes e explicação.

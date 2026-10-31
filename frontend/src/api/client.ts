@@ -204,6 +204,11 @@ export interface PlayerMatchPrediction {
   negative_factors: PredictionFactor[];
   zone_opportunities: ZoneOpportunity[];
   model_version: string;
+  /** Taxas recentes usadas no cálculo (só no modo Understat). */
+  shots_per_match?: number;
+  xg_per_match?: number;
+  rate_per_match?: number;
+  opp_factor?: number;
 }
 
 export interface MatchupScore {

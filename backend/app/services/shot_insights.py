@@ -157,9 +157,12 @@ def _defense_profile(events: List[Event], team_ids: set, match_ids: List[int], b
     for zone in ZONE_ORDER:
         z = zone.value
         ratio = _zone_ratio(xg_by.get(z, 0.0), n, base_def.get(z, 0.0))
+        # Zona em que ninguém finaliza (nem a liga, nem este time): sem informação -> sem fraqueza.
+        # (Antes saía 0,5 = "na média" e pintava de vermelho alas e meio-campo sem dado nenhum.)
+        informative = base_def.get(z, 0.0) > 1e-9 or xg_by.get(z, 0.0) > 0
         out.append({
             "zone": z,
-            "weakness_score": round(clamp(ratio / 2.0), 4),
+            "weakness_score": round(clamp(ratio / 2.0), 4) if informative else 0.0,
             "ratio_vs_league": round(ratio, 3),
             "shots_conceded_per_90": round(shots_by.get(z, 0) / n, 3),
             "xga_per_90": round(xg_by.get(z, 0.0) / n, 3),
@@ -176,13 +179,13 @@ def _attack_profile(events: List[Event], team_ids: set, match_ids: List[int], ba
         if e.team_id in team_ids:
             a, _ = _own_zone(e)
             xg_by[a] += _xg(e)
-    return [
-        {
-            "zone": zone.value,
-            "strength_score": round(clamp(_zone_ratio(xg_by.get(zone.value, 0.0), n, base_att.get(zone.value, 0.0)) / 2.0), 4),
-        }
-        for zone in ZONE_ORDER
-    ]
+    out = []
+    for zone in ZONE_ORDER:
+        z = zone.value
+        informative = base_att.get(z, 0.0) > 1e-9 or xg_by.get(z, 0.0) > 0
+        ratio = _zone_ratio(xg_by.get(z, 0.0), n, base_att.get(z, 0.0))
+        out.append({"zone": z, "strength_score": round(clamp(ratio / 2.0), 4) if informative else 0.0})
+    return out
 
 
 def _player_rows(events: List[Event], team_ids: set, n_matches: int) -> Dict[int, Dict[str, Any]]:
@@ -328,6 +331,9 @@ def _predictions_for_team(
                 "venue": side, "confidence": _confidence(p["shots"]),
                 "positive_factors": positives, "negative_factors": negatives,
                 "zone_opportunities": zone_opps, "model_version": "shot-poisson@1",
+                # Taxas usadas no cálculo (alimentam o gráfico de dispersão da tela).
+                "shots_per_match": round(shots_pm, 3), "xg_per_match": round(p["xg"] / n, 3),
+                "rate_per_match": round(rate, 3), "opp_factor": round(factor, 3),
             })
 
         # Confronto: atacante x defesa adversária.

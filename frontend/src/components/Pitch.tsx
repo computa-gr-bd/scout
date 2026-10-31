@@ -84,6 +84,10 @@ export function Pitch2D({
   onShotClick,
   title,
   header,
+  onZoneClick,
+  onZoneHover,
+  hoverZone,
+  selectedZone,
 }: {
   width?: number;
   height?: number;
@@ -105,6 +109,11 @@ export function Pitch2D({
   title?: string;
   /** Conteúdo acima do gramado (ex.: logos dos times e sentido do ataque). */
   header?: React.ReactNode;
+  /** Torna as 18 zonas clicáveis (como no campo 3D). `zone` é a zona como DESENHADA. */
+  onZoneClick?: (zone: PitchZone, e: React.MouseEvent<SVGRectElement>) => void;
+  onZoneHover?: (zone: PitchZone | null) => void;
+  hoverZone?: PitchZone | null;
+  selectedZone?: PitchZone | null;
 }) {
   const vb = "-2 0 104 100";
   const stroke = "rgba(255,255,255,0.88)";
@@ -233,6 +242,31 @@ export function Pitch2D({
                           fill="#0b1220" fontWeight="700" pointerEvents="none">{sh.label}</text>
                   )}
                 </g>
+              );
+            })}
+            {/* camada clicável das zonas (por cima de tudo); destaque no hover e na zona selecionada */}
+            {onZoneClick && ZONE_ORDER.map((z) => {
+              const g = ZONE_GEOMETRY[z];
+              const selected = selectedZone === z;
+              const hovered = hoverZone === z;
+              return (
+                <rect key={`hit-${z}`} x={g.x} y={g.y} width={g.w} height={g.h}
+                  fill={selected ? "rgba(255,255,255,0.14)" : hovered ? "rgba(255,255,255,0.09)" : "transparent"}
+                  stroke={selected ? "rgba(255,255,255,0.95)" : hovered ? "rgba(255,255,255,0.55)" : "none"}
+                  strokeWidth={selected ? 0.45 : 0.3}
+                  style={{ cursor: "pointer" }}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Zona: ${g.label}`}
+                  onClick={(e) => onZoneClick(z, e)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onZoneClick(z, e as unknown as React.MouseEvent<SVGRectElement>);
+                    }
+                  }}
+                  onMouseEnter={() => onZoneHover?.(z)}
+                  onMouseLeave={() => onZoneHover?.(null)} />
               );
             })}
           </svg>

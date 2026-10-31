@@ -11,8 +11,9 @@ import {
 import { payloadToDataset } from "../api/studioReal";
 import { ZONE_GEOMETRY_M } from "../lib/pitchZones";
 import { Badge, ConfidenceBadge, EmptyState, ProbabilityBar, SectionTitle, TeamLogo } from "../components/ui";
-import { Pitch2D } from "../components/Pitch";
 import { Pitch3D } from "../components/Pitch3D";
+import { ZoneMap2D } from "../components/ZoneMap2D";
+import type { ZoneStatEntry } from "../components/ZoneInfoPanel";
 import { PitchStudio } from "../components/PitchStudio";
 import { ScatterChart, Scatter, XAxis as SXAxis, YAxis as SYAxis, CartesianGrid, Tooltip as STooltip, ResponsiveContainer as SResponsiveContainer, ZAxis, Legend as SLegend } from "recharts";
 
@@ -43,6 +44,33 @@ function pickDefaultMatch(list: Match[]): number {
   const now = Date.now();
   const done = list.find((m) => m.status === "finished" && new Date(m.kickoff_time).getTime() <= now);
   return (done ?? list[0]).id;
+}
+
+/** Cartão do tooltip do gráfico de dispersão: fundo escuro e texto claro (o padrão do recharts ficava ilegível). */
+function ScatterTip({ active, payload, xLabel }: { active?: boolean; payload?: any[]; xLabel: string }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  const color = d.venue === "home" ? "#7aa2ff" : "#ff8a85";
+  const delta = d.y - d.baseline;
+  return (
+    <div className="rounded-lg border border-white/15 bg-[#0c1322] px-3 py-2 text-[12px] leading-relaxed shadow-2xl"
+      style={{ color: "#e8eefb", minWidth: 190 }}>
+      <div className="text-[13px] font-semibold" style={{ color }}>{d.name}</div>
+      <div className="mb-1 text-[10.5px]" style={{ color: "#9fb0cb" }}>{d.venue === "home" ? "Mandante" : "Visitante"}</div>
+      <div className="flex justify-between gap-4"><span style={{ color: "#9fb0cb" }}>{xLabel}</span><b>{d.x}{xLabel.startsWith("%") ? "%" : ""}</b></div>
+      <div className="flex justify-between gap-4"><span style={{ color: "#9fb0cb" }}>Probabilidade</span><b>{d.y}%</b></div>
+      {d.baseline > 0 && (
+        <div className="flex justify-between gap-4">
+          <span style={{ color: "#9fb0cb" }}>vs. taxa recente</span>
+          <b style={{ color: delta >= 0 ? "#86efac" : "#fca5a5" }}>{delta >= 0 ? "+" : ""}{delta.toFixed(1)} p.p.</b>
+        </div>
+      )}
+      {d.oppFactor != null && (
+        <div className="flex justify-between gap-4"><span style={{ color: "#9fb0cb" }}>Fator da defesa</span><b>x{d.oppFactor.toFixed(2)}</b></div>
+      )}
+      <div className="flex justify-between gap-4"><span style={{ color: "#9fb0cb" }}>Oportunidade</span><b>{d.z}</b></div>
+    </div>
+  );
 }
 
 export default function AnalysisPage() {
@@ -151,9 +179,31 @@ export default function AnalysisPage() {
   });
   const preds = predsQuery.data?.data ?? EMPTY_PREDS;
 
-  const hw: Record<string, number> = {}; const aw: Record<string, number> = {};
-  zones.home_team_weaknesses?.forEach((z: any) => { hw[z.zone] = z.weakness_score; });
-  zones.away_team_weaknesses?.forEach((z: any) => { aw[z.zone] = z.weakness_score; });
+  const { hw, aw } = useMemo(() => {
+    const home: Record<string, number> = {}; const away: Record<string, number> = {};
+    zones.home_team_weaknesses?.forEach((z: any) => { home[z.zone] = z.weakness_score; });
+    zones.away_team_weaknesses?.forEach((z: any) => { away[z.zone] = z.weakness_score; });
+    return { hw: home, aw: away };
+  }, [zones]);
+
+  // Oportunidades por jogador × zona (alvo "chute"), só as com valor — usadas pelos mapas 2D e 3D.
+  const zoneEntries = useMemo<ZoneStatEntry[]>(
+    () => (preds.predictions || [])
+      .filter((p: any) => p.target === "shot")
+      .flatMap((p: PlayerMatchPrediction) =>
+        (p.zone_opportunities || [])
+          .filter((z: ZoneOpportunity) => z.opportunity_score > 0.001)
+          .map((z: ZoneOpportunity) => ({
+            zone: z.zone,
+            value: z.opportunity_score,
+            side: p.venue as "home" | "away",
+            player_name: p.player_name,
+            offensive_strength: z.offensive_strength,
+            defensive_weakness: z.defensive_weakness,
+            player_frequency: z.player_frequency,
+          }))),
+    [preds],
+  );
 
   const targetPreds = useMemo(() =>
     (preds.predictions || []).filter((p: any) => p.target === target),
@@ -174,16 +224,25 @@ export default function AnalysisPage() {
   const zoneCols = ["central_box", "outside_box_central", "outside_box_left", "outside_box_right",
     "opp_left_channel", "opp_right_channel", "opp_central_midfield", "opp_left_flank", "opp_right_flank"];
 
-  const scatter = targetPreds.slice(0, 40).map((p: any) => ({
-    name: p.player_name,
-    // % dos chutes em zonas de ataque (área e arredores): varia por jogador (somar todas as zonas dava sempre 1).
-    x: +(100 * (p.zone_opportunities || [])
+  // Eixo X: chutes por jogo (frequência recente — varia de jogador para jogador). Sem essa taxa
+  // (fluxo antigo, com modelo), cai para a % dos chutes em zonas de ataque.
+  const scatterHasRates = targetPreds.some((p: any) => p.shots_per_match != null);
+  const scatter = targetPreds.slice(0, 40).map((p: any) => {
+    const oppTotal = (p.zone_opportunities || []).reduce((a: number, z: any) => a + z.opportunity_score, 0);
+    const attackShare = (p.zone_opportunities || [])
       .filter((z: any) => zoneCols.includes(z.zone))
-      .reduce((a: number, z: any) => a + z.player_frequency, 0)).toFixed(0),
-    y: +(p.probability * 100).toFixed(1),
-    z: +((p.zone_opportunities || []).reduce((a: number, z: any) => a + z.opportunity_score, 0).toFixed(2)) * 200,
-    venue: p.venue,
-  }));
+      .reduce((a: number, z: any) => a + z.player_frequency, 0);
+    return {
+      name: p.player_name,
+      x: scatterHasRates ? +(p.shots_per_match ?? 0).toFixed(2) : +(100 * attackShare).toFixed(0),
+      y: +(p.probability * 100).toFixed(1),
+      baseline: +((p.baseline_probability ?? 0) * 100).toFixed(1),
+      z: Math.max(1, +(oppTotal * 100).toFixed(1)),   // tamanho da bolha = oportunidade total
+      venue: p.venue,
+      oppFactor: p.opp_factor as number | undefined,
+      xgPerMatch: p.xg_per_match as number | undefined,
+    };
+  });
 
   // A partida pedida por link pode não estar na lista lateral (limite de 60 / filtro de escopo):
   // nesse caso busca só ela, para o cabeçalho e o estúdio mostrarem a partida certa.
@@ -312,7 +371,7 @@ export default function AnalysisPage() {
               {view !== "3d" ? (
                 <div>
                   <SectionTitle title="Análise de zonas · vulnerabilidades defensivas"
-                    hint="Visão clássica: fraquezas por zona + melhores oportunidades ofensivas"
+                    hint="Fraquezas por zona + melhores oportunidades ofensivas · clique numa zona para ver as estatísticas"
                     right={
                       <div className="flex gap-1">
                         <button onClick={() => setView("2d")} aria-pressed={view === "2d"} className={`sv-btn !py-1.5 text-[11.5px] ${view === "2d" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>Mapa 2D</button>
@@ -328,15 +387,13 @@ export default function AnalysisPage() {
                   {!demoMode && insights?.notes?.length ? (
                     <div className="text-[11.5px] text-sv-muted mb-2">{insights.notes.slice(0, 2).join(" ")}</div>
                   ) : null}
-                  <Pitch2D
+                  <ZoneMap2D
                     homeWeakness={hw}
                     awayWeakness={aw}
-                    opportunityZones={(preds.predictions || [])
-                      .filter((p: any) => p.target === "shot")
-                      .flatMap((p: PlayerMatchPrediction) =>
-                        (p.zone_opportunities || []).slice(0, 3).map((z: ZoneOpportunity) => ({
-                          zone: z.zone, value: z.opportunity_score, side: p.venue,
-                        })))}
+                    homeWeaknessDetails={zones.home_team_weaknesses}
+                    awayWeaknessDetails={zones.away_team_weaknesses}
+                    teamNames={{ home: selMatch.home_team.name, away: selMatch.away_team.name }}
+                    opportunities={zoneEntries}
                     title="Zonas defensivas (vermelho = fraqueza) · ofensivas (verde = oportunidade)"
                   />
                 </div>
@@ -357,17 +414,7 @@ export default function AnalysisPage() {
                     homeWeaknessDetails={zones.home_team_weaknesses}
                     awayWeaknessDetails={zones.away_team_weaknesses}
                     teamNames={{ home: selMatch.home_team.name, away: selMatch.away_team.name }}
-                    opportunityZones={(preds.predictions || []).filter((p: any) => p.target === "shot")
-                      .flatMap((p: PlayerMatchPrediction) =>
-                        (p.zone_opportunities || []).map((z: ZoneOpportunity) => ({
-                          zone: z.zone,
-                          value: z.opportunity_score,
-                          side: p.venue,
-                          player_name: p.player_name,
-                          offensive_strength: z.offensive_strength,
-                          defensive_weakness: z.defensive_weakness,
-                          player_frequency: z.player_frequency,
-                        })))}
+                    opportunityZones={zoneEntries}
                   />
                 </div>
               )}
@@ -432,16 +479,21 @@ export default function AnalysisPage() {
                 <div className="sv-card">
                   <div className="sv-card-inner">
                     <SectionTitle title="Dispersão Oportunidade × Frequência"
-                      hint="Cada bolha = um jogador · x = % dos chutes em zonas de ataque · y = probabilidade (%) · tamanho = oportunidade total" />
+                      hint={scatterHasRates
+                        ? "Cada bolha = um jogador · x = chutes por jogo (recentes) · y = probabilidade do alvo escolhido (%) · tamanho = oportunidade contra esta defesa"
+                        : "Cada bolha = um jogador · x = % dos chutes em zonas de ataque · y = probabilidade (%) · tamanho = oportunidade total"} />
                     <div className="h-80">
                       <SResponsiveContainer>
                         <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 0 }}>
                           <CartesianGrid stroke="#22314f" />
-                          <SXAxis type="number" dataKey="x" name="% chutes em zonas de ataque" unit="%" domain={[0, 100]} stroke="#8794ad" fontSize={10} />
-                          <SYAxis type="number" dataKey="y" name="Prob %" stroke="#8794ad" fontSize={10} />
-                          <ZAxis type="number" dataKey="z" range={[40, 400]} name="Oportunidade" />
+                          <SXAxis type="number" dataKey="x" name={scatterHasRates ? "Chutes por jogo" : "% chutes em zonas de ataque"}
+                            domain={scatterHasRates ? [0, "auto"] : [0, 100]} stroke="#8794ad" fontSize={10}
+                            tick={{ fill: "#a9b6cc" }} />
+                          <SYAxis type="number" dataKey="y" name="Prob %" domain={[0, 100]} stroke="#8794ad" fontSize={10}
+                            tick={{ fill: "#a9b6cc" }} />
+                          <ZAxis type="number" dataKey="z" range={[60, 420]} name="Oportunidade" />
                           <STooltip cursor={{ strokeDasharray: "3 3" }}
-                            contentStyle={{ background: "#111a2b", border: "1px solid #22314f", borderRadius: 8 }} />
+                            content={<ScatterTip xLabel={scatterHasRates ? "Chutes por jogo" : "% chutes em zonas de ataque"} />} />
                           <SLegend />
                           <Scatter name="Casa" data={scatter.filter((s: any) => s.venue === "home")} fill="#3b82f6" />
                           <Scatter name="Fora" data={scatter.filter((s: any) => s.venue === "away")} fill="#e1534e" />
@@ -535,3 +587,4 @@ export default function AnalysisPage() {
     </div>
   );
 }
+
