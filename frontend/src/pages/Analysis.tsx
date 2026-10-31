@@ -188,7 +188,7 @@ export default function AnalysisPage() {
             </div>
           </section>
 
-          <section className="min-w-0 space-y-4">
+          <section className="min-w-0 flex flex-col gap-4">
             {selectedQuery.isError ? (
               <EmptyState
                 title="Não foi possível carregar esta partida"
@@ -198,7 +198,7 @@ export default function AnalysisPage() {
               <div className="sv-card h-48 skeleton" />
             ) : (
               <>
-                <div className="sv-card">
+                <div className="sv-card order-1">
                   <div className="sv-card-inner flex flex-wrap items-center justify-between gap-4">
                     <div className="min-w-0">
                       <div className="text-xs text-sv-muted">{selectedRealMatch.competition_name}</div>
@@ -213,7 +213,7 @@ export default function AnalysisPage() {
                   </div>
                 </div>
 
-                <section aria-label="Estimativas de desempenho individual">
+                <section className="order-3" aria-label="Estimativas de desempenho individual">
                   <SectionTitle
                     title="Estimativas por jogador"
                     hint="Cálculos experimentais com eventos reais anteriores; não são resultados observados nem garantias."
@@ -286,27 +286,29 @@ export default function AnalysisPage() {
                   )}
                 </section>
 
-                {studioQuery.isError ? (
-                  <EmptyState
-                    title="Não foi possível carregar os eventos"
-                    description="A API não retornou os dados desta partida. Tente novamente mais tarde."
-                  />
-                ) : studioQuery.isPending ? (
-                  <div className="sv-card h-[420px] skeleton" />
-                ) : studioQuery.data ? (
-                  <>
-                    {!studioQuery.data.coverage.has_shots && (
-                      <div className="sv-card">
-                        <div className="sv-card-inner text-sm text-sv-muted">
-                          Ainda não há finalizações registradas para esta partida. O estúdio não exibirá eventos simulados.
-                        </div>
-                      </div>
-                    )}
-                    <PitchStudio
-                      dataset={payloadToDataset(studioQuery.data)}
+                <div className="order-2 space-y-4">
+                  {studioQuery.isError ? (
+                    <EmptyState
+                      title="Não foi possível carregar os eventos"
+                      description="A API não retornou os dados desta partida. Tente novamente mais tarde."
                     />
-                  </>
-                ) : null}
+                  ) : studioQuery.isPending ? (
+                    <div className="sv-card h-[420px] skeleton" />
+                  ) : studioQuery.data ? (
+                    <>
+                      {!studioQuery.data.coverage.has_shots && (
+                        <div className="sv-card">
+                          <div className="sv-card-inner text-sm text-sv-muted">
+                            Ainda não há finalizações registradas para esta partida. O estúdio não exibirá eventos simulados.
+                          </div>
+                        </div>
+                      )}
+                      <PitchStudio
+                        dataset={payloadToDataset(studioQuery.data)}
+                      />
+                    </>
+                  ) : null}
+                </div>
               </>
             )}
           </section>
