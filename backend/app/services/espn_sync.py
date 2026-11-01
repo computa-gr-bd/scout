@@ -1,7 +1,7 @@
 """Complement existing league fixtures with ESPN lineups and match statistics.
 
 Run from ``backend``:
-    python -m app.services.espn_sync --leagues PL PD BL1 SA FL1 CL --season 2026-27
+    python -m app.services.espn_sync --leagues PL PD BL1 SA FL1 --season 2026-27
 
 Only already-finished matches, teams, and players in the database are linked.
 Downloaded JSON is cached outside the repository so imports can resume safely.
@@ -41,7 +41,6 @@ ESPN_LEAGUES = {
     "BL1": "ger.1",
     "SA": "ita.1",
     "FL1": "fra.1",
-    "CL": "uefa.champions",
 }
 BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 REQUEST_TIMEOUT = 30

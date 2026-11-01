@@ -341,6 +341,119 @@ const fmt2 = (n: number | null | undefined) => (n == null ? "—" : n.toFixed(2)
 function easeOutCubic(t: number) { t = Math.max(0, Math.min(1, t)); return 1 - Math.pow(1 - t, 3); }
 function easeInOutCubic(t: number) { t = Math.max(0, Math.min(1, t)); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
 
+/* ------------------------------------------------------------------------
+ * Animação 2D por RESULTADO do chute.
+ *   • gol         → a bola entra no gol
+ *   • pra fora    → a bola passa ao lado da trave (nunca entra)
+ *   • defendido   → a bola chega ao goleiro, a LUVA espalma e a bola rebate
+ *   • bloqueado   → um defensor intercepta; a bola bate nele e ricocheteia
+ * O plano é determinístico (mesmo lance = mesma animação) e usa a posição
+ * real do fim do chute quando a fonte a informa.
+ * ---------------------------------------------------------------------- */
+type PlanLeg = { a: Coord; b: Coord; t0: number; t1: number; pow: number; lift: number; kind: "shot" | "deflect" };
+type ShotPlan = {
+  result: Action["result"]; dir: 1 | -1;
+  legs: PlanLeg[];
+  /** Ponto do contato (luva ou defensor) e o instante (0..1) em que ocorre. */
+  contact?: Coord; contactT?: number;
+  /** Onde a bola termina. */
+  end: Coord;
+};
+
+const clampN = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+/** Número pseudo-aleatório estável (0..1) a partir do id do lance. */
+function seedOf(id: number) { const x = Math.sin(id * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); }
+
+function buildShotPlan(s: Action, from: Coord, goalTo: Coord): ShotPlan {
+  const dir: 1 | -1 = s.team === "home" ? 1 : -1;  // mandante ataca para a direita (x=100)
+  const lineX = dir > 0 ? 99 : 1;                 // linha de fundo (boca do gol: y 44.6–55.4)
+  const h = seedOf(s.id);
+  const known = s.endKnown !== false;
+  const len = Math.hypot(goalTo.x - from.x, goalTo.y - from.y) || 1;
+  const ux = (goalTo.x - from.x) / len, uy = (goalTo.y - from.y) / len;
+
+  if (s.result === "saved") {
+    // O goleiro sai ligeiramente da linha; a bola morre na luva e rebate para o lado.
+    const gy = known && Math.abs(s.to.y - 50) <= 5.4 ? s.to.y : 50 + (h - 0.5) * 8;
+    const K = { x: lineX - dir * 1.6, y: clampN(gy, 45.8, 54.2) };
+    const side = K.y >= 50 ? 1 : -1;
+    const R = { x: clampN(K.x - dir * (5 + h * 4), 2, 98), y: clampN(K.y + side * (6 + h * 5), 4, 96) };
+    return {
+      result: "saved", dir, contact: K, contactT: 0.7, end: R,
+      legs: [
+        { a: from, b: K, t0: 0, t1: 0.7, pow: 1.5, lift: 1.4, kind: "shot" },
+        { a: K, b: R, t0: 0.7, t1: 1, pow: 2.4, lift: 1.1, kind: "deflect" },
+      ],
+    };
+  }
+
+  if (s.result === "blocked") {
+    // Um defensor entra na linha do chute, perto de quem chutou; a bola ricocheteia.
+    const useKnown = known && Math.abs(s.to.x - lineX) > 6 && Math.hypot(s.to.x - from.x, s.to.y - from.y) > 1.5;
+    const d = clampN(len * 0.4, 3.2, 8);
+    const B = useKnown ? { x: s.to.x, y: s.to.y } : { x: from.x + ux * d, y: from.y + uy * d };
+    const ang = ((35 + h * 55) * Math.PI / 180) * (h < 0.5 ? 1 : -1);
+    const bx = -ux, by = -uy;                       // de volta para quem chutou
+    const rx = bx * Math.cos(ang) - by * Math.sin(ang);
+    const ry = bx * Math.sin(ang) + by * Math.cos(ang);
+    const dist = 4 + h * 4;
+    const D = { x: clampN(B.x + rx * dist, 2, 98), y: clampN(B.y + ry * dist, 3, 97) };
+    return {
+      result: "blocked", dir, contact: B, contactT: 0.42, end: D,
+      legs: [
+        { a: from, b: B, t0: 0, t1: 0.42, pow: 1.4, lift: 0.9, kind: "shot" },
+        { a: B, b: D, t0: 0.42, t1: 1, pow: 2.6, lift: 1.3, kind: "deflect" },
+      ],
+    };
+  }
+
+  if (s.result === "off_target") {
+    // A bola vai para FORA da boca do gol (ao lado da trave) e sai pela linha de fundo.
+    let end: Coord;
+    if (known && Math.abs(s.to.y - 50) > 5.8) {
+      end = { x: s.to.x, y: s.to.y };
+    } else {
+      const side = from.y >= 50 ? 1 : -1;
+      const sd = h > 0.75 ? -side : side;
+      end = { x: dir > 0 ? 99.6 : 0.4, y: 50 + sd * (8 + h * 9) };
+    }
+    return { result: "off_target", dir, end, legs: [{ a: from, b: end, t0: 0, t1: 1, pow: 2.2, lift: 2.0, kind: "shot" }] };
+  }
+
+  // gol
+  return { result: "goal", dir, end: goalTo, legs: [{ a: from, b: goalTo, t0: 0, t1: 1, pow: 3, lift: 2.2, kind: "shot" }] };
+}
+
+/** Posição da bola (no chão + altura) em `p` (0..1) ao longo do plano. */
+function ballOnPlan(plan: ShotPlan, p: number) {
+  const leg = plan.legs.find((l) => p <= l.t1) ?? plan.legs[plan.legs.length - 1];
+  const local = clampN((p - leg.t0) / (leg.t1 - leg.t0), 0, 1);
+  const e = 1 - Math.pow(1 - local, leg.pow);
+  return {
+    x: leg.a.x + (leg.b.x - leg.a.x) * e,
+    y: leg.a.y + (leg.b.y - leg.a.y) * e,
+    lift: Math.sin(local * Math.PI) * leg.lift,
+  };
+}
+
+/** Luva de goleiro (dedos apontando para quem chutou). */
+function GloveGlyph({ x, y, dir, size = 7, scale = 1 }: { x: number; y: number; dir: 1 | -1; size?: number; scale?: number }) {
+  const fingers: [number, number][] = [[-3.4, -5.4], [-1.7, -6.6], [0, -6.4], [1.7, -5.2]];
+  return (
+    <g transform={`translate(${x} ${y}) rotate(${-dir * 90}) scale(${(size / 12) * scale})`}>
+      <circle r={9} fill="rgba(250,204,21,0.22)" />
+      <rect x={-3.4} y={3.4} width={6.8} height={3.2} rx={0.9} fill="#1e293b" stroke="#0f172a" strokeWidth={0.5} />
+      <rect x={-3.4} y={4.4} width={6.8} height={0.9} fill="#facc15" />
+      <rect x={-6.3} y={-0.2} width={2.7} height={5} rx={1.3} transform="rotate(-28 -4.9 2.3)" fill="#facc15" stroke="#0f172a" strokeWidth={0.5} />
+      {fingers.map(([fx, fy], i) => (
+        <rect key={i} x={fx} y={fy} width={1.7} height={-0.2 - fy} rx={0.85} fill="#fde047" stroke="#0f172a" strokeWidth={0.5} />
+      ))}
+      <rect x={-3.4} y={-1} width={6.8} height={5} rx={1.4} fill="#facc15" stroke="#0f172a" strokeWidth={0.5} />
+      <path d="M-2,0.6 Q0,2.2 2,0.6" fill="none" stroke="#a16207" strokeWidth={0.4} strokeLinecap="round" />
+    </g>
+  );
+}
+
 /** Interpolação de um colormap por stops (t em 0..1). */
 function rampColor(stops: [number, number, number][], t: number) {
   const v = Math.max(0, Math.min(1, t));
@@ -612,8 +725,11 @@ export function PitchStudio({
   const ballGroundY = ownGoalPlay && ogCross && fromScreen && toScreen
     ? (ogLeg === 0 ? lerpN(ogCross.y, fromScreen.y, ogLegT) : lerpN(fromScreen.y, toScreen.y, ogLegT))
     : (fromScreen && toScreen ? fromScreen.y + (toScreen.y - fromScreen.y) * t : 50);
-  const ballX = ballGroundX;
-  const ballY = fromScreen && toScreen ? ballGroundY - ballLift : 50;
+  const plan = current && fromScreen && toScreen && !ownGoalPlay ? buildShotPlan(current, fromScreen, toScreen) : null;
+  const planBall = plan ? ballOnPlan(plan, progress) : null;
+  const ballX = planBall ? planBall.x : ballGroundX;
+  const ballY = planBall ? planBall.y - planBall.lift : (fromScreen && toScreen ? ballGroundY - ballLift : 50);
+  const ballShadowY = planBall ? planBall.y : ballGroundY;
   const assistFrom = current?.assistant?.from ? { x: current.assistant.from.x, y: current.assistant.from.y } : null;
 
   const heatPts = useMemo(() => {
@@ -1034,11 +1150,18 @@ export function PitchStudio({
               {started && current && fromScreen && toScreen && isShotView && (
                 <g>
                   {assistFrom && <line x1={assistFrom.x} y1={assistFrom.y} x2={fromScreen.x} y2={fromScreen.y} stroke="rgba(255,255,255,0.55)" strokeWidth="0.3" strokeDasharray="1.2 1" />}
-                  {!ownGoalPlay && (
-                    <line x1={fromScreen.x} y1={fromScreen.y} x2={fromScreen.x + (toScreen.x - fromScreen.x) * t}
-                          y2={fromScreen.y + (toScreen.y - fromScreen.y) * t - Math.sin(t * Math.PI) * 0.8}
-                          stroke={current.result === "goal" ? "#86efac" : "#fcd34d"} strokeWidth="0.55" strokeLinecap="round" />
-                  )}
+                  {!ownGoalPlay && plan && plan.legs.map((lg, li) => {
+                    if (progress <= lg.t0) return null;
+                    const local = clampN((progress - lg.t0) / (lg.t1 - lg.t0), 0, 1);
+                    const e = 1 - Math.pow(1 - local, lg.pow);
+                    return (
+                      <line key={`leg-${li}`} x1={lg.a.x} y1={lg.a.y}
+                            x2={lg.a.x + (lg.b.x - lg.a.x) * e} y2={lg.a.y + (lg.b.y - lg.a.y) * e}
+                            stroke={plan.result === "goal" ? "#86efac" : lg.kind === "deflect" ? "rgba(255,255,255,0.7)" : "#fcd34d"}
+                            strokeWidth={lg.kind === "deflect" ? 0.4 : 0.55} strokeLinecap="round"
+                            strokeDasharray={lg.kind === "deflect" ? "1.1 0.9" : undefined} />
+                    );
+                  })}
                   {ownGoalPlay && ogCross && (
                     <g>
                       {/* 1ª perna: bola vinda do ataque adversário até o jogador */}
@@ -1059,12 +1182,56 @@ export function PitchStudio({
                       )}
                     </g>
                   )}
-                  {!ownGoalPlay && progress > 0.08 && Array.from({ length: 5 }).map((_, k) => {
+                  {/* BLOQUEADO: defensor na linha do chute */}
+                  {plan && plan.result === "blocked" && plan.contact && (
+                    <g>
+                      <JerseyGlyph
+                        number={0}
+                        color={(current.team === "home") !== !!current.ownGoal ? AWAY_COLOR : HOME_COLOR}
+                        x={plan.contact.x} y={plan.contact.y} size={6.4} outlineWidth={0.4}
+                        opacity={Math.min(1, 0.25 + progress * 4)}
+                      />
+                      {progress >= (plan.contactT ?? 0.42) && (() => {
+                        const k = clampN((progress - (plan.contactT ?? 0.42)) / 0.22, 0, 1);
+                        return (
+                          <g>
+                            <circle cx={plan.contact.x} cy={plan.contact.y} r={3 + k * 5} fill="none" stroke="#38bdf8" strokeWidth={0.7 * (1 - k) + 0.1} opacity={1 - k * 0.8} />
+                            <g transform={`translate(${plan.contact.x} ${plan.contact.y - 6.2}) scale(${0.35 * Math.min(1, k * 2.5)})`} opacity={Math.max(0.0, 1 - Math.max(0, progress - 0.8) * 3)}>
+                              <path d="M0,-3 L2.6,-2 V0.6 C2.6,2.2 1.2,3.2 0,3.8 C-1.2,3.2 -2.6,2.2 -2.6,0.6 V-2 Z" fill="#38bdf8" stroke="#ffffff" strokeWidth={0.5} />
+                            </g>
+                          </g>
+                        );
+                      })()}
+                    </g>
+                  )}
+                  {/* DEFENDIDO: luva espalma a bola */}
+                  {plan && plan.result === "saved" && plan.contact && progress >= (plan.contactT ?? 0.7) - 0.14 && (() => {
+                    const k = clampN((progress - ((plan.contactT ?? 0.7) - 0.14)) / 0.14, 0, 1);
+                    const burst = clampN((progress - (plan.contactT ?? 0.7)) / 0.25, 0, 1);
+                    return (
+                      <g>
+                        {progress >= (plan.contactT ?? 0.7) && (
+                          <circle cx={plan.contact.x} cy={plan.contact.y} r={3 + burst * 6} fill="none" stroke="#fcd34d" strokeWidth={0.7 * (1 - burst) + 0.1} opacity={1 - burst * 0.8} />
+                        )}
+                        <GloveGlyph x={plan.contact.x - plan.dir * 0.4} y={plan.contact.y} dir={plan.dir} size={7} scale={0.4 + 0.6 * easeOutCubic(k)} />
+                      </g>
+                    );
+                  })()}
+                  {/* PRA FORA: marca onde a bola saiu, longe da boca do gol */}
+                  {plan && plan.result === "off_target" && progress > 0.88 && (() => {
+                    const k = clampN((progress - 0.88) / 0.12, 0, 1);
+                    return (
+                      <g opacity={k}>
+                        <circle cx={plan.end.x} cy={plan.end.y} r={1.6 + k * 2.6} fill="none" stroke="#ef4444" strokeWidth={0.45} opacity={1 - k * 0.5} />
+                        <line x1={plan.end.x - 1.1} y1={plan.end.y - 1.1} x2={plan.end.x + 1.1} y2={plan.end.y + 1.1} stroke="#ef4444" strokeWidth={0.6} strokeLinecap="round" />
+                        <line x1={plan.end.x - 1.1} y1={plan.end.y + 1.1} x2={plan.end.x + 1.1} y2={plan.end.y - 1.1} stroke="#ef4444" strokeWidth={0.6} strokeLinecap="round" />
+                      </g>
+                    );
+                  })()}
+                  {!ownGoalPlay && plan && progress > 0.08 && Array.from({ length: 5 }).map((_, k) => {
                     const tp = Math.max(0, progress - (5 - k) * 0.025);
-                    const te = easeOutCubic(tp);
-                    const tx = fromScreen.x + (toScreen.x - fromScreen.x) * te;
-                    const ty = fromScreen.y + (toScreen.y - fromScreen.y) * te - Math.sin(tp * Math.PI) * 2.2;
-                    return <circle key={`tr-${k}`} cx={tx} cy={ty} r={0.9 - k * 0.12} fill="white" opacity={(k + 1) * 0.13} />;
+                    const tb = ballOnPlan(plan, tp);
+                    return <circle key={`tr-${k}`} cx={tb.x} cy={tb.y - tb.lift} r={0.9 - k * 0.12} fill="white" opacity={(k + 1) * 0.13} />;
                   })}
                   <JerseyGlyph
                     number={current.number}
@@ -1074,7 +1241,7 @@ export function PitchStudio({
                     size={7.6}
                     outlineWidth={0.4}
                   />
-                  <ellipse cx={ballX} cy={ballGroundY + 0.2} rx={0.7 + (1 - Math.sin(progress * Math.PI)) * 0.3} ry={0.28} fill="rgba(0,0,0,0.5)" />
+                  <ellipse cx={ballX} cy={ballShadowY + 0.2} rx={0.7 + (1 - Math.sin(progress * Math.PI)) * 0.3} ry={0.28} fill="rgba(0,0,0,0.5)" />
                   <BallGlyph x={ballX} y={ballY} r={1.35} rotate={progress * 540} />
                   {current.result === "goal" && goalPulse > 0 && (
                     <g>
@@ -1089,6 +1256,15 @@ export function PitchStudio({
               <div className={`absolute top-5 left-1/2 -translate-x-1/2 px-6 py-2 rounded-full font-bold tracking-wider text-xl bg-gradient-to-r ${current.ownGoal ? "from-orange-500 to-amber-400" : "from-emerald-500 to-emerald-400"} text-white shadow-2xl`}
                    style={{ opacity: Math.min(1, goalPulse * 2.4), transform: `translateX(-50%) scale(${0.85 + easeInOutCubic(goalPulse) * 0.2})` }}>
                 <><MaterialIcon name="sports_soccer" className="mr-1 align-middle" />{current.ownGoal ? "GOL CONTRA" : "GOOOOOL"} · {current.player}</>
+              </div>
+            )}
+            {started && current && isShotView && !ownGoalPlay && current.result !== "goal" && progress >= 0.92 && (
+              <div className={`absolute top-5 left-1/2 -translate-x-1/2 px-5 py-1.5 rounded-full font-bold tracking-wider text-base bg-gradient-to-r text-white shadow-2xl ${
+                current.result === "saved" ? "from-amber-500 to-yellow-400"
+                  : current.result === "blocked" ? "from-sky-600 to-sky-400"
+                  : "from-rose-600 to-red-400"}`}>
+                <MaterialIcon name={current.result === "saved" ? "pan_tool" : current.result === "blocked" ? "shield" : "north_east"} className="mr-1 align-middle" />
+                {current.result === "saved" ? "DEFENDIDO" : current.result === "blocked" ? "BLOQUEADO" : "PRA FORA"} · {current.player}
               </div>
             )}
             {popupOpen && isShotView && current && (

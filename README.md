@@ -258,7 +258,7 @@ Apply migrations first, then run from `backend/`:
 
 ```powershell
 python -m alembic upgrade head
-python -m app.services.espn_sync --leagues PL PD BL1 SA FL1 CL --season 2026-27
+python -m app.services.espn_sync --leagues PL PD BL1 SA FL1 --season 2026-27
 ```
 
 The collector uses ESPN's public JSON endpoints without an API key, fetches

@@ -20,7 +20,7 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
-      SYNC_COMPETITIONS: ${{ vars.SYNC_COMPETITIONS || 'PL,PD,BL1,SA,FL1,CL' }}
+      SYNC_COMPETITIONS: ${{ vars.SYNC_COMPETITIONS || 'PL,PD,BL1,SA,FL1' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

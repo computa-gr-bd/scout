@@ -276,7 +276,10 @@ export async function listMatches(params?: {
   /** Tela de Análise: jogos passados só da Understat; jogos futuros de qualquer fonte. */
   analysis?: boolean;
 }) {
-  return api.get<Match[]>("/matches", { params }).then((r) => r.data);
+  // Champions League está fora do escopo do ScoutVision (o backend já a esconde; este filtro
+  // cobre respostas em cache / banco ainda não limpo).
+  return api.get<Match[]>("/matches", { params }).then((r) =>
+    r.data.filter((m) => !/champions\s*league/i.test(m.competition_name ?? "")));
 }
 
 /** Linha da classificação de uma temporada (com escudo vindo do backend). */
