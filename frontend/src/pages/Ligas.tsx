@@ -531,45 +531,82 @@ function MatchList({ leagueKey, seasonId }: { leagueKey: string; seasonId?: numb
           <input className="sv-input" placeholder="Buscar time" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Buscar time" />
         </div>
         <ul className="divide-y divide-sv-border/60">
-          {matches.map((m) => (
-            <li key={m.id} className="flex items-center hover:bg-sv-panel2/60">
+          {matches.map((m) => {
+            const dateLabel = m.kickoff_time ? new Date(m.kickoff_time).toLocaleDateString("pt-BR") : "—";
+            const hs = m.home_score, aw = m.away_score;
+            const sides = [
+              { team: m.home_team, score: hs, win: hs != null && aw != null && hs > aw },
+              { team: m.away_team, score: aw, win: hs != null && aw != null && aw > hs },
+            ];
+            return (
+            <li key={m.id} className="hover:bg-sv-panel2/60">
+              {/* Mobile: cartão com um time por linha e nomes completos (sem truncar em "A…") */}
+              <div className="sm:hidden px-3 py-3">
+                <button className="block w-full text-left" onClick={() => setSelected(m)}>
+                  <div className="mb-2 flex items-center justify-between text-[11px] text-sv-muted">
+                    <span>{dateLabel}</span>
+                    {m.has_shots ? <Badge kind="good">chutes</Badge> : <Badge>—</Badge>}
+                  </div>
+                  {sides.map((sd, i) => (
+                    <div key={i} className="flex items-center gap-2.5 py-1">
+                      <TeamLogo name={sd.team?.name} src={sd.team?.logo_url} className="h-6 w-6" />
+                      <span className={`min-w-0 flex-1 break-words text-sm leading-tight ${sd.win ? "font-semibold text-sv-text" : "text-sv-text/85"}`}>
+                        {sd.team?.name ?? "—"}
+                      </span>
+                      <span className={`w-6 text-right font-mono text-base tabular-nums ${sd.win ? "font-bold" : ""}`}>{sd.score ?? "-"}</span>
+                    </div>
+                  ))}
+                </button>
+                <Link
+                  to={`/analysis/${m.id}`}
+                  className={`sv-btn mt-2 flex w-full items-center justify-center !py-1.5 !text-xs ${m.has_shots ? "" : "opacity-60"}`}
+                  aria-label={`Analisar ${m.home_team?.name ?? "casa"} contra ${m.away_team?.name ?? "fora"} no Estúdio`}
+                >
+                  Análise
+                </Link>
+              </div>
+
+              {/* Tablet/desktop: linha única */}
+              <div className="hidden sm:flex items-center">
               <button
-                className="flex-1 min-w-0 text-left px-4 py-3 flex items-center gap-3"
-                onClick={() => setSelected(m)}
-              >
-                <div className="flex-1 min-w-0 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                  <div className="flex items-center gap-2 justify-end min-w-0">
-                    <span className="truncate">{m.home_team?.name ?? "—"}</span>
-                    <TeamLogo name={m.home_team?.name} src={m.home_team?.logo_url} className="w-5 h-5" />
+                  className="flex-1 min-w-0 text-left px-4 py-3 flex items-center gap-3"
+                  onClick={() => setSelected(m)}
+                >
+                  <div className="flex-1 min-w-0 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                    <div className="flex items-center gap-2 justify-end min-w-0">
+                      <span className="truncate">{m.home_team?.name ?? "—"}</span>
+                      <TeamLogo name={m.home_team?.name} src={m.home_team?.logo_url} className="w-5 h-5" />
+                    </div>
+                    <div className="font-mono tabular-nums px-2 text-sm">
+                      {m.home_score ?? "-"} × {m.away_score ?? "-"}
+                    </div>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <TeamLogo name={m.away_team?.name} src={m.away_team?.logo_url} className="w-5 h-5" />
+                      <span className="truncate">{m.away_team?.name ?? "—"}</span>
+                    </div>
                   </div>
-                  <div className="font-mono tabular-nums px-2 text-sm">
-                    {m.home_score ?? "-"} × {m.away_score ?? "-"}
+                  <div className="shrink-0 text-[11px] text-sv-muted w-20 text-right">
+                    {m.kickoff_time ? new Date(m.kickoff_time).toLocaleDateString("pt-BR") : "—"}
                   </div>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <TeamLogo name={m.away_team?.name} src={m.away_team?.logo_url} className="w-5 h-5" />
-                    <span className="truncate">{m.away_team?.name ?? "—"}</span>
+                  <div className="shrink-0">
+                    {m.has_shots ? <Badge kind="good">chutes</Badge> : <Badge>—</Badge>}
                   </div>
-                </div>
-                <div className="shrink-0 text-[11px] text-sv-muted w-20 text-right">
-                  {m.kickoff_time ? new Date(m.kickoff_time).toLocaleDateString("pt-BR") : "—"}
-                </div>
-                <div className="shrink-0">
-                  {m.has_shots ? <Badge kind="good">chutes</Badge> : <Badge>—</Badge>}
-                </div>
-              </button>
-              {/* Abre esta partida direto no Estúdio de análise (chutes, gols, replay 2D/3D) */}
-              <Link
-                to={`/analysis/${m.id}`}
-                className={`sv-btn shrink-0 mr-4 !px-3 !py-1 !text-xs ${m.has_shots ? "" : "opacity-60"}`}
-                title={m.has_shots
-                  ? "Abrir esta partida no Estúdio de análise"
-                  : "Esta partida ainda não tem chutes coletados — a análise abrirá sem eventos"}
-                aria-label={`Analisar ${m.home_team?.name ?? "casa"} contra ${m.away_team?.name ?? "fora"} no Estúdio`}
-              >
-                Análise
-              </Link>
+                </button>
+                {/* Abre esta partida direto no Estúdio de análise (chutes, gols, replay 2D/3D) */}
+                <Link
+                  to={`/analysis/${m.id}`}
+                  className={`sv-btn shrink-0 mr-4 !px-3 !py-1 !text-xs ${m.has_shots ? "" : "opacity-60"}`}
+                  title={m.has_shots
+                    ? "Abrir esta partida no Estúdio de análise"
+                    : "Esta partida ainda não tem chutes coletados — a análise abrirá sem eventos"}
+                  aria-label={`Analisar ${m.home_team?.name ?? "casa"} contra ${m.away_team?.name ?? "fora"} no Estúdio`}
+                >
+                  Análise
+                </Link>
+              </div>
             </li>
-          ))}
+            );
+          })}
           {!matches.length && <li className="px-4 py-6 text-sm text-sv-muted">Nenhuma partida encontrada para “{search}”.</li>}
         </ul>
       </div>

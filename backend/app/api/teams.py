@@ -51,6 +51,14 @@ def list_teams(q: Optional[str] = None, skip: int = 0, limit: int = 50,
     return teams
 
 
+@router.get("/crests")
+def list_crests():
+    """Escudos conhecidos por nome de time. O front usa para preencher o logo de qualquer
+    time (mesmo quando a API daquela tela não devolveu o escudo)."""
+    from app.services.crests import all_crests
+    return all_crests()
+
+
 @router.get("/teams/{team_id}", response_model=TeamDetailedOut)
 def get_team(team_id: int, db: Session = Depends(get_db)):
     t = team_repo.get_detailed(db, team_id)

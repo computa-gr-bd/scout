@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import clsx from "clsx";
 import bayernLogo from "../bayern_munique.cc.svg";
 import { crestFor } from "../api/footballDataOrg";
+import { crestsVersion, lookupCrest, registerCrest, subscribeCrests } from "../lib/crests";
 
 export function StatCard({
   label, value, sub, icon, accent = "sv-accent",
@@ -137,18 +138,23 @@ const TEAM_NAMED_LOGOS: Record<string, string> = {
 };
 
 export function TeamLogo({ name, src, className = "w-8 h-8" }: { name?: string; src?: string | null; className?: string }) {
-  const [broken, setBroken] = useState(false);
+  const [broken, setBroken] = useState<string | null>(null);
+  // Re-renderiza quando o catálogo de escudos (carregado no início do app) chega/cresce.
+  useSyncExternalStore(subscribeCrests, crestsVersion);
+  // Todo escudo que a API entrega alimenta o catálogo: outras telas que receberam o mesmo
+  // time sem escudo passam a mostrá-lo.
+  if (src && name) registerCrest(name, src);
   // Prioridade: escudo real da API (logo_url) → arquivo local → escudo do
-  // catálogo football-data (por nome) → logo por hash.
-  const realLogo = broken
-    ? undefined
-    : src || (name ? TEAM_NAMED_LOGOS[name] : undefined) || (name ? crestFor(name) ?? undefined : undefined);
+  // catálogo football-data (por nome) → catálogo por nome (entre fontes) → logo por hash.
+  const candidate = src || (name ? TEAM_NAMED_LOGOS[name] : undefined)
+    || (name ? crestFor(name) ?? undefined : undefined) || (name ? lookupCrest(name) ?? undefined : undefined);
+  const realLogo = candidate && broken !== candidate ? candidate : undefined;
   if (realLogo) {
     return (
       <img
         src={realLogo}
         alt={`Logo ${name ?? ""}`}
-        onError={() => setBroken(true)}
+        onError={() => setBroken(candidate ?? null)}
         className={clsx("object-contain shrink-0", className)}
       />
     );

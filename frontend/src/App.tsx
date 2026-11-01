@@ -13,7 +13,8 @@ import LigasPage from "./pages/Ligas";
 import ModelsPage from "./pages/Models";
 import AboutPage from "./pages/About";
 import { NAV_ITEMS } from "./nav";
-import { getDataStatus } from "./api/client";
+import { getCrests, getDataStatus } from "./api/client";
+import { registerCrests } from "./lib/crests";
 
 function Logo({ onClick }: { onClick?: () => void }) {
   return (
@@ -148,6 +149,9 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
 
 function Topbar({ onMenu, menuOpen }: { onMenu: () => void; menuOpen: boolean }) {
   const loc = useLocation();
+  // Catálogo de escudos: alimenta o TeamLogo de todas as telas (times sem logo na API).
+  const crestsQ = useQuery({ queryKey: ["crests"], queryFn: getCrests, staleTime: 30 * 60_000, retry: 1 });
+  useEffect(() => { if (crestsQ.data) registerCrests(crestsQ.data); }, [crestsQ.data]);
   const connection = useQuery({
     queryKey: ["data", "status"],
     queryFn: getDataStatus,

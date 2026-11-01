@@ -5,6 +5,8 @@ provides a small curated catalog of stable crest URLs for the national teams
 that Scout imports, plus a resolver that prefers an already-stored logo_url.
 Teams without an entry fall back to ``None`` and the frontend renders initials.
 """
+import threading
+import time
 from typing import Optional
 
 _CRESTS: dict[str, str] = {
@@ -124,8 +126,93 @@ def crest_for_name(name: Optional[str]) -> Optional[str]:
     return _CRESTS.get(_normalize(name))
 
 
+# --------------------------------------------------------------------------
+# Escudos vindos do banco (football-data), usados também para times de outras fontes
+# (Understat não traz escudo). O mesmo clube é achado pelo nome normalizado.
+# --------------------------------------------------------------------------
+_EXTRA_TOKEN_ALIAS = {"rasenballsport": "rb", "monchengladbach": "gladbach", "m": ""}
+_INDEX_TTL = 600.0       # segundos
+_INDEX_RETRY = 60.0      # se o banco falhou, tenta de novo mais cedo
+_index_lock = threading.Lock()
+_index_cache: dict = {"at": 0.0, "ttl": 0.0, "tokens": [], "names": {}}
+
+
+def _tokens(name: Optional[str]) -> frozenset:
+    """Tokens normalizados do nome (mesma normalização usada para ligar as fontes)."""
+    from app.services.studio import norm_team  # import tardio: studio importa este módulo
+
+    out = []
+    for t in norm_team(name).split():
+        t = _EXTRA_TOKEN_ALIAS.get(t, t)
+        if t:
+            out.append(t)
+    return frozenset(out)
+
+
+def _load_index() -> tuple[list, dict]:
+    """Lê (nome, url) de todos os times do banco com escudo."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.db.models import Team
+
+    names: dict = {}
+    tokens: list = []
+    with SessionLocal() as db:
+        rows = db.execute(select(Team.name, Team.logo_url).where(Team.logo_url.isnot(None))).all()
+    for name, url in rows:
+        if not url or not name or name in names:
+            continue
+        names[name] = url
+        tk = _tokens(name)
+        if tk:
+            tokens.append((tk, url))
+    return tokens, names
+
+
+def _index(refresh: bool = False) -> dict:
+    now = time.monotonic()
+    with _index_lock:
+        fresh = _index_cache["at"] and (now - _index_cache["at"]) < _index_cache["ttl"]
+        if fresh and not refresh:
+            return _index_cache
+        try:
+            tokens, names = _load_index()
+            _index_cache.update(at=now, ttl=_INDEX_TTL, tokens=tokens, names=names)
+        except Exception:  # banco indisponível (ex.: testes sem banco): não quebra a resposta
+            _index_cache.update(at=now, ttl=_INDEX_RETRY, tokens=[], names={})
+        return _index_cache
+
+
+def reset_crest_cache() -> None:
+    with _index_lock:
+        _index_cache.update(at=0.0, ttl=0.0, tokens=[], names={})
+
+
+def db_crest_for_name(name: Optional[str]) -> Optional[str]:
+    """Escudo de outro registro do mesmo clube (nome igual ou conjunto de tokens contido)."""
+    want = _tokens(name)
+    if not want:
+        return None
+    entries = _index()["tokens"]
+    for tk, url in entries:                      # 1) nome normalizado idêntico
+        if tk == want:
+            return url
+    for tk, url in entries:                      # 2) um nome contém todos os tokens do outro
+        short, long_ = (want, tk) if len(want) <= len(tk) else (tk, want)
+        if short <= long_ and sum(len(t) for t in short) >= 4:
+            return url
+    return None
+
+
+def all_crests() -> dict:
+    """{nome: url} de todos os escudos conhecidos (banco primeiro, depois o catálogo curado)."""
+    merged = dict(_CRESTS)
+    merged.update(_index()["names"])
+    return merged
+
+
 def resolve_crest(name: Optional[str], logo_url: Optional[str]) -> Optional[str]:
-    """Prefer an already-stored logo_url; fall back to the curated catalog."""
     if logo_url:
         return logo_url
-    return crest_for_name(name)
+    return db_crest_for_name(name) or crest_for_name(name)

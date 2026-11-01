@@ -440,6 +440,11 @@ export interface DataCollectionStatus {
     is_stale: boolean;
   }[];
 }
+/** Catálogo {nome do time: url do escudo} usado para preencher logos ausentes em qualquer tela. */
+export async function getCrests() {
+  return api.get<Record<string, string>>("/crests").then((r) => r.data);
+}
+
 export async function getDataStatus() {
   return api.get<DataCollectionStatus>("/data/status").then((r) => r.data);
 }

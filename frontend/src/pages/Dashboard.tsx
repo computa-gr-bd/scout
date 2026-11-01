@@ -127,9 +127,9 @@ function MatchSummary({ payload, match }: { payload: MatchStudioPayload; match: 
       <div className="sv-card-inner">
         <div className="text-sm font-semibold mb-3">Resumo da partida</div>
         <div className="grid grid-cols-[1fr_auto_1fr] gap-y-2 items-center text-sm">
-          <div className="font-semibold truncate" style={{ color: HOME_COLOR }}>{match.home_team.name}</div>
+          <div className="font-semibold truncate flex items-center gap-1.5 min-w-0" style={{ color: HOME_COLOR }}><TeamLogo name={match.home_team.name} src={match.home_team.logo_url} className="w-5 h-5" /><span className="truncate">{match.home_team.name}</span></div>
           <div />
-          <div className="font-semibold truncate text-right" style={{ color: AWAY_COLOR }}>{match.away_team.name}</div>
+          <div className="font-semibold truncate flex items-center justify-end gap-1.5 min-w-0" style={{ color: AWAY_COLOR }}><span className="truncate">{match.away_team.name}</span><TeamLogo name={match.away_team.name} src={match.away_team.logo_url} className="w-5 h-5" /></div>
           {rows.map(([label, h, a]) => (
             <div key={label} className="contents">
               <div className="font-mono tabular-nums text-base">{h}</div>

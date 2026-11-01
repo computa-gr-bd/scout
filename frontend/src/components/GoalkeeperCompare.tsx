@@ -1,4 +1,5 @@
 import type { TeamGoalkeeper } from "../api/client";
+import { TeamLogo } from "./ui";
 
 const fmt = (v: number | null | undefined, d = 1, suffix = "") => (v == null ? "—" : `${v.toFixed(d)}${suffix}`);
 
@@ -15,7 +16,7 @@ function GoalkeeperBox({ team, gk }: { team: string; gk: TeamGoalkeeper | null }
   if (!gk) {
     return (
       <div className="rounded-lg border border-sv-border p-3 text-xs text-sv-muted">
-        <div className="font-medium text-sv-text mb-1">{team}</div>
+        <div className="font-medium text-sv-text mb-1 flex items-center gap-1.5"><TeamLogo name={team} className="h-4 w-4" />{team}</div>
         Goleiro titular não identificado (sem estatísticas de goleiro importadas).
       </div>
     );
@@ -26,7 +27,7 @@ function GoalkeeperBox({ team, gk }: { team: string; gk: TeamGoalkeeper | null }
     <div className="rounded-lg border border-sv-border p-3 space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[11px] text-sv-muted">{team}</div>
+          <div className="text-[11px] text-sv-muted flex items-center gap-1.5"><TeamLogo name={team} className="h-4 w-4" />{team}</div>
           <div className="font-semibold truncate">{gk.name}</div>
           <div className="text-[11px] text-sv-muted">{gk.minutes ?? 0} min na temporada</div>
         </div>

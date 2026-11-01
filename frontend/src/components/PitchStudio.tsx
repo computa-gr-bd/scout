@@ -802,7 +802,12 @@ export function PitchStudio({
             {(["both", "home", "away"] as const).map((t) => (
               <button key={t} onClick={() => setHeatTeam(t)}
                 className={`sv-btn !py-1 text-[11.5px] capitalize ${heatTeam === t ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}>
-                {t === "both" ? "Ambos" : t === "home" ? matchInfo.home : matchInfo.away}
+                {t === "both" ? "Ambos" : (
+                  <span className="inline-flex items-center gap-1.5">
+                    <TeamLogo name={t === "home" ? matchInfo.home : matchInfo.away} src={t === "home" ? matchInfo.homeLogo : matchInfo.awayLogo} className="w-4 h-4" />
+                    {t === "home" ? matchInfo.home : matchInfo.away}
+                  </span>
+                )}
               </button>
             ))}
           </div>

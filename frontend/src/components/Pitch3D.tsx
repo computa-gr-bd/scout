@@ -4,6 +4,7 @@ import { OrbitControls, Text } from "@react-three/drei";
 import type { PitchZone } from "../api/client";
 import { ZONE_GEOMETRY, flipZone } from "./Pitch";
 import { MaterialIcon } from "./MaterialIcon";
+import { TeamLogo } from "./ui";
 import {
   PANEL_WIDTH, ZoneDropdown, aggregateZoneEntries,
   type WeaknessDetail, type ZoneAgg, type ZoneSide, type ZoneStatEntry,
@@ -15,6 +16,19 @@ export const WIDTH = 105;
 export const HEIGHT = 68;
 
 const ALL_ZONES = Object.keys(ZONE_GEOMETRY) as PitchZone[];
+
+/**
+ * Camadas coplanares do gramado (base → listras → linhas → zonas → realce).
+ * Elas ficam a milésimos de distância e, com a câmera longe/rasante, brigavam pela
+ * profundidade (z-fighting): listras, serrilhado e "quebras" ao girar o campo. O
+ * polygonOffset empurra cada camada para a frente no depth buffer de forma consistente,
+ * independente da distância da câmera.
+ */
+const layer = (n: number) => ({
+  polygonOffset: true,
+  polygonOffsetFactor: -n,
+  polygonOffsetUnits: -n * 2,
+});
 
 function toPitch(xNorm: number, yNorm: number, z: number = 0.02) {
   // xNorm 0..100 -> x 0..WIDTH, centered
@@ -41,7 +55,7 @@ export function PitchMesh() {
       {Array.from({ length: 10 }).map((_, i) => (
         <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[-(WIDTH / 2) + (i + 0.5) * (WIDTH / 10), 0.001, 0]}>
           <planeGeometry args={[WIDTH / 10 - 0.15, HEIGHT - 0.3]} />
-          <meshStandardMaterial color={i % 2 === 0 ? "#1f8352" : "#196e45"} />
+          <meshStandardMaterial color={i % 2 === 0 ? "#1f8352" : "#196e45"} {...layer(1)} />
         </mesh>
       ))}
     </group>
@@ -89,23 +103,23 @@ export function Lines() {
       ].map((b, i) => (
         <mesh key={i} position={b.pos as [number, number, number]}>
           <boxGeometry args={b.size as [number, number, number]} />
-          <meshStandardMaterial color={stroke} />
+          <meshStandardMaterial color={stroke} {...layer(2)} />
         </mesh>
       ))}
       {/* center circle */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, 0]}>
         <ringGeometry args={[9.15, 9.25, 64]} />
-        <meshStandardMaterial color={stroke} />
+        <meshStandardMaterial color={stroke} {...layer(2)} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, 0]}>
         <circleGeometry args={[0.2, 20]} />
-        <meshStandardMaterial color={stroke} />
+        <meshStandardMaterial color={stroke} {...layer(2)} />
       </mesh>
       {/* penalty dots */}
       {[-11, 11].map((x) => (
         <mesh key={x} rotation={[-Math.PI / 2, 0, 0]} position={[x, 0.012, 0]}>
           <circleGeometry args={[0.2, 20]} />
-          <meshStandardMaterial color={stroke} />
+          <meshStandardMaterial color={stroke} {...layer(2)} />
         </mesh>
       ))}
       {/* goals */}
@@ -136,7 +150,7 @@ function ZoneOverlays({ weakness, opportunities, flip }: {
         <mesh key={`w-${z}`} rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0.03, cz]}>
           <planeGeometry args={[w * 0.98, h * 0.98]} />
           <meshStandardMaterial color={`rgb(180,${Math.round(80 - t * 60)},${Math.round(120 - t * 100)})`}
-            transparent opacity={0.15 + t * 0.55} depthWrite={false} />
+            transparent opacity={0.15 + t * 0.55} depthWrite={false} {...layer(3)} />
         </mesh>
       );
     });
@@ -150,7 +164,7 @@ function ZoneOverlays({ weakness, opportunities, flip }: {
         <mesh key={`o-${agg.drawn}`} rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0.04, cz]}>
           <planeGeometry args={[w * 0.98, h * 0.98]} />
           <meshStandardMaterial color={`rgb(30,${Math.round(140 + t * 60)},${Math.round(100 + t * 80)})`}
-            transparent opacity={0.18 + t * 0.6} depthWrite={false} />
+            transparent opacity={0.18 + t * 0.6} depthWrite={false} {...layer(4)} />
         </mesh>
       );
     });
@@ -171,12 +185,12 @@ function ZoneHighlight({ zone, selected }: { zone: PitchZone; selected: boolean 
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0.055, cz]}>
         <planeGeometry args={[w * 0.98, h * 0.98]} />
-        <meshBasicMaterial color="#ffffff" transparent opacity={selected ? 0.16 : 0.1} depthWrite={false} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={selected ? 0.16 : 0.1} depthWrite={false} {...layer(5)} />
       </mesh>
       {selected && borders.map((b, i) => (
         <mesh key={i} position={b.p as [number, number, number]}>
           <boxGeometry args={b.s as [number, number, number]} />
-          <meshBasicMaterial color="#ffffff" />
+          <meshBasicMaterial color="#ffffff" {...layer(5)} />
         </mesh>
       ))}
     </group>
@@ -293,11 +307,11 @@ export function Pitch3D({
           <span className="text-[10px] uppercase tracking-wide text-sv-muted">Zonas de</span>
           <button onClick={() => setSide("home")}
             className={`sv-btn !px-2.5 !py-1 text-[11px] ${side === "home" ? "!border-sv-accent3 !bg-sv-accent text-white" : ""}`}>
-            <MaterialIcon name="home" className="mr-1 align-middle text-[14px]" />{teamNames?.home || "Casa"}
+            <TeamLogo name={teamNames?.home || undefined} className="mr-1 inline-block h-4 w-4 align-middle" />{teamNames?.home || "Casa"}
           </button>
           <button onClick={() => setSide("away")}
             className={`sv-btn !px-2.5 !py-1 text-[11px] ${side === "away" ? "!border-sv-accent3 !bg-sv-accent text-white" : ""}`}>
-            <MaterialIcon name="flight" className="mr-1 align-middle text-[14px]" />{teamNames?.away || "Visitante"}
+            <TeamLogo name={teamNames?.away || undefined} className="mr-1 inline-block h-4 w-4 align-middle" />{teamNames?.away || "Visitante"}
           </button>
         </div>
         )}
@@ -305,11 +319,12 @@ export function Pitch3D({
 
       <div ref={wrapRef} className="relative p-3 md:p-5" style={{ height: 520 }}
         onPointerDown={(e) => { downRef.current = [e.clientX, e.clientY]; }}>
-        <Canvas shadows camera={{ position: [0, 70, 75], fov: 42 }} dpr={[1, 2]}
+        <Canvas camera={{ position: [0, 70, 75], fov: 42, near: 5, far: 600 }} dpr={[1, 2]}
+          gl={{ antialias: true }}
           onPointerMissed={() => setSelectedZone(null)}>
           <color attach="background" args={["#0a0f1a"]} />
           <ambientLight intensity={0.6} />
-          <directionalLight position={[30, 60, -20]} intensity={1.2} castShadow />
+          <directionalLight position={[30, 60, -20]} intensity={1.2} />
           <directionalLight position={[-30, 40, 30]} intensity={0.5} />
           <Suspense fallback={null}>
             <PitchMesh />

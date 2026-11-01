@@ -128,7 +128,7 @@ export function ShotPitch3D({
 
   return (
     <div className="relative rounded-2xl overflow-hidden border border-white/10" style={{ height: 520 }}>
-      <Canvas key={`${view}-${bothSides}`} shadows camera={{ position: preset.position, fov: 42 }} dpr={[1, 2]}
+      <Canvas key={`${view}-${bothSides}`} shadows camera={{ position: preset.position, fov: 42, near: 1, far: 600 }} dpr={[1, 2]}
         onPointerMissed={() => onSelect(null)}>
         <color attach="background" args={["#0a0f1a"]} />
         <ambientLight intensity={0.65} />
