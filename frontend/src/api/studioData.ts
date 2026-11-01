@@ -29,6 +29,8 @@ export type StudioAction = {
   /** xGOT: `null` quando a fonte não fornece (Understat não tem). */
   xg: number | null; xgot: number | null; situation: string; shotType: string;
   goalZone?: string; goalLoc?: StudioCoord; result: "goal" | "saved" | "off_target" | "blocked";
+  /** Gol contra: `result` é "goal" (vale para `team`), mas o autor é do time `ownGoalTeamName`. */
+  ownGoal?: boolean; ownGoalTeamName?: string;
   duration?: number;
   /** `false` quando a fonte não informa onde a bola chegou (o `to` é só o centro do gol). */
   endKnown?: boolean;

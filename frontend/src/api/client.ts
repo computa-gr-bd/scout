@@ -674,6 +674,8 @@ export interface StudioApiShot {
   x: number; y: number; end_x: number; end_y: number; end_known: boolean;
   situation: string | null; shot_type: string | null; body_part: string | null;
   assisted_by: string | null; last_action: string | null;
+  /** Gol contra: `team` é quem RECEBE o gol; o autor joga em `player_team` / `own_goal_team`. */
+  own_goal?: boolean; own_goal_team?: "home" | "away" | null; player_team?: "home" | "away";
 }
 export interface StudioApiLineupPlayer {
   player_id: number | null; name: string | null; position: string | null;

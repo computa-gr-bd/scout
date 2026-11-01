@@ -19,6 +19,8 @@ type Action = {
   goalZone?: string; goalLoc?: Coord; result: "goal" | "saved" | "off_target" | "blocked"; duration?: number;
   endKnown?: boolean;
   matchLabel?: string;
+  /** Gol contra: vale como gol de `team`, mas o autor é do time `ownGoalTeamName`. */
+  ownGoal?: boolean; ownGoalTeamName?: string;
 };
 
 type HeatPoint = { x: number; y: number; intensity: number; label?: string };
@@ -593,10 +595,25 @@ export function PitchStudio({
     x: current.to.x + (current.result === "goal" ? (current.to.x >= 50 ? 1.3 : -1.3) : 0),
     y: current.to.y,
   } : null;
-  const ballLift = Math.sin(progress * Math.PI) * 2.2;
-  const ballX = fromScreen && toScreen ? fromScreen.x + (toScreen.x - fromScreen.x) * t : 50;
-  const ballY = fromScreen && toScreen ? fromScreen.y + (toScreen.y - fromScreen.y) * t - ballLift : 50;
-  const ballGroundY = fromScreen && toScreen ? fromScreen.y + (toScreen.y - fromScreen.y) * t : 50;
+  // Gol contra: a bola vem do ataque adversário até o jogador (1ª perna) e desvia para o gol (2ª perna).
+  const ownGoalPlay = !!current?.ownGoal && !!fromScreen && !!toScreen;
+  const ogCross = ownGoalPlay && current && fromScreen ? {
+    x: Math.max(3, Math.min(97, fromScreen.x + (current.team === "home" ? -34 : 34))),
+    y: Math.max(5, Math.min(95, fromScreen.y + (fromScreen.y > 50 ? -20 : 20))),
+  } : null;
+  const ogLeg = progress < 0.5 ? 0 : 1;
+  const ogLegT = easeOutCubic(ogLeg === 0 ? progress / 0.5 : (progress - 0.5) / 0.5);
+  const ogLegLinear = ogLeg === 0 ? progress / 0.5 : (progress - 0.5) / 0.5;
+  const ballLift = ownGoalPlay ? Math.sin(ogLegLinear * Math.PI) * 1.6 : Math.sin(progress * Math.PI) * 2.2;
+  const lerpN = (a: number, b: number, k: number) => a + (b - a) * k;
+  const ballGroundX = ownGoalPlay && ogCross && fromScreen && toScreen
+    ? (ogLeg === 0 ? lerpN(ogCross.x, fromScreen.x, ogLegT) : lerpN(fromScreen.x, toScreen.x, ogLegT))
+    : (fromScreen && toScreen ? fromScreen.x + (toScreen.x - fromScreen.x) * t : 50);
+  const ballGroundY = ownGoalPlay && ogCross && fromScreen && toScreen
+    ? (ogLeg === 0 ? lerpN(ogCross.y, fromScreen.y, ogLegT) : lerpN(fromScreen.y, toScreen.y, ogLegT))
+    : (fromScreen && toScreen ? fromScreen.y + (toScreen.y - fromScreen.y) * t : 50);
+  const ballX = ballGroundX;
+  const ballY = fromScreen && toScreen ? ballGroundY - ballLift : 50;
   const assistFrom = current?.assistant?.from ? { x: current.assistant.from.x, y: current.assistant.from.y } : null;
 
   const heatPts = useMemo(() => {
@@ -775,14 +792,14 @@ export function PitchStudio({
                 goalLoc={current.goalLoc}
                 shotOrigin={current.from}
                 team={current.team}
-                result={current.result}
+                result={current.ownGoal ? "own_goal" : current.result}
                 teamColor={current.team === "home" ? HOME_COLOR : AWAY_COLOR}
                 progress={progress}
                 onClose={closeReplay}
               />
               {current.result === "goal" && goalPulse > 0.15 && (
                 <div className="goal-replay-goal-label" style={{ opacity: Math.min(1, goalPulse * 2.4) }}>
-                  GOL · {current.player}
+                  {current.ownGoal ? `GOL CONTRA · ${current.player}` : `GOL · ${current.player}`}
                 </div>
               )}
             </div>
@@ -1017,10 +1034,32 @@ export function PitchStudio({
               {started && current && fromScreen && toScreen && isShotView && (
                 <g>
                   {assistFrom && <line x1={assistFrom.x} y1={assistFrom.y} x2={fromScreen.x} y2={fromScreen.y} stroke="rgba(255,255,255,0.55)" strokeWidth="0.3" strokeDasharray="1.2 1" />}
-                  <line x1={fromScreen.x} y1={fromScreen.y} x2={fromScreen.x + (toScreen.x - fromScreen.x) * t}
-                        y2={fromScreen.y + (toScreen.y - fromScreen.y) * t - Math.sin(t * Math.PI) * 0.8}
-                        stroke={current.result === "goal" ? "#86efac" : "#fcd34d"} strokeWidth="0.55" strokeLinecap="round" />
-                  {progress > 0.08 && Array.from({ length: 5 }).map((_, k) => {
+                  {!ownGoalPlay && (
+                    <line x1={fromScreen.x} y1={fromScreen.y} x2={fromScreen.x + (toScreen.x - fromScreen.x) * t}
+                          y2={fromScreen.y + (toScreen.y - fromScreen.y) * t - Math.sin(t * Math.PI) * 0.8}
+                          stroke={current.result === "goal" ? "#86efac" : "#fcd34d"} strokeWidth="0.55" strokeLinecap="round" />
+                  )}
+                  {ownGoalPlay && ogCross && (
+                    <g>
+                      {/* 1ª perna: bola vinda do ataque adversário até o jogador */}
+                      <line x1={ogCross.x} y1={ogCross.y} x2={fromScreen.x} y2={fromScreen.y}
+                            stroke="rgba(255,255,255,0.55)" strokeWidth="0.3" strokeDasharray="1.2 1" />
+                      <circle cx={ogCross.x} cy={ogCross.y} r={0.9} fill="white" opacity={0.7} />
+                      {/* 2ª perna: desvio para o próprio gol */}
+                      {progress >= 0.5 && (
+                        <line x1={fromScreen.x} y1={fromScreen.y} x2={fromScreen.x + (toScreen.x - fromScreen.x) * ogLegT}
+                              y2={fromScreen.y + (toScreen.y - fromScreen.y) * ogLegT}
+                              stroke="#fb923c" strokeWidth="0.6" strokeLinecap="round" />
+                      )}
+                      {/* toque / desvio */}
+                      {progress >= 0.46 && (
+                        <circle cx={fromScreen.x} cy={fromScreen.y} r={2.4 + Math.min(1, (progress - 0.46) * 6) * 3.4}
+                                fill="none" stroke="#fb923c" strokeWidth="0.5"
+                                opacity={Math.max(0, 1 - (progress - 0.46) * 3)} />
+                      )}
+                    </g>
+                  )}
+                  {!ownGoalPlay && progress > 0.08 && Array.from({ length: 5 }).map((_, k) => {
                     const tp = Math.max(0, progress - (5 - k) * 0.025);
                     const te = easeOutCubic(tp);
                     const tx = fromScreen.x + (toScreen.x - fromScreen.x) * te;
@@ -1029,7 +1068,7 @@ export function PitchStudio({
                   })}
                   <JerseyGlyph
                     number={current.number}
-                    color={current.team === "home" ? HOME_COLOR : AWAY_COLOR}
+                    color={(current.team === "home") !== !!current.ownGoal ? HOME_COLOR : AWAY_COLOR}
                     x={fromScreen.x}
                     y={fromScreen.y}
                     size={7.6}
@@ -1047,9 +1086,9 @@ export function PitchStudio({
               )}
             </svg>
             {current?.result === "goal" && goalPulse > 0.15 && (
-              <div className="absolute top-5 left-1/2 -translate-x-1/2 px-6 py-2 rounded-full font-bold tracking-wider text-xl bg-gradient-to-r from-emerald-500 to-emerald-400 text-white shadow-2xl"
+              <div className={`absolute top-5 left-1/2 -translate-x-1/2 px-6 py-2 rounded-full font-bold tracking-wider text-xl bg-gradient-to-r ${current.ownGoal ? "from-orange-500 to-amber-400" : "from-emerald-500 to-emerald-400"} text-white shadow-2xl`}
                    style={{ opacity: Math.min(1, goalPulse * 2.4), transform: `translateX(-50%) scale(${0.85 + easeInOutCubic(goalPulse) * 0.2})` }}>
-                <><MaterialIcon name="sports_soccer" className="mr-1 align-middle" />GOOOOOL · {current.player}</>
+                <><MaterialIcon name="sports_soccer" className="mr-1 align-middle" />{current.ownGoal ? "GOL CONTRA" : "GOOOOOL"} · {current.player}</>
               </div>
             )}
             {popupOpen && isShotView && current && (
@@ -1679,19 +1718,24 @@ function ShotDetail({ shot }: { shot: Action }) {
     <>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
                   <div className={`px-3 py-1.5 rounded-lg text-xs font-bold text-center mb-3 tracking-wide
-                    ${shot.result === "goal" ? "bg-gradient-to-r from-emerald-500 to-emerald-400 text-white" :
+                    ${shot.result === "goal" && shot.ownGoal ? "bg-gradient-to-r from-orange-500 to-amber-400 text-white" :
+                      shot.result === "goal" ? "bg-gradient-to-r from-emerald-500 to-emerald-400 text-white" :
                       shot.result === "saved" ? "bg-gradient-to-r from-amber-500 to-amber-400 text-white" :
                       "bg-gradient-to-r from-rose-500 to-rose-400 text-white"}`}>
                     <MaterialIcon name={shot.result === "goal" ? "sports_score" : shot.result === "saved" ? "pan_tool" : shot.result === "off_target" ? "north_east" : "shield"} className="mr-1 align-middle" />
-                    {shot.result === "goal" ? "GOL" : shot.result === "saved" ? "DEFENDIDO" : shot.result === "off_target" ? "FORA" : "BLOQUEADO"}
+                    {shot.result === "goal" ? (shot.ownGoal ? "GOL CONTRA" : "GOL") : shot.result === "saved" ? "DEFENDIDO" : shot.result === "off_target" ? "FORA" : "BLOQUEADO"}
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="relative shrink-0">
-                      <JerseyBadge number={shot.number} color={shot.team === "home" ? HOME_COLOR : AWAY_COLOR} size={56} />
+                      <JerseyBadge number={shot.number} color={(shot.team === "home") !== !!shot.ownGoal ? HOME_COLOR : AWAY_COLOR} size={56} />
                     </div>
                     <div className="min-w-0">
                       <div className="font-semibold truncate">{shot.player}</div>
-                      <div className="text-xs text-sv-muted mt-0.5">{shot.teamName} · {shot.minute}'</div>
+                      <div className="text-xs text-sv-muted mt-0.5">
+                        {shot.ownGoal
+                          ? `${shot.ownGoalTeamName ?? "—"} · gol contra a favor de ${shot.teamName} · ${shot.minute}'`
+                          : `${shot.teamName} · ${shot.minute}'`}
+                      </div>
                       {shot.assistant && <div className="text-[11px] text-sv-muted mt-1"><MaterialIcon name="sports_score" className="mr-1 align-middle" />Assistência: <span className="text-white/80">{shot.assistant.name}</span></div>}
                     </div>
                   </div>
@@ -1864,7 +1908,7 @@ function GoalPopupVisual({
       </div>
       <div className="goal-popup-footer">
         <div className="font-semibold text-slate-800">
-          {shot.minute}' · {shot.player} ({scoringTeam})
+          {shot.minute}' · {shot.ownGoal ? `GOL CONTRA de ${shot.player} (${shot.ownGoalTeamName ?? "—"})` : `${shot.player} (${scoringTeam})`}
         </div>
         {shot.assistant && (
           <div className="text-slate-500">Assistência: {shot.assistant.name} #{shot.assistant.number}</div>

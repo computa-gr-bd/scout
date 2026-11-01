@@ -18,7 +18,8 @@ const BALL_PATCH_NORMALS = [
   [0.4, -0.8, 0.5], [-0.4, -0.8, 0.5],
 ] as const;
 
-type ShotResult = "goal" | "saved" | "off_target" | "blocked";
+/** "own_goal": a bola bate no jogador/goleiro do time que defende e entra no PRÓPRIO gol. */
+type ShotResult = "goal" | "saved" | "off_target" | "blocked" | "own_goal";
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -232,7 +233,7 @@ function Keeper({ progress, result, end, shooterX }: {
   const REACH = 1.2;
   const plan = useMemo(() => {
     const dir = Math.abs(end.x) < 0.4 ? (shooterX > 0 ? -1 : 1) : Math.sign(end.x);
-    const dives = result === "saved" || result === "goal";
+    const dives = result === "saved" || result === "goal" || result === "own_goal";
 
     /** Calcula o mergulho para a PONTA DA LUVA chegar em (ax, ay). */
     const reachTo = (ax: number, ay: number) => {
@@ -248,7 +249,8 @@ function Keeper({ progress, result, end, shooterX }: {
       return { side, tilt, hipX, hipY };
     };
 
-    if (result === "saved") return { dives, ...reachTo(end.x, end.y) };
+    // gol contra: ele chega na bola (ponto de toque) e ela desvia para dentro.
+    if (result === "saved" || result === "own_goal") return { dives, ...reachTo(end.x, end.y) };
     if (result === "goal") {
       // vai pro lado certo, mas chega curto: a bola passa da ponta dos dedos.
       return { dives, ...reachTo(end.x - dir * 0.75, end.y - 0.35) };
@@ -358,14 +360,35 @@ function ShotScene({ goalLoc, shotOrigin, team, result, teamColor, progress }: {
       return new THREE.Vector3(start.x * 0.9, 0.22, start.z - 1.7);
     }
     if (result === "saved") return new THREE.Vector3(tx, ty, GOAL_LINE_Z + 0.55); // na mão do goleiro
+    if (result === "own_goal") {
+      // depois do toque a bola muda de direção e morre na rede, baixa, do outro lado
+      const touchX = (goalX - 0.5) * GOAL_WIDTH * 0.45;
+      const side = Math.abs(touchX) < 0.3 ? (start.x > 0 ? 1 : -1) : -Math.sign(touchX);
+      return new THREE.Vector3(side * Math.max(0.7, Math.abs(touchX) * 0.7 + 0.5), 0.55, GOAL_LINE_Z - 0.9);
+    }
     return new THREE.Vector3(tx, ty, GOAL_LINE_Z - 0.9); // gol: dentro da rede
   }, [goalX, goalY, result, start]);
+
+  // Gol contra: ponto em que a bola toca o defensor/goleiro (um pouco à frente da linha).
+  const touch = useMemo(() => {
+    const touchX = (goalX - 0.5) * GOAL_WIDTH * 0.45;
+    return new THREE.Vector3(touchX, 1.1, GOAL_LINE_Z + 0.5);
+  }, [goalX]);
 
   const curve = useMemo(() => {
     const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
     const lift = result === "blocked" ? 0.9 : Math.max(1.8, end.y + 1.15);
     return new THREE.QuadraticBezierCurve3(start, new THREE.Vector3(mid.x, lift, mid.z), end);
   }, [start, end, result]);
+
+  // Gol contra: voo até o toque e depois o desvio para dentro do gol.
+  const ownLegA = useMemo(() => new THREE.QuadraticBezierCurve3(
+    start, new THREE.Vector3((start.x + touch.x) / 2, Math.max(1.6, touch.y + 0.9), (start.z + touch.z) / 2), touch,
+  ), [start, touch]);
+  const ownLegB = useMemo(() => new THREE.QuadraticBezierCurve3(
+    touch, new THREE.Vector3((touch.x + end.x) / 2, touch.y + 0.35, GOAL_LINE_Z - 0.3), end,
+  ), [touch, end]);
+  const OWN_SPLIT = 0.68;
 
   // Defesa: o goleiro espalma e a bola sai pro lado (rebote).
   const rebound = useMemo(() => {
@@ -391,12 +414,18 @@ function ShotScene({ goalLoc, shotOrigin, team, result, teamColor, progress }: {
         ball.current.position.copy(start);
         ball.current.rotation.set(0, 0, 0);
       } else if (afterP <= 0) {
-        ball.current.position.copy(curve.getPoint(eased));
+        if (result === "own_goal") {
+          ball.current.position.copy(flightP < OWN_SPLIT
+            ? ownLegA.getPoint(1 - (1 - flightP / OWN_SPLIT) ** 1.4)
+            : ownLegB.getPoint(smooth((flightP - OWN_SPLIT) / (1 - OWN_SPLIT))));
+        } else {
+          ball.current.position.copy(curve.getPoint(eased));
+        }
         ball.current.rotation.set(eased * 6, eased * 8, eased * 3);
       } else if (result === "saved") {
         ball.current.position.copy(rebound.getPoint(smooth(afterP)));
         ball.current.rotation.set(6 + afterP * 5, 8 + afterP * 4, 3);
-      } else if (result === "goal") {
+      } else if (result === "goal" || result === "own_goal") {
         // bola cai na rede
         const settle = smooth(afterP);
         ball.current.position.set(end.x, lerp(end.y, 0.22, settle), end.z - 0.45 * settle);
@@ -407,7 +436,7 @@ function ShotScene({ goalLoc, shotOrigin, team, result, teamColor, progress }: {
     }
 
     if (net.current) {
-      const impact = result === "goal"
+      const impact = (result === "goal" || result === "own_goal")
         ? (afterP <= 0 ? Math.max(0, (flightP - 0.85) / 0.15) : Math.max(0, 1 - afterP * 1.5))
         : 0;
       net.current.position.z = GOAL_LINE_Z - 1.7 - impact * 0.08;
@@ -486,14 +515,14 @@ function ShotScene({ goalLoc, shotOrigin, team, result, teamColor, progress }: {
         </mesh>
       </group>
 
-      {(result === "goal" || result === "saved") && (
+      {(result === "goal" || result === "saved" || result === "own_goal") && (
         <mesh ref={pulse} position={[end.x, end.y, GOAL_LINE_Z + 0.05]}>
           <ringGeometry args={[0.28, 0.34, 32]} />
           <meshBasicMaterial color={teamColor} transparent opacity={0.35} side={THREE.DoubleSide} />
         </mesh>
       )}
 
-      <Keeper progress={progress} result={result} end={end} shooterX={start.x} />
+      <Keeper progress={progress} result={result} end={result === "own_goal" ? touch : end} shooterX={start.x} />
       <Kicker progress={progress} start={start} teamColor={teamColor} />
       <group ref={ball}>
         <SoccerBall />
@@ -522,6 +551,12 @@ export function GoalReplay3D({ goalLoc, shotOrigin, team = "home", result = "goa
         <ShotScene goalLoc={goalLoc} shotOrigin={shotOrigin} team={team} result={result} teamColor={teamColor} progress={progress} />
       </Canvas>
       <div className="goal-replay-tag" aria-hidden="true">REPLAY 3D</div>
+      {result === "own_goal" && (
+        <div className="absolute left-3.5 top-3.5 rounded-md border border-orange-300/50 bg-orange-500/90 px-2.5 py-1 text-[11px] font-extrabold tracking-wider text-white shadow-lg"
+             aria-hidden="true">
+          GOL CONTRA · a bola desvia para o próprio gol
+        </div>
+      )}
       {onClose && (
         <button type="button" className="goal-replay-close" onClick={onClose} title="Fechar (Esc)" aria-label="Fechar replay 3D">
           <MaterialIcon name="close" className="mr-1 align-middle" />Fechar

@@ -127,6 +127,46 @@ def _result_of(e: Event) -> str:
     return "saved" if (shot and shot.on_target) else "off_target"
 
 
+def _is_own_goal(e: Event) -> bool:
+    """O Understat grava gol contra como chute com resultado "OwnGoal"."""
+    return (e.outcome or "").lower().replace(" ", "").replace("_", "") == "owngoal"
+
+
+def _own_goal_beneficiaries(events: List[Event], home_team_ids: set, m: Optional[Match]) -> Dict[int, str]:
+    """Descobre QUAL time recebe o gol de cada gol contra (event.id -> "home"/"away").
+
+    A fonte nem sempre deixa claro de que lado o gol contra foi gravado, então usa o
+    placar: o gol contra vai para o time que ainda tem gols "sobrando" depois de
+    descontar seus gols normais. Sem placar (ou ambíguo), assume que o evento está
+    no lado de quem fez o gol contra, e o gol vai para o adversário.
+    """
+    out: Dict[int, str] = {}
+    own = [e for e in events if _is_own_goal(e)]
+    if not own:
+        return out
+    left: Dict[str, Optional[int]] = {"home": None, "away": None}
+    if m is not None and m.home_score is not None and m.away_score is not None:
+        left = {"home": m.home_score, "away": m.away_score}
+        for e in events:
+            if _is_own_goal(e):
+                continue
+            if _result_of(e) == "goal":
+                left["home" if e.team_id in home_team_ids else "away"] -= 1
+    for e in own:
+        event_side = "home" if e.team_id in home_team_ids else "away"
+        pick = "away" if event_side == "home" else "home"
+        if left["home"] is not None:
+            home_open, away_open = left["home"] > 0, left["away"] > 0
+            if home_open and not away_open:
+                pick = "home"
+            elif away_open and not home_open:
+                pick = "away"
+        out[e.id] = pick
+        if left[pick] is not None:
+            left[pick] -= 1
+    return out
+
+
 def _flip(x: float, y: float, away: bool) -> Tuple[float, float]:
     x = max(0.0, min(100.0, x))
     y = max(0.0, min(100.0, y))
@@ -158,17 +198,33 @@ def _load_shot_events(db: Session, match_ids: Iterable[int]) -> List[Event]:
     return [e for e in db.scalars(q).all() if e.position is not None]
 
 
-def _serialize_shots(events: List[Event], home_team_ids: set, source_match: Dict[int, Match]) -> List[Dict[str, Any]]:
+def _serialize_shots(events: List[Event], home_team_ids: set, source_match: Dict[int, Match],
+                     og_side: Optional[Dict[int, str]] = None) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for e in events:
         shot, pos = e.shot, e.position
-        away = e.team_id not in home_team_ids
+        own = _is_own_goal(e)
+        if own:
+            # Gol contra: conta como gol do ADVERSÁRIO (team = quem recebe o gol);
+            # o autor (player) é do outro time (player_team).
+            beneficiary = (og_side or {}).get(e.id) or ("away" if e.team_id in home_team_ids else "home")
+            away = beneficiary == "away"
+            owner_side = "home" if away else "away"
+        else:
+            away = e.team_id not in home_team_ids
+            owner_side = "away" if away else "home"
         x, y = _flip(pos.x, pos.y, away)
         has_end = pos.end_x is not None and pos.end_y is not None
         if has_end:
             ex, ey = _flip(pos.end_x, pos.end_y, away)
         else:
             ex, ey = (0.0 if away else 100.0), 50.0
+        if own:
+            # A fonte não diz com que referencial o lance do gol contra foi gravado:
+            # garante que a origem fique perto do gol que recebeu a bola.
+            goal_x = 0.0 if away else 100.0
+            if abs(x - goal_x) > 35:
+                x, y = round(100 - x, 1), round(100 - y, 1)
         details = e.details or {}
         sm = source_match.get(e.match_id)
         out.append({
@@ -184,10 +240,13 @@ def _serialize_shots(events: List[Event], home_team_ids: set, source_match: Dict
             "team": "away" if away else "home",
             "player_id": e.player_id,
             "player": _player_name(e.player),
-            "result": _result_of(e),
+            "result": "goal" if own else _result_of(e),
             "outcome": e.outcome,
-            "on_target": bool(shot.on_target) if shot else None,
-            "xg": round(float(shot.xg), 3) if shot and shot.xg is not None else None,
+            "own_goal": own,
+            "own_goal_team": owner_side if own else None,
+            "player_team": owner_side,
+            "on_target": True if own else (bool(shot.on_target) if shot else None),
+            "xg": None if own else (round(float(shot.xg), 3) if shot and shot.xg is not None else None),
             "xgot": round(float(shot.psxg), 3) if shot and shot.psxg is not None else None,
             "x": x, "y": y, "end_x": ex, "end_y": ey,
             "end_known": has_end,
@@ -206,7 +265,7 @@ def _serialize_shots(events: List[Event], home_team_ids: set, source_match: Dict
 def _heat_from_shots(shots: List[Dict[str, Any]], team: str) -> List[Dict[str, Any]]:
     grid: Dict[Tuple[int, int], float] = defaultdict(float)
     for s in shots:
-        if s["team"] != team:
+        if s["team"] != team or s.get("own_goal"):
             continue
         cx = min(HEAT_COLS - 1, int(s["x"] / 100 * HEAT_COLS))
         cy = min(HEAT_ROWS - 1, int(s["y"] / 100 * HEAT_ROWS))
@@ -261,7 +320,8 @@ def _recent_match_ids(db: Session, team_ids: List[int], before, limit: int) -> L
 
 def _team_shots_recent(db: Session, team_ids: List[int], before, limit: int, side: str) -> Tuple[List[Dict], List[int]]:
     ids = _recent_match_ids(db, team_ids, before, limit)
-    events = [e for e in _load_shot_events(db, ids) if e.team_id in set(team_ids)]
+    events = [e for e in _load_shot_events(db, ids)
+              if e.team_id in set(team_ids) and not _is_own_goal(e)]
     matches = {
         mm.id: mm for mm in db.scalars(
             select(Match).options(selectinload(Match.home_team), selectinload(Match.away_team))
@@ -381,6 +441,10 @@ def _build_players(
         return agg[key]
 
     for s in shots:
+        if s.get("own_goal"):
+            # Gol contra: garante a ficha do autor no time DELE, sem contar chute/xG/gol.
+            entry(s["player"], s["player_id"], s.get("player_team") or s["team"])
+            continue
         shooter = entry(s["player"], s["player_id"], s["team"])
         if shooter:
             m = shooter["match"]
@@ -458,13 +522,16 @@ def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]
     if own:
         mode = "match"
         sources = {m.id: m}
-        shots = _serialize_shots(own, {m.home_team_id}, sources)
+        shots = _serialize_shots(own, {m.home_team_id}, sources,
+                                 _own_goal_beneficiaries(own, {m.home_team_id}, m))
         used_match_ids = [m.id]
         data_source = getattr(m.data_source, "value", m.data_source)
     elif twin is not None:
         mode = "match"
         linked_match_id = twin.id
-        shots = _serialize_shots(_load_shot_events(db, [twin.id]), {twin.home_team_id}, {twin.id: twin})
+        twin_events = _load_shot_events(db, [twin.id])
+        shots = _serialize_shots(twin_events, {twin.home_team_id}, {twin.id: twin},
+                                 _own_goal_beneficiaries(twin_events, {twin.home_team_id}, m))
         used_match_ids = [twin.id]
         data_source = getattr(twin.data_source, "value", twin.data_source)
         notes.append("Chutes vindos da mesma partida em outra fonte de dados (vínculo por times e data).")
@@ -498,6 +565,25 @@ def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]
                 "Nenhuma fonte tem chutes para estes times. O Understat cobre apenas Premier League, "
                 "La Liga, Bundesliga, Serie A e Ligue 1 (não cobre o Brasileirão)."
             )
+
+    if mode == "match":
+        for s in shots:
+            if s.get("own_goal"):
+                side = "mandante" if s["own_goal_team"] == "home" else "visitante"
+                notes.append(
+                    f"Gol contra aos {s['minute']}' de {s['player'] or 'jogador não identificado'} "
+                    f"({side}); o gol vale para o adversário."
+                )
+        if finished and m.home_score is not None and m.away_score is not None:
+            got = {"home": 0, "away": 0}
+            for s in shots:
+                if s["result"] == "goal":
+                    got[s["team"]] += 1
+            if got["home"] != m.home_score or got["away"] != m.away_score:
+                notes.append(
+                    f"O placar ({m.home_score}–{m.away_score}) tem gols que a fonte não detalhou "
+                    f"(registrados: {got['home']}–{got['away']}), como um possível gol contra."
+                )
 
     if shots and not any(s["end_known"] for s in shots):
         notes.append("A fonte não informa onde a bola foi: a linha do chute aponta para o centro do gol.")

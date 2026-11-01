@@ -47,7 +47,7 @@ function durationFor(from: StudioCoord, to: StudioCoord) {
   return Math.round((1.1 + Math.min(d, 45) * 0.025) * 10) / 10;
 }
 
-function toAction(s: StudioApiShot, teamName: string): StudioAction {
+function toAction(s: StudioApiShot, teamName: string, ownGoalTeamName?: string): StudioAction {
   const from = { x: s.x, y: s.y };
   const to = { x: s.end_known ? s.end_x : GOAL_X(s.team), y: s.end_known ? s.end_y : 50 };
   return {
@@ -68,6 +68,8 @@ function toAction(s: StudioApiShot, teamName: string): StudioAction {
     duration: durationFor(from, to),
     endKnown: s.end_known,
     matchLabel: s.match_label ?? undefined,
+    ownGoal: s.own_goal || undefined,
+    ownGoalTeamName: s.own_goal ? ownGoalTeamName : undefined,
   };
 }
 
@@ -85,7 +87,9 @@ export function payloadToDataset(p: MatchStudioPayload): StudioDataset {
   const apiShots = p.mode === "match"
     ? [...p.shots].sort((a, b) => a.minute - b.minute)
     : p.shots;
-  const shots = apiShots.map((s) => toAction(s, teamName(s.team)));
+  const shots = apiShots.map((s) => toAction(
+    s, teamName(s.team), s.own_goal_team ? teamName(s.own_goal_team) : undefined,
+  ));
 
   // -------- fichas de jogador --------
   const keyToId = new Map<string, number>();
@@ -100,9 +104,10 @@ export function payloadToDataset(p: MatchStudioPayload): StudioDataset {
   p.players.forEach((pl: StudioApiPlayer, i) => {
     const id = i + 1;
     const lp = lineupByKey.get(pl.key);
+    // Gol contra não entra nos chutes do autor (nem no time dele): só aparece no lance do gol.
     const mine = shots.filter((s, idx) => {
       const raw = apiShots[idx];
-      return raw.team === pl.team && normName(raw.player) === normName(pl.name) && s.id === raw.id;
+      return !raw.own_goal && raw.team === pl.team && normName(raw.player) === normName(pl.name) && s.id === raw.id;
     });
     const knownXgot = mine.map((s) => s.xgot).filter((v): v is number => v != null);
     const pos: StudioCoord = lp ? { x: lp.pitch_x, y: lp.pitch_y } : { x: pl.team === "home" ? 72 : 28, y: 50 };
