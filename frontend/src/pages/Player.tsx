@@ -21,7 +21,7 @@ const C = {
   navy: "#2a3fb8",
   grid: "#22314f",
   axis: "#8794ad",
-  tip: { background: "#0f1830", border: "1px solid #22314f", borderRadius: 8, fontSize: 12 },
+  tip: { background: "#0f1830", border: "1px solid #22314f", borderRadius: 8, fontSize: 12, color: "#e5e7eb" },
 };
 
 const nf = (v: number | null | undefined, d = 2) => (v == null || Number.isNaN(v) ? "—" : v.toFixed(d));
