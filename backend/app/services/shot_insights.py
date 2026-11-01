@@ -108,13 +108,20 @@ def _own_zone(e: Event) -> Tuple[str, str]:
 
 def _league_baseline(db: Session, m: Match, fallback_events: List[Event]) -> Tuple[Dict[str, float], Dict[str, float], int]:
     """xG médio por time-jogo em cada zona (ataque / defesa), da própria temporada."""
+    return season_baseline(db, m.season_id, m.kickoff_time, fallback_events)
+
+
+def season_baseline(
+    db: Session, season_id: Optional[int], before: datetime, fallback_events: List[Event],
+) -> Tuple[Dict[str, float], Dict[str, float], int]:
+    """Mesma média da liga, mas para uma temporada e um instante de corte quaisquer."""
     ids: List[int] = []
-    if m.season_id is not None:
+    if season_id is not None:
         ids = list(db.scalars(
             select(Match.id)
             .where(
-                Match.season_id == m.season_id,
-                Match.kickoff_time < m.kickoff_time,
+                Match.season_id == season_id,
+                Match.kickoff_time < before,
                 Match.status == "finished",
                 Match.id.in_(select(Event.match_id).where(Event.type == EventType.SHOT)),
             )

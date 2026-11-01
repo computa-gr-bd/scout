@@ -675,3 +675,69 @@ export interface UnderstatTeamShots {
 export async function getUnderstatTeamShots(teamId: number, params?: { limit?: number; season_id?: number }) {
   return api.get<UnderstatTeamShots>(`/understat/teams/${teamId}/shots`, { params }).then((r) => r.data);
 }
+
+// ---------- Understat: perfil completo de um time (qualquer fonte) ----------
+export interface TeamZoneWeakness {
+  zone: PitchZone;
+  weakness_score: number;
+  ratio_vs_league: number;
+  shots_conceded_per_90: number;
+  xga_per_90: number;
+  goals_conceded_per_90: number;
+  sample_size: number;
+}
+export interface TeamProfileMatch {
+  match_id: number; kickoff_time: string | null; home: boolean;
+  opponent: string | null; opponent_logo?: string | null;
+  goals_for: number | null; goals_against: number | null; result: "W" | "D" | "L" | null;
+  xg_for: number; xg_against: number; shots_for: number; shots_against: number;
+}
+export interface TeamProfileOpportunity {
+  zone: PitchZone; opportunity_score: number;
+  player_id: number; player_name: string;
+  offensive_strength: number; player_frequency: number; shots: number; xg: number;
+}
+export type SquadGroupKey = "gk" | "def" | "mid" | "att";
+export interface TeamProfilePlayer {
+  player_id: number;
+  /** Id do mesmo jogador no elenco do football-data (quando o nome bate). */
+  fd_player_id: number | null;
+  name: string; position: string | null; group: SquadGroupKey;
+  games: number; minutes: number | null; goals: number; assists: number | null;
+  shots: number | null; key_passes: number | null;
+  xg: number | null; xa: number | null; xg_per_90: number | null; goals_per_90: number | null;
+  source: "understat" | "shots";
+}
+export interface TeamProfileSquadMember {
+  key: string; name: string; position: string | null; born: number | null; group: SquadGroupKey;
+  games: number | null; goals: number | null; assists: number | null; xg: number | null; has_stats: boolean;
+}
+export interface TeamProfileSummary {
+  matches: number; wins: number; draws: number; losses: number;
+  goals_for: number; goals_against: number; xg_for: number; xg_against: number;
+  xg_per_90: number | null; xga_per_90: number | null; xg_diff_per_90: number | null;
+  shots_per_90: number | null; shots_against_per_90: number | null;
+  goals_per_90: number | null; goals_conceded_per_90: number | null;
+  goals_minus_xg: number | null;
+}
+export interface TeamProfile {
+  available: boolean;
+  team: { id: number; name: string; logo_url: string | null };
+  team_ids: number[];
+  season?: { id: number | null; name: string | null; competition: string | null; code: string | null };
+  sample?: { matches: number; league_matches: number };
+  summary?: TeamProfileSummary;
+  matches?: TeamProfileMatch[];
+  weaknesses?: TeamZoneWeakness[];
+  attack?: { zone: PitchZone; strength_score: number }[];
+  opportunities?: TeamProfileOpportunity[];
+  players: TeamProfilePlayer[];
+  /** Elenco completo (todas as fontes) já com jogos/gols/xG da Understat quando o nome bate. */
+  squad?: TeamProfileSquadMember[];
+  /** Classificação da temporada pela tabela da Understat. */
+  standings?: StandingRow[];
+  notes?: string[];
+}
+export async function getTeamProfile(teamId: number, params?: { season_id?: number }) {
+  return api.get<TeamProfile>(`/understat/teams/${teamId}/profile`, { params }).then((r) => r.data);
+}

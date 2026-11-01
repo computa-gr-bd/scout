@@ -942,6 +942,25 @@ def get_team_stats(
     }
 
 
+@router.get("/understat/teams/{team_id}/profile")
+def get_team_profile(
+    team_id: int,
+    season_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Perfil completo de um time (qualquer fonte): xG/xGA, jogo a jogo, fraquezas e ataque por zona, jogadores.
+
+    Aceita o id de um time do football-data ou da Understat: os chutes reais são buscados nos
+    times equivalentes (mesmo nome) de todas as fontes.
+    """
+    from app.services.team_profile import team_profile
+
+    team = db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    return team_profile(db, team, season_id=season_id)
+
+
 @router.get("/understat/league-table/{league_key}")
 def get_league_table(
     league_key: str,

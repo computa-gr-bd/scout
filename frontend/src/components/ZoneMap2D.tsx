@@ -13,8 +13,11 @@ import {
  */
 export function ZoneMap2D({
   title, homeWeakness, awayWeakness, homeWeaknessDetails, awayWeaknessDetails, opportunities, teamNames,
+  singleTeam = false,
 }: {
   title?: string;
+  /** Página de um time só: sem mandante/visitante; defesa à esquerda e ataque à direita. */
+  singleTeam?: boolean;
   homeWeakness?: Record<string, number>;
   awayWeakness?: Record<string, number>;
   homeWeaknessDetails?: WeaknessDetail[];
@@ -76,12 +79,20 @@ export function ZoneMap2D({
   };
 
   const homeHas = selectedZone ? zoneSectionHasData(selectedZone, false, homeWeakness, homeAgg.find((a) => a.drawn === selectedZone)) : false;
-  const awayHas = selectedZone ? zoneSectionHasData(selectedZone, true, awayWeakness, awayAgg.find((a) => a.drawn === selectedZone)) : false;
+  const awayHas = selectedZone && !singleTeam
+    ? zoneSectionHasData(selectedZone, true, awayWeakness, awayAgg.find((a) => a.drawn === selectedZone))
+    : false;
 
   return (
     <div ref={wrapRef} className="relative">
       <Pitch2D
         title={title}
+        header={singleTeam ? (
+          <div className="mb-2 flex items-center justify-between text-[11px] text-sv-muted">
+            <span>◀ {homeName} defende (vermelho = fraqueza)</span>
+            <span>{homeName} ataca (verde = oportunidade) ▶</span>
+          </div>
+        ) : undefined}
         homeWeakness={homeWeakness}
         awayWeakness={awayWeakness}
         opportunityZones={drawn}
@@ -93,17 +104,19 @@ export function ZoneMap2D({
       {selectedZone && (
         <ZonePanelFrame
           title={ZONE_GEOMETRY[selectedZone].label}
-          subtitle={`${homeName} (mandante) × ${awayName} (visitante)`}
+          subtitle={singleTeam ? homeName : `${homeName} (mandante) × ${awayName} (visitante)`}
           position={panelPos}
           onClose={() => setSelectedZone(null)}
         >
           {!homeHas && !awayHas && (
             <p className="text-[11px] leading-snug text-sv-muted">
-              Sem dados relevantes nesta zona para os dois times. Clique em outra zona.
+              {singleTeam
+                ? "Sem dados relevantes nesta zona para este time. Clique em outra zona."
+                : "Sem dados relevantes nesta zona para os dois times. Clique em outra zona."}
             </p>
           )}
           {homeHas && (
-            <ZoneStatsSection zone={selectedZone} flip={false} heading={`${homeName} · mandante`}
+            <ZoneStatsSection zone={selectedZone} flip={false} heading={singleTeam ? undefined : `${homeName} · mandante`}
               weakness={homeWeakness} weaknessDetails={homeWeaknessDetails}
               oppAgg={homeAgg.find((a) => a.drawn === selectedZone)} />
           )}

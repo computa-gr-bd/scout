@@ -211,7 +211,7 @@ function ZoneHitLayer({
 
 export function Pitch3D({
   title, homeWeakness, awayWeakness, homeWeaknessDetails, awayWeaknessDetails,
-  opportunityZones, teamNames, defaultSide = "home",
+  opportunityZones, teamNames, defaultSide = "home", singleTeam = false,
 }: {
   title?: string;
   homeWeakness?: Record<string, number>;
@@ -221,6 +221,8 @@ export function Pitch3D({
   opportunityZones?: ZoneStatEntry[];
   teamNames?: { home?: string; away?: string };
   defaultSide?: ZoneSide;
+  /** Página de um time só: esconde o seletor Casa/Visitante e o rótulo "mandante". */
+  singleTeam?: boolean;
 }) {
   const [side, setSide] = useState<ZoneSide>(defaultSide);
   const [selectedZone, setSelectedZone] = useState<PitchZone | null>(null);
@@ -245,7 +247,7 @@ export function Pitch3D({
   const weakness = side === "home" ? homeWeakness : awayWeakness;
   const weaknessDetails = side === "home" ? homeWeaknessDetails : awayWeaknessDetails;
   const teamName = teamNames?.[side] || (side === "home" ? "Time da casa" : "Time visitante");
-  const teamLabel = `${teamName} · ${side === "home" ? "mandante" : "visitante"}`;
+  const teamLabel = singleTeam ? teamName : `${teamName} · ${side === "home" ? "mandante" : "visitante"}`;
 
   const entries = opportunityZones ?? [];
   const aggs = useMemo<ZoneAgg[]>(
@@ -286,6 +288,7 @@ export function Pitch3D({
           </span>
           <span className="hidden sm:inline">· clique numa zona para ver as estatísticas</span>
         </div>
+        {!singleTeam && (
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] uppercase tracking-wide text-sv-muted">Zonas de</span>
           <button onClick={() => setSide("home")}
@@ -297,6 +300,7 @@ export function Pitch3D({
             <MaterialIcon name="flight" className="mr-1 align-middle text-[14px]" />{teamNames?.away || "Visitante"}
           </button>
         </div>
+        )}
       </div>
 
       <div ref={wrapRef} className="relative p-3 md:p-5" style={{ height: 520 }}

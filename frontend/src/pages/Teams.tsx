@@ -323,16 +323,20 @@ export default function TeamsPage() {
           })),
         ].map((opt) => {
           const active = leagueId === opt.id;
+          // Só uma liga é carregada por vez: o número das outras seria 0 (falso). Mostra só o que é conhecido.
+          const showCount = active || (leagueId === "all" && opt.count > 0);
           return (
             <button
               key={opt.id}
               onClick={() => setLeagueId(opt.id)}
               className={`sv-btn !py-1.5 ${active ? "!bg-sv-accent !border-sv-accent3 text-white shadow-glow" : ""}`}
             >
-              {opt.label}{" "}
-              <span className={`sv-chip !py-0 ${active ? "!bg-white/15 !border-white/25 text-white" : ""}`}>
-                {opt.count}
-              </span>
+              {opt.label}
+              {showCount && (
+                <span className={`sv-chip !py-0 ml-1.5 ${active ? "!bg-white/15 !border-white/25 text-white" : ""}`}>
+                  {opt.count}
+                </span>
+              )}
             </button>
           );
         })}

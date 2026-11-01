@@ -281,3 +281,20 @@ JWT-based. Roles:
 ## License
 
 StatsBomb Open Data license applies to any StatsBomb-derived data. Demo data is synthetic.
+
+---
+
+## Página do time com dados da Understat
+
+`GET /api/understat/teams/{team_id}/profile` aceita o id de um time de **qualquer fonte**
+(football-data, Understat...) e procura os chutes reais nos times equivalentes (mesmo nome
+normalizado). Devolve, calculado dos chutes e da tabela de jogadores da Understat:
+
+- resumo da temporada: xG/xGA e chutes por 90, gols, saldo de xG;
+- jogo a jogo (xG a favor/contra e resultado) para o gráfico de forma;
+- fraqueza defensiva por zona (xG sofrido vs. média da liga) e força ofensiva por zona;
+- jogadores com jogos, gols e xG, ligados ao elenco do football-data pelo nome.
+
+A tela `/teams/:id` usa esse endpoint para preencher os cartões de xG, o ranking de fraquezas,
+o elenco (J · G · xG) e o mapa de zonas 2D/3D clicável. Sem chutes importados, os campos ficam
+em "—": nada é inventado. Código: `backend/app/services/team_profile.py`.
