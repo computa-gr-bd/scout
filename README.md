@@ -1,20 +1,22 @@
 # ScoutVision — Dados e análise exploratória de futebol
 
 ScoutVision reúne calendário, resultados, clubes, elencos e classificações das
-competições disponíveis no provedor conectado. Também permite importar eventos
-históricos de competições selecionadas do StatsBomb Open Data.
+competições disponíveis nos provedores conectados. SoccerData/FBref complementa
+partidas já cadastradas com escalações e estatísticas individuais de assistência
+e defesa. Também é possível importar eventos históricos de competições
+selecionadas do StatsBomb Open Data.
 
-Os dados variam por fonte. O provedor atual não entrega xG nem estatísticas
-avançadas individuais; as probabilidades exibidas são baselines experimentais,
-não previsões treinadas e validadas com partidas reais. As visualizações de
-demonstração são sintéticas e não representam lances reais.
+Os dados variam por fonte. FBref não substitui os eventos e xG do Understat ou
+StatsBomb; as probabilidades exibidas são baselines experimentais, não previsões
+treinadas e validadas com partidas reais. As visualizações de demonstração são
+sintéticas e não representam lances reais.
 
 ---
 
 ## Architecture
 
 ```
-football-data.org + StatsBomb Open Data (importação histórica) + demo opcional
+football-data.org + Understat + SoccerData/FBref (complemento) + StatsBomb Open Data
   → Coleta, validação e normalização
   → PostgreSQL (SQLAlchemy + Alembic)
   → Estatísticas disponíveis e estimativas baseline experimentais
@@ -220,7 +222,28 @@ duplicating provider IDs. `standing` stores basic league tables separately from
 advanced statistics; missing xG/minutes are not invented. Checkpoints and failures
 are in `collection_state`; standings are served at `/api/seasons/{id}/standings`.
 Match list and standings data are served by backend endpoints; Studio event
-visualizations remain illustrative only.
+visualizations are illustrative where event data is unavailable.
+
+### SoccerData / FBref enrichment
+
+The optional collector links FBref schedule entries to existing fixtures by
+competition, teams, date, and score, then links players by team and name. It
+fetches match reports only for finished fixtures. It does not create matches,
+teams, or players; ambiguous links are skipped. The collector adds official
+lineups, match-level assists and defensive actions, and season-level defensive
+and aerial-duel statistics without replacing non-empty values from existing
+sources.
+
+Apply database migrations first, then run from `backend/` for the desired
+FBref leagues and season:
+
+```powershell
+python -m alembic upgrade head
+python -m app.services.soccerdata_sync --leagues PL PD BL1 SA FL1 --season 2026-27
+```
+
+The collector is intentionally manual so scraping scope is explicit. SoccerData
+scrapes FBref; use its cache and follow the website's terms and rate limits.
 
 StatsBomb Open Data is a limited historical catalog, not a current league feed. The Brasileirão (BSA) was removed from the project.
 It requires no API key. Only selected JSONs are fetched, and unchanged matches are

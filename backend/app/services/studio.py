@@ -2,7 +2,7 @@
 
 Monta, para uma partida, tudo o que o Studio desenha — chutes com coordenadas
 e xG, mapa de calor, escalação e fichas de jogador — **somente a partir do que
-existe no banco** (Understat, StatsBomb, football-data). Nada é inventado:
+existe no banco** (Understat, StatsBomb, football-data e FBref). Nada é inventado:
 quando a fonte não traz um dado, o campo vem ``None`` e a tela mostra "—".
 
 Modos devolvidos em ``mode``:
@@ -417,6 +417,34 @@ def _minutes_in_match(db: Session, match_ids: List[int], player_ids: List[int]) 
     return out
 
 
+def _match_stats_by_player(
+    db: Session,
+    match_ids: List[int],
+    player_ids: List[int],
+) -> Dict[int, Dict[str, int]]:
+    if not match_ids or not player_ids:
+        return {}
+    rows = db.scalars(
+        select(PlayerMatchStatistics).where(
+            PlayerMatchStatistics.match_id.in_(match_ids),
+            PlayerMatchStatistics.player_id.in_(player_ids),
+        )
+    ).all()
+    return {
+        row.player_id: {
+            "goals": row.goals or 0,
+            "assists": row.assists or 0,
+            "shots": row.shots or 0,
+            "shots_on_target": row.shots_on_target or 0,
+            "tackles": row.tackles or 0,
+            "interceptions": row.interceptions or 0,
+            "fouls_committed": row.fouls_committed or 0,
+            "fouls_suffered": row.fouls_suffered or 0,
+        }
+        for row in rows
+    }
+
+
 def _build_players(
     db: Session, shots: List[Dict[str, Any]], lineups: Dict[str, List[Dict[str, Any]]],
     match_ids: List[int], season_id: Optional[int],
@@ -433,7 +461,8 @@ def _build_players(
                 "key": key, "player_id": pid, "name": name, "team": team,
                 "shirt_number": None, "position": None, "minutes": None,
                 "match": {"goals": 0, "assists": 0, "shots": 0, "shots_on_target": 0,
-                          "xg": 0.0, "xa": 0.0, "key_passes": 0},
+                          "xg": 0.0, "xa": 0.0, "key_passes": 0, "tackles": 0,
+                          "interceptions": 0, "fouls_committed": 0, "fouls_suffered": 0},
                 "season": None,
             }
         elif pid and not agg[key]["player_id"]:
@@ -483,11 +512,17 @@ def _build_players(
     pids = [r["player_id"] for r in agg.values() if r["player_id"]]
     season = _season_stats(db, pids, season_id)
     minutes = _minutes_in_match(db, match_ids, pids)
+    match_stats = _match_stats_by_player(db, match_ids, pids)
     for rec in agg.values():
         m = rec["match"]
         m["xg"], m["xa"] = round(m["xg"], 2), round(m["xa"], 2)
         pid = rec["player_id"]
         if pid:
+            sourced = match_stats.get(pid)
+            if sourced:
+                for field, value in sourced.items():
+                    if not m.get(field):
+                        m[field] = value
             rec["season"] = season.get(pid)
             rec["minutes"] = minutes.get(pid)
     return sorted(agg.values(), key=lambda r: (-r["match"]["xg"], r["name"] or ""))
@@ -609,7 +644,8 @@ def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]
     elif any(p["estimated"] for p in lineups["home"] + lineups["away"]):
         notes.append("Escalação provável (elenco + minutos na temporada), não a oficial.")
 
-    players = _build_players(db, shots, lineups, used_match_ids, m.season_id)
+    player_stats_match_ids = used_match_ids or ([m.id] if finished else [])
+    players = _build_players(db, shots, lineups, player_stats_match_ids, m.season_id)
 
     comp = m.season.competition.name if m.season and m.season.competition else None
     return {

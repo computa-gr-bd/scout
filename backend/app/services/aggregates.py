@@ -18,6 +18,12 @@ def _team_ids_for_match(match: Match) -> List[int]:
 
 
 def compute_match_aggregates(db: Session, match: Match) -> None:
+    supplemental_by_player = {
+        row.player_id: row.supplemental_stats
+        for row in db.scalars(
+            select(PlayerMatchStatistics).where(PlayerMatchStatistics.match_id == match.id)
+        ).all()
+    }
     db.execute(delete(TeamMatchStatistics).where(TeamMatchStatistics.match_id == match.id))
     db.execute(delete(PlayerMatchStatistics).where(PlayerMatchStatistics.match_id == match.id))
 
@@ -109,7 +115,8 @@ def compute_match_aggregates(db: Session, match: Match) -> None:
         duels = sum(1 for e in events if e.player_id == pid and e.type == EventType.DUEL)
         fouls = sum(1 for e in events if e.player_id == pid and e.type == EventType.FOUL)
         minutes = lu.minutes_played
-        db.add(PlayerMatchStatistics(
+        supplemental = supplemental_by_player.get(pid)
+        player_match_stats = PlayerMatchStatistics(
             player_id=pid, match_id=match.id, team_id=lu.team_id,
             minutes_played=minutes if minutes is not None else 0,
             is_starter=bool(lu.is_starter), position=lu.position,
@@ -118,7 +125,17 @@ def compute_match_aggregates(db: Session, match: Match) -> None:
             key_passes=key_passes, xa=0.0, touches_in_box=touches_in_box,
             tackles=tackles, interceptions=interceptions, duels=duels,
             duels_won=0, fouls_suffered=fouls, fouls_committed=fouls,
-        ))
+            supplemental_stats=supplemental,
+        )
+        provider_stats = supplemental.get("soccerdata", {}) if isinstance(supplemental, dict) else {}
+        if isinstance(provider_stats, dict):
+            for field in (
+                "goals", "assists", "shots", "shots_on_target", "tackles",
+                "interceptions", "fouls_suffered", "fouls_committed",
+            ):
+                if getattr(player_match_stats, field) == 0 and provider_stats.get(field):
+                    setattr(player_match_stats, field, provider_stats[field])
+        db.add(player_match_stats)
 def compute_team_season_aggregates(db: Session, team_id: int, season_id: Optional[int]) -> None:
     if season_id is not None:
         matches = list(db.scalars(
@@ -270,6 +287,19 @@ def compute_player_season_aggregates(db: Session, player_id: int, season_id: Opt
         PlayerStatistics.scope == "overall",
         PlayerStatistics.season_id == season_id if season_id is not None else PlayerStatistics.season_id.is_(None),
     ))
+    supplemental = existing.supplemental_stats if existing and isinstance(existing.supplemental_stats, dict) else {}
+    provider_stats = supplemental.get("soccerdata", {})
+    preserved_stats = supplemental.get("preserved", {})
+    if isinstance(provider_stats, dict):
+        for field in (
+            "assists", "tackles", "interceptions", "clearances",
+            "aerials_won", "aerials_lost",
+        ):
+            if isinstance(preserved_stats, dict) and field in preserved_stats:
+                values[field] = preserved_stats[field]
+            elif field in provider_stats:
+                values[field] = provider_stats[field]
+    values["supplemental_stats"] = supplemental or None
     if existing is None:
         db.add(PlayerStatistics(**values))
     else:

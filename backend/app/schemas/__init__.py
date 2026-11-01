@@ -221,8 +221,11 @@ class PlayerStatisticsOut(BaseModel):
     fouls_suffered: int
     tackles: int
     interceptions: int
+    clearances: int
     duels: int
     duels_won: int
+    aerials_won: int
+    aerials_lost: int
     crosses: int
     shots_per_90: float
     shots_on_target_per_90: float
@@ -236,6 +239,7 @@ class PlayerStatisticsOut(BaseModel):
     tackle_pct: float
     dribble_success_pct: float
     pass_accuracy_pct: float
+    supplemental_stats: Optional[Dict[str, Any]] = None
     pace: Optional[float] = None
     dribbling: Optional[float] = None
     recent_form: Optional[Union[List[Any], Dict[str, Any]]] = None

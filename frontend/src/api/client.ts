@@ -118,12 +118,14 @@ export interface PlayerStatistics {
   passes: number; passes_completed: number; key_passes: number;
   touches_in_box: number; dribbles: number;
   fouls_suffered: number; tackles: number; interceptions: number;
-  duels: number; duels_won: number; crosses: number;
+  clearances: number; duels: number; duels_won: number;
+  aerials_won: number; aerials_lost: number;
   shots_per_90: number; shots_on_target_per_90: number;
   xg_per_90: number; xa_per_90: number;
   key_passes_per_90: number; touches_in_box_per_90: number;
   corners_per_90: number; goals_per_90: number; assists_per_90: number;
   tackle_pct: number; dribble_success_pct: number; pass_accuracy_pct: number;
+  supplemental_stats?: Record<string, unknown> | null;
   pace: number | null; dribbling: number | null;
   /** Extras do Understat (npxG, xGChain, xGBuildup, cartões…) quando a fonte é o Understat. */
   recent_form?: Record<string, unknown> | unknown[] | null;
@@ -685,7 +687,11 @@ export interface StudioApiLineupPlayer {
 export interface StudioApiPlayer {
   key: string; player_id: number | null; name: string; team: "home" | "away";
   shirt_number: number | null; position: string | null; minutes: number | null;
-  match: { goals: number; assists: number; shots: number; shots_on_target: number; xg: number; xa: number; key_passes: number };
+  match: {
+    goals: number; assists: number; shots: number; shots_on_target: number; xg: number;
+    xa: number; key_passes: number; tackles: number; interceptions: number;
+    fouls_committed: number; fouls_suffered: number;
+  };
   season: { matches: number | null; minutes: number | null; goals: number | null; assists: number | null; shots: number | null;
             shots_on_target: number | null; xg: number | null; xa: number | null; key_passes: number | null } | null;
 }

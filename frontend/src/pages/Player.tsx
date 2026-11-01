@@ -306,6 +306,18 @@ export default function PlayerPage() {
             <Kpi label="xA / 90" value={nf(stats?.xa_per_90)} sub={`Total: ${nf(stats?.xa_total)}`} />
           </div>
 
+          {stats?.supplemental_stats?.soccerdata ? (
+            <Panel title="Defesa e duelos" right={<Badge kind="accent">FBref · SoccerData</Badge>}>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+                <Kpi label="Desarmes ganhos" value={stats.tackles} />
+                <Kpi label="Interceptações" value={stats.interceptions} />
+                <Kpi label="Cortes" value={stats.clearances} />
+                <Kpi label="Aéreos ganhos" value={stats.aerials_won} />
+                <Kpi label="Aéreos perdidos" value={stats.aerials_lost} />
+              </div>
+            </Panel>
+          ) : null}
+
           <div className="grid lg:grid-cols-2 gap-4">
             {/* ---------------------------------------------- radar */}
             <Panel

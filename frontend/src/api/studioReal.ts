@@ -1,6 +1,6 @@
 /**
  * studioReal.ts — converte o payload REAL de `/matches/{id}/studio`
- * (Understat / StatsBomb / football-data) no `StudioDataset` que o
+ * (Understat / StatsBomb / football-data / FBref) no `StudioDataset` que o
  * PitchStudio desenha.
  *
  * Regra de ouro: nada aqui é inventado. Campo que a fonte não fornece
@@ -125,7 +125,8 @@ export function payloadToDataset(p: MatchStudioPayload): StudioDataset {
         shotsOnTarget: pl.match.shots_on_target, xG: pl.match.xg,
         xGOT: knownXgot.length ? Math.round(knownXgot.reduce((a, b) => a + b, 0) * 100) / 100 : null,
         passes: 0, passesAcc: 0, passAccPct: 0, crosses: 0, crossAccPct: 0, dribbles: 0, dribblesSuc: 0,
-        tackles: 0, interceptions: 0, duelsWon: 0, duelsWonPct: 0, touches: 0, fouls: 0, foulsSuffered: 0,
+        tackles: pl.match.tackles, interceptions: pl.match.interceptions, duelsWon: 0, duelsWonPct: 0,
+        touches: 0, fouls: pl.match.fouls_committed, foulsSuffered: pl.match.fouls_suffered,
         yellowCards: 0, redCards: 0, aerialWon: 0, offsides: 0, possessions: 0,
       },
       ratingBreakdown: { shooting: 0, passing: 0, dribbling: 0, defending: 0, impact: 0 },
