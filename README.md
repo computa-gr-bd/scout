@@ -16,7 +16,7 @@ sintéticas e não representam lances reais.
 ## Architecture
 
 ```
-football-data.org + Understat + SoccerData/FBref (complemento) + StatsBomb Open Data
+football-data.org + Understat + SoccerData/FBref + ESPN (complementos) + StatsBomb Open Data
   → Coleta, validação e normalização
   → PostgreSQL (SQLAlchemy + Alembic)
   → Estatísticas disponíveis e estimativas baseline experimentais
@@ -244,6 +244,28 @@ python -m app.services.soccerdata_sync --leagues PL PD BL1 SA FL1 --season 2026-
 
 The collector is intentionally manual so scraping scope is explicit. SoccerData
 scrapes FBref; use its cache and follow the website's terms and rate limits.
+
+### ESPN match-stat enrichment
+
+The ESPN collector complements existing finished fixtures with match rosters,
+player attacking and goalkeeper statistics, and collective defensive statistics.
+It does not create teams, matches, or players, and preserves non-empty values
+from existing providers. ESPN does not provide individual tackles or
+interceptions in the match summaries; FBref remains the source for those
+player-level defensive metrics.
+
+Apply migrations first, then run from `backend/`:
+
+```powershell
+python -m alembic upgrade head
+python -m app.services.espn_sync --leagues PL PD BL1 SA FL1 CL --season 2026-27
+```
+
+The collector uses ESPN's public JSON endpoints without an API key, fetches
+completed fixtures around their database dates, and commits in resumable batches.
+Responses are cached outside the repository in `~/.scoutvision/espn-cache`.
+Unmatched or unavailable fixtures remain explicit in the collection checkpoint;
+the collector never fabricates statistics.
 
 StatsBomb Open Data is a limited historical catalog, not a current league feed. The Brasileirão (BSA) was removed from the project.
 It requires no API key. Only selected JSONs are fetched, and unchanged matches are

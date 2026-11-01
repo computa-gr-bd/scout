@@ -299,6 +299,21 @@ def _match_schedule(
     league_code: str,
     schedule_rows: list[dict[Any, Any]],
 ) -> tuple[dict[str, Match], dict[str, set[tuple[int, int]]], dict[str, int]]:
+    source_seasons = {
+        _source_season_start_year(source.get("season"))
+        for source in schedule_rows
+    }
+    valid_seasons = sorted(year for year in source_seasons if year is not None)
+    match_filters = [Competition.code == league_code]
+    if valid_seasons:
+        match_filters.extend((
+            Match.kickoff_time >= datetime.combine(
+                date(valid_seasons[0], 7, 1), datetime.min.time(),
+            ),
+            Match.kickoff_time < datetime.combine(
+                date(valid_seasons[-1] + 1, 7, 1), datetime.min.time(),
+            ),
+        ))
     home_alias = aliased(Team)
     away_alias = aliased(Team)
     rows = db.execute(
@@ -307,7 +322,7 @@ def _match_schedule(
         .join(away_alias, away_alias.id == Match.away_team_id)
         .join(Season, Season.id == Match.season_id)
         .join(Competition, Competition.id == Season.competition_id)
-        .where(Competition.code == league_code)
+        .where(*match_filters)
     ).all()
 
     candidates: list[tuple[Match, str, str]] = []
@@ -318,10 +333,6 @@ def _match_schedule(
     fixtures_by_game: dict[str, Match] = {}
     team_context: dict[str, set[tuple[int, int]]] = defaultdict(set)
     summary = {"matches_matched": 0, "matches_unmatched": 0, "matches_ambiguous": 0}
-    source_seasons = {
-        _source_season_start_year(source.get("season"))
-        for source in schedule_rows
-    }
     for season_start_year in source_seasons - {None}:
         season_start = date(season_start_year, 7, 1)
         season_end = date(season_start_year + 1, 7, 1)

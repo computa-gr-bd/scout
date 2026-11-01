@@ -17,11 +17,33 @@ def _team_ids_for_match(match: Match) -> List[int]:
     return [t for t in (match.home_team_id, match.away_team_id) if t]
 
 
+def _provider_values(supplemental: object, provider: str) -> Dict[str, float]:
+    if not isinstance(supplemental, dict):
+        return {}
+    source = supplemental.get(provider)
+    if not isinstance(source, dict):
+        return {}
+    values = source.get("mapped")
+    return values if isinstance(values, dict) else {}
+
+
+def _fill_missing_values(row: object, values: Dict[str, float]) -> None:
+    for field, value in values.items():
+        if hasattr(row, field) and value is not None and getattr(row, field) in (None, 0):
+            setattr(row, field, value)
+
+
 def compute_match_aggregates(db: Session, match: Match) -> None:
     supplemental_by_player = {
         row.player_id: row.supplemental_stats
         for row in db.scalars(
             select(PlayerMatchStatistics).where(PlayerMatchStatistics.match_id == match.id)
+        ).all()
+    }
+    supplemental_by_team = {
+        row.team_id: row.supplemental_stats
+        for row in db.scalars(
+            select(TeamMatchStatistics).where(TeamMatchStatistics.match_id == match.id)
         ).all()
     }
     db.execute(delete(TeamMatchStatistics).where(TeamMatchStatistics.match_id == match.id))
@@ -73,7 +95,13 @@ def compute_match_aggregates(db: Session, match: Match) -> None:
     for tid, is_home in ((home_id, True), (away_id, False)):
         if not tid:
             continue
-        db.add(TeamMatchStatistics(**team_stats(tid, is_home)))
+        supplemental = supplemental_by_team.get(tid)
+        row = TeamMatchStatistics(
+            **team_stats(tid, is_home),
+            supplemental_stats=supplemental,
+        )
+        _fill_missing_values(row, _provider_values(supplemental, "espn"))
+        db.add(row)
 
     lineups = list(db.scalars(select(Lineup).where(Lineup.match_id == match.id)).all())
     shots_by_player: Dict[int, List] = {}
@@ -135,6 +163,7 @@ def compute_match_aggregates(db: Session, match: Match) -> None:
             ):
                 if getattr(player_match_stats, field) == 0 and provider_stats.get(field):
                     setattr(player_match_stats, field, provider_stats[field])
+        _fill_missing_values(player_match_stats, _provider_values(supplemental, "espn"))
         db.add(player_match_stats)
 def compute_team_season_aggregates(db: Session, team_id: int, season_id: Optional[int]) -> None:
     if season_id is not None:
