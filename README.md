@@ -273,11 +273,11 @@ Mantenha apenas um coletor agendado ativo. StatsBomb permanece manual.
 
 ---
 
-## Authentication (MVP)
+## Access
 
-JWT-based. Roles:
-- `USER` — view, analyze, predict
-- `ADMIN` — import data, manage users/models, view logs
+The web interface is public and does not provide user login. The backend keeps
+JWT protection on administrative API endpoints used for data imports and
+management.
 
 ---
 

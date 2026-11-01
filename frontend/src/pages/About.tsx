@@ -63,7 +63,6 @@ export default function AboutPage() {
           <StatCard label="Atletas cadastrados" value={counts.data?.players ?? "—"} />
           <StatCard label="Classificações" value={counts.data?.standings ?? "—"} />
           <StatCard label="Eventos históricos" value={counts.data?.events ?? "—"} sub="Importação StatsBomb, quando disponível" />
-          <StatCard label="Versões salvas no banco" value={counts.data?.model_versions ?? "—"} sub="Baselines embutidos não contam como versões persistidas" />
         </div>
       )}
 

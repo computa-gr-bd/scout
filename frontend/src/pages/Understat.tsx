@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getUnderstatLeagueTable, getUnderstatMatchShots, getUnderstatPlayerShots, getUnderstatStats,
   getUnderstatSyncStatus, getUnderstatTeamForm, listUnderstatLeagues, listUnderstatMatches,
-  syncUnderstatFast, triggerUnderstatSync,
+  syncUnderstatFast,
   type UnderstatLeague, type UnderstatMatch, type UnderstatStats, type UnderstatTableRow,
 } from "../api/client";
 import { Link } from "react-router-dom";
@@ -12,7 +12,6 @@ import { TeamCompare, type CompareTeam } from "../components/TeamCompare";
 import { XgScatter, type ScatterPoint } from "../components/XgScatter";
 import { Badge, EmptyState, SectionTitle, StatCard, TeamLogo } from "../components/ui";
 import { fmt } from "../lib/shotAnalytics";
-import { useAuth } from "../store/auth";
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
@@ -680,7 +679,6 @@ function FastSyncButton({ season, className = "sv-btn-primary" }: { season: numb
 // ---------------------------------------------------------------- Página
 
 export default function UnderstatPage() {
-  const auth = useAuth();
   const qc = useQueryClient();
   const leaguesQ = useQuery({ queryKey: ["understat", "leagues"], queryFn: listUnderstatLeagues, retry: 1 });
   const statusQ = useQuery({ queryKey: ["understat", "sync-status"], queryFn: getUnderstatSyncStatus, retry: 0, refetchInterval: 15000 });
@@ -702,19 +700,6 @@ export default function UnderstatPage() {
     queryFn: () => getUnderstatStats({ competition_id: current?.competition_id ?? undefined, season_id: selectedSeason }),
     enabled: !!current?.competition_id,
     retry: 1,
-  });
-
-  const sync = useMutation({
-    mutationFn: () =>
-      triggerUnderstatSync({
-        leagues: current?.key ?? "epl",
-        season: current?.seasons?.[0] ? Number(current.seasons[0].name) : 2026,
-      }),
-    onSuccess: () => {
-      setTimeout(() => {
-        qc.invalidateQueries({ queryKey: ["understat"] });
-      }, 1500);
-    },
   });
 
   // Escudos por nome de time (vindos das estatísticas da liga), usados nas listas e tabelas.
@@ -799,12 +784,6 @@ export default function UnderstatPage() {
               ))}
             </select>
             <FastSyncButton season={current?.seasons?.[0] ? Number(current.seasons[0].name) || 2026 : 2026} />
-            {auth.role === "admin" && (
-              <button className="sv-btn" onClick={() => sync.mutate()} disabled={sync.isPending}
-                title="Sincronização completa (tabela, jogadores e agregados) — mais lenta">
-                {sync.isPending ? "Sincronizando…" : "Sincronização completa"}
-              </button>
-            )}
           </div>
         }
       />

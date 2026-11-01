@@ -12,10 +12,8 @@ import AnalysisPage from "./pages/Analysis";
 import UnderstatPage from "./pages/Understat";
 import ModelsPage from "./pages/Models";
 import AboutPage from "./pages/About";
-import LoginPage from "./pages/Login";
 import { NAV_ITEMS } from "./nav";
-import { useAuth } from "./store/auth";
-import { getDataStatus, me } from "./api/client";
+import { getDataStatus } from "./api/client";
 
 function Logo({ onClick }: { onClick?: () => void }) {
   return (
@@ -149,7 +147,6 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
 }
 
 function Topbar({ onMenu, menuOpen }: { onMenu: () => void; menuOpen: boolean }) {
-  const auth = useAuth();
   const loc = useLocation();
   const connection = useQuery({
     queryKey: ["data", "status"],
@@ -166,7 +163,6 @@ function Topbar({ onMenu, menuOpen }: { onMenu: () => void; menuOpen: boolean })
     "/understat": "Understat",
     "/models": "Modelos",
     "/about": "Sobre e como usar",
-    "/login": "Entrar",
   };
   const title = Object.entries(titleMap).find(([k]) => loc.pathname === k || loc.pathname.startsWith(k + "/"))
     ?.[1] || "ScoutVision";
@@ -199,18 +195,6 @@ function Topbar({ onMenu, menuOpen }: { onMenu: () => void; menuOpen: boolean })
             <span className={`w-1.5 h-1.5 rounded-full ${connection.isError ? "bg-sv-danger" : connection.isSuccess ? "bg-sv-accent3 shadow-[0_0_10px_#5ef2b8]" : "bg-sv-warn animate-pulse"}`}/>
             {connection.isError ? "API indisponível" : connection.isSuccess ? "API conectada" : "Verificando API"}
           </span>
-          {auth.token ? (
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="sv-chip hidden sm:inline-flex min-w-0">
-                <span className="uppercase text-[10px] font-semibold">{auth.role}</span>
-                <span className="text-sv-muted">·</span>
-                <span className="truncate max-w-[140px]">{auth.email}</span>
-              </div>
-              <button onClick={() => auth.logout()} className="sv-btn !py-1.5 shrink-0">Sair</button>
-            </div>
-          ) : (
-            <Link to="/login" className="sv-btn-primary !py-1.5 shrink-0">Entrar</Link>
-          )}
         </div>
       </div>
     </header>
@@ -236,26 +220,8 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
-  const auth = useAuth();
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    const existing = localStorage.getItem("sv.token");
-    if (existing) {
-      me().then((u: any) => {
-        auth.setAuth({ token: existing, role: u.role, userId: u.id, email: u.email });
-      }).catch(() => localStorage.removeItem("sv.token")).finally(() => setLoaded(true));
-    } else {
-      setLoaded(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  if (!loaded) return <div className="h-full grid place-items-center"><div className="w-10 h-10 rounded-full skeleton"/></div>;
-
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
       <Route path="/*" element={
         <Shell>
           <Routes>

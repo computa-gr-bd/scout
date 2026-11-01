@@ -12,36 +12,6 @@ export const api = axios.create({
   },
 });
 
-api.interceptors.request.use((c) => {
-  const t = localStorage.getItem("sv.token");
-  if (t) c.headers.Authorization = `Bearer ${t}`;
-  return c;
-});
-
-api.interceptors.response.use(
-  (r) => r,
-  (e) => {
-    if (e?.response?.status === 401 && location.pathname !== "/login") {
-      localStorage.removeItem("sv.token");
-    }
-    return Promise.reject(e);
-  }
-);
-
-export function setToken(token: string | null) {
-  if (token) localStorage.setItem("sv.token", token);
-  else localStorage.removeItem("sv.token");
-}
-
-export type Role = "user" | "admin";
-
-export interface AuthInfo {
-  token: string | null;
-  role: Role | null;
-  userId: number | null;
-  email: string | null;
-}
-
 // ---------- Typed Endpoints ----------
 export interface Team {
   id: number;
@@ -245,13 +215,6 @@ export interface PredictionGenerateResp {
 
 // ---- calls ----
 export async function health() { return api.get("/health"); }
-export async function me() { return api.get("/auth/me").then((r) => r.data); }
-export async function login(email: string, password: string) {
-  const fd = new FormData();
-  fd.append("username", email);
-  fd.append("password", password);
-  return api.post("/auth/login", fd, { headers: { "Content-Type": "multipart/form-data" } }).then((r) => r.data);
-}
 
 export async function listCompetitions() { return api.get<Competition[]>("/competitions").then((r) => r.data); }
 export async function listSeasons(params?: { competition_id?: number }) { return api.get<Season[]>("/seasons", { params }).then((r) => r.data); }
@@ -413,7 +376,6 @@ export interface StatsCounts {
   shots?: number;
   passes?: number;
   team_statistics?: number;
-  model_versions?: number;
 }
 export async function getStatsCounts() {
   return api.get<StatsCounts>("/stats/counts").then((r) => r.data);
@@ -651,12 +613,6 @@ export async function syncUnderstatFast(params?: {
     .post<UnderstatFastSyncResult>("/understat/sync/fast", null, { params, timeout: 120000 })
     .then((r) => r.data);
 }
-export async function triggerUnderstatSync(params: {
-  leagues?: string; season?: number; shots_only?: boolean; max_matches?: number;
-}) {
-  return api.post("/understat/sync", null, { params }).then((r) => r.data);
-}
-
 export type UnderstatPlayerShot = UnderstatShot & { match_id: number };
 export async function getUnderstatPlayerShots(playerId: number) {
   return api

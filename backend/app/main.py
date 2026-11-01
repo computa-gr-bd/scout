@@ -107,14 +107,13 @@ def api_stats_counts():
     from app.db import SessionLocal
     from app.db.models import (
         Competition, Team, Match, Player, Standing, Event,
-        Shot, Pass, TeamStatistics, ModelVersion,
+        Shot, Pass, TeamStatistics,
     )
     from sqlalchemy import select, func
     rows = {
         "competitions": Competition, "teams": Team, "matches": Match,
         "players": Player, "standings": Standing, "events": Event,
         "shots": Shot, "passes": Pass, "team_statistics": TeamStatistics,
-        "model_versions": ModelVersion,
     }
     out: dict = {}
     with SessionLocal() as db:

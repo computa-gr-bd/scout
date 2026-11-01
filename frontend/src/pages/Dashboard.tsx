@@ -2,12 +2,12 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
-  listMatches, getMatch, getMatchStudio, getStatsCounts, listCompetitions, getDataStatus,
+  listMatches, getMatch, getMatchStudio, getDataStatus,
   listUnderstatLeagues, listUnderstatMatches, getUnderstatLeagueTable,
   type Match, type MatchStudioPayload, type StudioApiShot, type UnderstatTableRow,
 } from "../api/client";
 import { payloadToDataset } from "../api/studioReal";
-import { Badge, EmptyState, SectionTitle, StatCard, TeamLogo } from "../components/ui";
+import { Badge, EmptyState, SectionTitle, TeamLogo } from "../components/ui";
 import { PitchStudio } from "../components/PitchStudio";
 import { MaterialIcon } from "../components/MaterialIcon";
 
@@ -184,16 +184,6 @@ function ZoneBreakdown({ payload }: { payload: MatchStudioPayload }) {
 // ---------------------------------------------------------------- Página
 
 export default function Dashboard() {
-  const countsQ = useQuery({
-    queryKey: ["stats", "counts"],
-    queryFn: () => getStatsCounts(),
-    gcTime: 30_000, staleTime: 10_000,
-    retry: 0,
-  });
-  const compsQ = useQuery({
-    queryKey: ["competitions"], queryFn: () => listCompetitions(),
-    retry: 0,
-  });
   const dataStatusQ = useQuery({
     queryKey: ["data", "status"], queryFn: getDataStatus,
     staleTime: 60_000, retry: 0,
@@ -279,17 +269,6 @@ export default function Dashboard() {
   }, [tableQs.map((q) => q.dataUpdatedAt).join(","), syncedLeagues]);
   const tablesLoading = leaguesQ.isPending || tableQs.some((q) => q.isPending);
 
-  // ---- Cards e status da coleta
-  const loading = countsQ.isPending || compsQ.isPending;
-  const counts = countsQ.data;
-  const comps = compsQ.data || [];
-  const unavailable = "Indisponível";
-  const matchCount = counts?.matches ?? (countsQ.isError ? unavailable : loading ? "—" : 0);
-  const teamCount = counts?.teams ?? (countsQ.isError ? unavailable : loading ? "—" : 0);
-  const playerCount = counts?.players ?? (countsQ.isError ? unavailable : loading ? "—" : 0);
-  const shotCount = counts?.shots ?? (countsQ.isError ? unavailable : loading ? "—" : 0);
-  const compCount = comps.length || (compsQ.isError ? unavailable : loading ? "—" : 0);
-
   const states = dataStatusQ.data?.competitions ?? [];
   const lastOf = (provider: string) =>
     states.filter((s) => s.provider === provider)
@@ -307,16 +286,9 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
         <div>
-          <div className="sv-label">Bem-vindo de volta</div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight">ScoutVision — dados e análise de futebol</h1>
           <p className="text-sv-muted mt-1 text-sm">
             Consulte partidas, resultados, clubes e classificações das competições disponíveis.
-            {loading && (
-              <span className="inline-flex items-center gap-1.5 ml-2 sv-chip-accent">
-                <span className="w-1.5 h-1.5 rounded-full bg-sv-accent3 animate-pulse"/>
-                carregando dados…
-              </span>
-            )}
           </p>
           <p className={`mt-1 text-xs ${understatStale || footballStale ? "text-sv-warn" : "text-sv-muted"}`}>
             {dataStatusQ.isError
@@ -335,17 +307,6 @@ export default function Dashboard() {
           </Link>
           <Link to="/matches" className="sv-btn">Todas as partidas</Link>
         </div>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-        <StatCard label="Partidas" value={matchCount}
-                  sub={`${compCount} competição(ões) importada(s)`} accent="sv-accent" />
-        <StatCard label="Times cadastrados" value={teamCount}
-                  sub="Clubes recebidos das fontes conectadas" />
-        <StatCard label="Atletas cadastrados" value={playerCount}
-                  sub="Cadastro do elenco; estatísticas individuais podem não existir" />
-        <StatCard label="Chutes coletados" value={shotCount}
-                  sub="Finalizações reais com posição e xG (Understat)" accent="sv-accent" />
       </div>
 
       <SectionTitle title="Campo · ScoutVision Studio"
