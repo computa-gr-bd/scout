@@ -191,6 +191,12 @@ class PlayerBase(BaseModel):
     preferred_foot: Optional[str] = None
     position: Optional[str] = None
     team_id: Optional[int] = None
+    # Time atual e liga (preenchidos por ``decorate_players``; None quando desconhecidos).
+    team_name: Optional[str] = None
+    team_short_name: Optional[str] = None
+    team_logo_url: Optional[str] = None
+    league_code: Optional[str] = None
+    league_name: Optional[str] = None
     data_source: DataSource
     model_config = ConfigDict(from_attributes=True)
 

@@ -96,8 +96,16 @@ export interface Player {
   preferred_foot: string | null;
   position: string | null;
   team_id: number | null;
+  /** Time atual e liga (None quando o provedor não informa). */
+  team_name?: string | null;
+  team_short_name?: string | null;
+  team_logo_url?: string | null;
+  league_code?: string | null;
+  league_name?: string | null;
   data_source: string;
   statistics: PlayerStatistics[];
+  /** Zonas já embutidas no detalhe (só dados demo). */
+  zone_statistics?: PlayerZoneStat[];
 }
 
 export interface PlayerStatistics {
@@ -117,6 +125,8 @@ export interface PlayerStatistics {
   corners_per_90: number; goals_per_90: number; assists_per_90: number;
   tackle_pct: number; dribble_success_pct: number; pass_accuracy_pct: number;
   pace: number | null; dribbling: number | null;
+  /** Extras do Understat (npxG, xGChain, xGBuildup, cartões…) quando a fonte é o Understat. */
+  recent_form?: Record<string, unknown> | unknown[] | null;
 }
 
 export interface PlayerZoneStat {
@@ -248,10 +258,47 @@ export async function getTeam(id: number) { return api.get<Team>(`/teams/${id}`)
 export async function getTeamStatistics(id: number) { return api.get<TeamStatistics[]>(`/teams/${id}/statistics`).then((r) => r.data); }
 export async function getTeamWeaknesses(id: number) { return api.get<DefensiveWeakness[]>(`/teams/${id}/weaknesses`).then((r) => r.data); }
 
-export async function listPlayers(params?: { q?: string; position?: string; team_id?: number; skip?: number; limit?: number }) { return api.get<Player[]>("/players", { params }).then((r) => r.data); }
+export type PlayerOrder = "name" | "goals" | "assists" | "xg" | "minutes";
+export async function listPlayers(params?: {
+  q?: string; position?: string; team_id?: number; skip?: number; limit?: number;
+  /** Só jogadores de times das 5 ligas (PL, PD, BL1, SA, FL1). */
+  top5?: boolean;
+  /** Código de uma das 5 ligas; implica top5. */
+  league?: string;
+  order?: PlayerOrder;
+}) { return api.get<Player[]>("/players", { params }).then((r) => r.data); }
 export async function getPlayer(id: number) { return api.get<Player>(`/players/${id}`).then((r) => r.data); }
 export async function getPlayerStatistics(id: number) { return api.get<PlayerStatistics[]>(`/players/${id}/statistics`).then((r) => r.data); }
 export async function getPlayerZones(id: number) { return api.get<PlayerZoneStat[]>(`/players/${id}/zones`).then((r) => r.data); }
+
+export interface PlayerRecentMatch {
+  match_id: number; date: string | null; opponent: string | null; is_home: boolean;
+  result: "W" | "D" | "L" | null;
+  goals: number; assists: number; shots: number; xg: number;
+}
+export interface PlayerLeagueAverage {
+  n_players: number; min_minutes: number; league: string | null;
+  shots_per_90: number; xg_per_90: number; xa_per_90: number; key_passes_per_90: number;
+  goals_per_90: number; assists_per_90: number;
+  npxg_per_90: number; xg_chain_per_90: number; xg_buildup_per_90: number;
+}
+export interface PlayerOverview {
+  player_id: number;
+  team: { id: number | null; name: string | null; short_name: string | null; logo_url: string | null };
+  league: { code: string | null; name: string | null };
+  extras: {
+    npxg_per_90: number; xg_chain_per_90: number; xg_buildup_per_90: number;
+    npg: number; yellow_cards: number; red_cards: number;
+  };
+  recent: PlayerRecentMatch[];
+  next_match: {
+    match_id: number; kickoff_time: string | null; is_home: boolean;
+    opponent_id: number | null; opponent_name: string | null; opponent_logo_url: string | null;
+    competition: string | null;
+  } | null;
+  league_average: PlayerLeagueAverage | null;
+}
+export async function getPlayerOverview(id: number) { return api.get<PlayerOverview>(`/players/${id}/overview`).then((r) => r.data); }
 export async function getShotProbability(playerId: number, opponentTeamId: number, venue: "home" | "away" = "home") {
   return api.get(`/players/${playerId}/shot-probability`, { params: { opponent_team_id: opponentTeamId, venue } }).then((r) => r.data);
 }
