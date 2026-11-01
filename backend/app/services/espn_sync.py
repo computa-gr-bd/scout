@@ -182,17 +182,29 @@ def _same_fixture(
 ) -> bool:
     if abs(first.kickoff_time.date() - second.kickoff_time.date()) > MATCH_DATE_TOLERANCE:
         return False
-    if (
-        first.home_score is not None and second.home_score is not None
-        and first.home_score != second.home_score
-    ) or (
-        first.away_score is not None and second.away_score is not None
-        and first.away_score != second.away_score
-    ):
-        return False
-    return (
+    direct = (
         _same_espn_team_name(first_home, second_home)
         and _same_espn_team_name(first_away, second_away)
+    )
+    reversed_teams = (
+        _same_espn_team_name(first_home, second_away)
+        and _same_espn_team_name(first_away, second_home)
+    )
+    if not direct and not reversed_teams:
+        return False
+    scores = (
+        (
+            (first.home_score, second.home_score),
+            (first.away_score, second.away_score),
+        )
+        if direct else (
+            (first.home_score, second.away_score),
+            (first.away_score, second.home_score),
+        )
+    )
+    return all(
+        first_score is None or second_score is None or first_score == second_score
+        for first_score, second_score in scores
     )
 
 
@@ -333,14 +345,14 @@ def _stat_values(rows: Any) -> dict[str, int | float]:
 def _roster_rows(
     payload: Mapping[str, Any],
     match: Match,
-    db: Session,
+    team_names_by_id: Mapping[int, str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rosters = payload.get("rosters")
     if not isinstance(rosters, list):
         raise ValueError("Resumo ESPN não contém escalações.")
-    team_names = {
-        "home": db.get(Team, match.home_team_id).name,
-        "away": db.get(Team, match.away_team_id).name,
+    team_ids_by_side = {
+        "home": match.home_team_id,
+        "away": match.away_team_id,
     }
     lineups: list[dict[str, Any]] = []
     players: list[dict[str, Any]] = []
@@ -348,9 +360,20 @@ def _roster_rows(
         if not isinstance(roster, dict):
             continue
         side = roster.get("homeAway")
-        if side not in team_names:
+        if side not in team_ids_by_side:
             continue
-        team_name = team_names[side]
+        source_team = roster.get("team")
+        source_team_name = (
+            source_team.get("displayName") or source_team.get("name")
+            if isinstance(source_team, dict) else None
+        )
+        team_id = (
+            _team_id_for_match(source_team_name, match, team_names_by_id)
+            if source_team_name else None
+        ) or team_ids_by_side[side]
+        team_name = team_names_by_id.get(team_id) if team_id is not None else None
+        if team_name is None:
+            continue
         entries = roster.get("roster")
         if not isinstance(entries, list):
             continue
@@ -390,7 +413,11 @@ def _roster_rows(
     return lineups, players
 
 
-def _boxscore_rows(payload: Mapping[str, Any], match: Match) -> list[dict[str, Any]]:
+def _boxscore_rows(
+    payload: Mapping[str, Any],
+    match: Match,
+    team_names_by_id: Mapping[int, str],
+) -> list[dict[str, Any]]:
     boxscore = payload.get("boxscore")
     teams = boxscore.get("teams") if isinstance(boxscore, dict) else None
     if not isinstance(teams, list):
@@ -405,6 +432,18 @@ def _boxscore_rows(payload: Mapping[str, Any], match: Match) -> list[dict[str, A
         team = by_side.get(side)
         if team is None:
             continue
+        source_team = team.get("team")
+        source_team_name = (
+            source_team.get("displayName") or source_team.get("name")
+            if isinstance(source_team, dict) else None
+        )
+        fallback_team_id = match.home_team_id if side == "home" else match.away_team_id
+        team_id = (
+            _team_id_for_match(source_team_name, match, team_names_by_id)
+            if source_team_name else None
+        ) or fallback_team_id
+        if team_id is None:
+            raise ValueError("Resumo ESPN não identifica um dos times.")
         stats = _stat_values(team.get("statistics"))
         raw = {
             entry["name"]: entry.get("displayValue", entry.get("value"))
@@ -501,12 +540,8 @@ def _team_id_for_match(
         return None
     home_name = team_names_by_id.get(match.home_team_id)
     away_name = team_names_by_id.get(match.away_team_id)
-    home_match = home_name is not None and _same_team_name(
-        norm_team(name), norm_team(home_name),
-    )
-    away_match = away_name is not None and _same_team_name(
-        norm_team(name), norm_team(away_name),
-    )
+    home_match = home_name is not None and _same_espn_team_name(name, home_name)
+    away_match = away_name is not None and _same_espn_team_name(name, away_name)
     if home_match == away_match:
         return None
     return match.home_team_id if home_match else match.away_team_id
@@ -589,8 +624,8 @@ def sync_espn_rows(
             totals["summaries_missing"] += 1
             continue
         try:
-            lineups, player_rows = _roster_rows(payload, match, db)
-            team_rows = _boxscore_rows(payload, match)
+            lineups, player_rows = _roster_rows(payload, match, team_names_by_id)
+            team_rows = _boxscore_rows(payload, match, team_names_by_id)
         except ValueError as error:
             totals.setdefault("summary_errors", {})[game_id] = str(error)
             continue
@@ -712,6 +747,78 @@ def _season_match_targets(
     return {match.id: match for match, _, _ in targets}
 
 
+def _match_reversed_schedule_rows(
+    db: Session,
+    league_code: str,
+    season: str,
+    schedule_rows: list[dict[str, Any]],
+    targets: Mapping[int, Match] | None = None,
+) -> dict[str, Match]:
+    if targets is None:
+        targets = _season_match_targets(db, league_code, season)
+    if not targets:
+        return {}
+    team_ids = {
+        team_id
+        for match in targets.values()
+        for team_id in (match.home_team_id, match.away_team_id)
+    }
+    team_names = {
+        team.id: team.name
+        for team in db.scalars(select(Team).where(Team.id.in_(team_ids))).all()
+    }
+    target_rows = [
+        (match, team_names.get(match.home_team_id), team_names.get(match.away_team_id))
+        for match in targets.values()
+    ]
+    result: dict[str, Match] = {}
+    for source in schedule_rows:
+        game_id = str(source.get("game_id") or "")
+        source_date = _source_date(source)
+        source_home = str(source.get("home_team") or "")
+        source_away = str(source.get("away_team") or "")
+        source_score = _score(source.get("score"))
+        if not game_id or source_date is None or not source_home or not source_away:
+            continue
+        candidates: list[tuple[int, int, Match]] = []
+        for match, home_name, away_name in target_rows:
+            if not home_name or not away_name:
+                continue
+            if not (
+                _same_espn_team_name(source_home, away_name)
+                and _same_espn_team_name(source_away, home_name)
+            ):
+                continue
+            date_distance = abs(match.kickoff_time.date() - source_date)
+            if date_distance > MATCH_DATE_TOLERANCE:
+                continue
+            distance = date_distance.days
+            if (
+                source_score
+                and match.home_score is not None
+                and match.away_score is not None
+                and source_score != (match.away_score, match.home_score)
+            ):
+                continue
+            candidates.append((
+                distance, _data_source_priority(match.data_source), match,
+            ))
+        if not candidates:
+            continue
+        best_distance = min(distance for distance, _, _ in candidates)
+        best_priority = min(
+            priority for distance, priority, _ in candidates
+            if distance == best_distance
+        )
+        best = [
+            match for distance, priority, match in candidates
+            if distance == best_distance and priority == best_priority
+        ]
+        if len(best) == 1:
+            result[game_id] = best[0]
+    return result
+
+
 def _finished_match_dates(
     db: Session,
     league_code: str,
@@ -759,8 +866,9 @@ def _sync_league(
 ) -> dict[str, Any]:
     client = ESPNClient(cache_dir, delay=delay)
     with SessionLocal() as db:
-        dates = _finished_match_dates(db, league_code, season)
-        expected_matches = _finished_match_count(db, league_code, season)
+        targets = _season_match_targets(db, league_code, season)
+        dates = sorted({match.kickoff_time.date() for match in targets.values()})
+        expected_matches = len(targets)
         schedule_rows: list[dict[str, Any]] = []
         events_by_id: dict[str, Mapping[str, Any]] = {}
         query_dates = sorted({
@@ -783,6 +891,17 @@ def _sync_league(
             db, league_code, season, schedule_rows,
         )
         game_matches, _, matching = _match_schedule(db, league_code, schedule_rows)
+        unmatched_rows = [
+            row for row in schedule_rows
+            if str(row.get("game_id") or "") not in game_matches
+        ]
+        reversed_matches = _match_reversed_schedule_rows(
+            db, league_code, season, unmatched_rows, targets,
+        )
+        game_matches.update(reversed_matches)
+        matching["matches_matched"] += len(reversed_matches)
+        matching["matches_unmatched"] -= len(reversed_matches)
+        matching["matches_reversed"] = len(reversed_matches)
         best_event_for_match: dict[int, tuple[int, str]] = {}
         for game_id, match in game_matches.items():
             if match.status != "finished" or not _event_is_complete(events_by_id[game_id]):

@@ -12,7 +12,8 @@ from app.db.models import (
 from app.services.aggregates import compute_match_aggregates
 from app.services.espn_sync import (
     _align_schedule_team_names, _event_schedule_row, _same_espn_team_name,
-    _season_match_targets, sync_espn_rows,
+    _match_reversed_schedule_rows, _same_fixture, _season_match_targets,
+    sync_espn_rows,
 )
 
 
@@ -255,6 +256,101 @@ def test_sync_is_idempotent_and_preserves_provider_stats(db_session, seeded):
     assert team_stats.clearances == 21
     assert team_stats.shots_blocked == 2
     assert team_stats.supplemental_stats["espn"]["raw"]["totalTackles"] == "14"
+
+
+def test_reversed_fixture_maps_rosters_and_team_stats_to_the_correct_teams(
+    db_session, seeded,
+):
+    schedule = _schedule()
+    schedule[0].update(
+        home_team="Brighton & Hove Albion",
+        away_team="Arsenal",
+        score="0-1",
+    )
+    reversed_matches = _match_reversed_schedule_rows(
+        db_session, "PL", "2026-27", schedule,
+    )
+    assert reversed_matches == {"espn-1": seeded["match"]}
+
+    summary = _summary()
+    home_roster, away_roster = summary["rosters"]
+    summary["rosters"] = [
+        {
+            **away_roster,
+            "homeAway": "home",
+            "team": {"displayName": "Brighton"},
+        },
+        {
+            **home_roster,
+            "homeAway": "away",
+            "team": {"displayName": "Arsenal"},
+        },
+    ]
+    home_boxscore, away_boxscore = summary["boxscore"]["teams"]
+    summary["boxscore"]["teams"] = [
+        {
+            **away_boxscore,
+            "homeAway": "home",
+            "team": {"displayName": "Brighton"},
+        },
+        {
+            **home_boxscore,
+            "homeAway": "away",
+            "team": {"displayName": "Arsenal"},
+        },
+    ]
+
+    sync_espn_rows(
+        db_session,
+        "PL",
+        schedule,
+        {"espn-1": summary},
+        {"espn-1": seeded["match"].id},
+    )
+
+    lineups = {
+        row.player_id: row.team_id
+        for row in db_session.scalars(select(Lineup)).all()
+    }
+    assert lineups == {
+        seeded["saka"].id: seeded["home"].id,
+        seeded["welbeck"].id: seeded["away"].id,
+    }
+    team_stats = {
+        row.team_id: row
+        for row in db_session.scalars(select(TeamMatchStatistics)).all()
+    }
+    assert {
+        team_id: row.is_home for team_id, row in team_stats.items()
+    } == {
+        seeded["home"].id: False,
+        seeded["away"].id: True,
+    }
+    assert team_stats[seeded["home"].id].tackles == 14
+    assert team_stats[seeded["away"].id].tackles == 11
+
+
+def test_duplicate_fixture_detection_handles_reversed_team_order(seeded):
+    reversed_match = Match(
+        season_id=seeded["match"].season_id,
+        home_team_id=seeded["away"].id,
+        away_team_id=seeded["home"].id,
+        kickoff_time=seeded["match"].kickoff_time,
+        status="finished",
+        home_score=0,
+        away_score=1,
+        data_source=DataSource.FOOTBALL_DATA,
+    )
+    assert _same_fixture(
+        seeded["match"], "Arsenal", "Brighton & Hove Albion",
+        reversed_match, "Brighton", "Arsenal",
+    )
+
+    reversed_match.away_score = 0
+    assert not _same_fixture(
+        seeded["match"], "Arsenal", "Brighton & Hove Albion",
+        reversed_match, "Brighton", "Arsenal",
+    )
 
 
 def test_match_aggregate_rebuild_keeps_espn_supplemental_values(db_session, seeded):
