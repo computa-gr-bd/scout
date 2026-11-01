@@ -20,7 +20,7 @@ function statusLabel(status: string) {
 
 function MatchRow({ m }: { m: Match }) {
   return (
-    <Link to={`/matches/${m.id}`} className="sv-card block hover:bg-sv-panel2 transition">
+    <Link to={`/analysis/${m.id}`} className="sv-card block hover:bg-sv-panel2 transition">
       <div className="px-3 sm:px-4 py-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} className="w-6 h-6 sm:w-8 sm:h-8 shrink-0" />

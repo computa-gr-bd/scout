@@ -296,7 +296,7 @@ export default function Dashboard() {
               : dataStatusQ.isPending
               ? "Consultando a última coleta…"
               : <>
-                  Understat: {fmtTs(lastUnderstat)}{understatStale && <> · <Link to="/understat" className="underline">sincronizar agora</Link></>}
+                  Ligas: {fmtTs(lastUnderstat)}{understatStale && <> · <Link to="/ligas" className="underline">sincronizar agora</Link></>}
                   {" · "}football-data: {fmtTs(lastFootball)}{footballStale && " · pode estar desatualizado"}
                 </>}
           </p>
@@ -394,12 +394,12 @@ export default function Dashboard() {
               : recent.length
                 ? recent.slice(0, 4).map((m) => <MatchCard key={m.id} m={m} />)
                 : <EmptyState title="Nenhum resultado sincronizado"
-                    description="Use Sincronizar agora na tela Understat para trazer os jogos já disputados." />}
+                    description="Use Sincronizar agora na tela Ligas para trazer os jogos já disputados." />}
           </div>
         </div>
         <div>
-          <SectionTitle title="Principais times" hint="Melhor aproveitamento entre as ligas do Understat"
-            right={<Link to="/understat" className="sv-btn">Ver tabelas</Link>} />
+          <SectionTitle title="Principais times" hint="Melhor aproveitamento entre as ligas do Ligas"
+            right={<Link to="/ligas" className="sv-btn">Ver tabelas</Link>} />
           <div className="sv-card">
             <div className="sv-table-wrap">
               <table className="sv-table">
@@ -424,7 +424,7 @@ export default function Dashboard() {
                   {!topTeams.length && (
                     <tr><td colSpan={4} className="text-sm text-sv-muted py-4">
                       {tablesLoading ? "Carregando tabelas…" : (
-                        <>Nenhuma liga do Understat sincronizada. <Link to="/understat" className="underline">Sincronizar agora</Link></>
+                        <>Nenhuma liga do Ligas sincronizada. <Link to="/ligas" className="underline">Sincronizar agora</Link></>
                       )}
                     </td></tr>
                   )}

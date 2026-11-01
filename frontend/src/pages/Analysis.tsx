@@ -202,7 +202,7 @@ export default function AnalysisPage() {
           description={scope === "upcoming"
             ? "A API não retornou partidas futuras para as competições sincronizadas."
             : "Sincronize dados reais para consultar partidas encerradas e suas finalizações."}
-          action={<Link className="sv-btn" to="/understat">Abrir Understat</Link>}
+          action={<Link className="sv-btn" to="/ligas">Abrir Ligas</Link>}
         />
       ) : (
         <div className="grid gap-5 xl:grid-cols-[minmax(240px,320px)_1fr]">

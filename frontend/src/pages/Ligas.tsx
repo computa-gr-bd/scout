@@ -13,6 +13,8 @@ import { XgScatter, type ScatterPoint } from "../components/XgScatter";
 import { Badge, EmptyState, SectionTitle, StatCard, TeamLogo } from "../components/ui";
 import { fmt } from "../lib/shotAnalytics";
 
+// Renomeado: Understat -> Ligas
+
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = typeof v === "number" ? v : Number(v);
@@ -759,7 +761,7 @@ export default function UnderstatPage() {
   return (
     <div className="space-y-6">
       <SectionTitle
-        title="Understat"
+        title="Ligas"
         hint="xG, chutes e finalizações por partida — dados reais da biblioteca understat"
         right={
           <div className="flex flex-wrap items-center gap-2">
