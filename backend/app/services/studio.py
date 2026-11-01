@@ -133,6 +133,18 @@ def _flip(x: float, y: float, away: bool) -> Tuple[float, float]:
     return (round(100 - x, 1), round(100 - y, 1)) if away else (round(x, 1), round(y, 1))
 
 
+# Cada time ocupa só a sua metade do campo na tela de escalação: sem isso, a linha
+# de ataque de um time caía em cima da defesa do outro (mesmas colunas).
+_HALF_SCALE = 0.52
+_HALF_OFFSET = 5.0
+
+
+def _flip_lineup(x: float, y: float, away: bool) -> Tuple[float, float]:
+    x = _HALF_OFFSET + max(0.0, min(100.0, x)) * _HALF_SCALE   # mandante fica em ~9..44
+    y = max(0.0, min(100.0, y))
+    return (round(100 - x, 1), round(100 - y, 1)) if away else (round(x, 1), round(y, 1))
+
+
 def _load_shot_events(db: Session, match_ids: Iterable[int]) -> List[Event]:
     ids = list(match_ids)
     if not ids:
@@ -264,7 +276,7 @@ def _team_shots_recent(db: Session, team_ids: List[int], before, limit: int, sid
 # --------------------------------------------------------------------------
 # Escalação
 # --------------------------------------------------------------------------
-def _lineup_for_match(db: Session, match: Match) -> Dict[str, Any]:
+def _lineup_for_match(db: Session, match: Match, played_ids: Optional[set] = None) -> Dict[str, Any]:
     """Escalação da partida SEM os gols.
 
     Não usa ``lineups.match_lineups``: ele chama ``match_goals``, que lê todos os
@@ -274,21 +286,22 @@ def _lineup_for_match(db: Session, match: Match) -> Dict[str, Any]:
     if official["home"] or official["away"]:
         return {"source": "official", "formation": FORMATION,
                 "home": _place(official, "home"), "away": _place(official, "away")}
-    home = estimated_lineup(db, match.home_team_id)
-    away = estimated_lineup(db, match.away_team_id)
+    home = estimated_lineup(db, match.home_team_id, played_ids)
+    away = estimated_lineup(db, match.away_team_id, played_ids)
     return {"source": "estimated" if (home or away) else "none",
             "formation": FORMATION if (home or away) else None, "home": home, "away": away}
 
 
-def _lineup_side(db: Session, raw: List[Dict[str, Any]], team_ids: List[int], away: bool) -> List[Dict[str, Any]]:
+def _lineup_side(db: Session, raw: List[Dict[str, Any]], team_ids: List[int], away: bool,
+                 played_ids: Optional[set] = None) -> List[Dict[str, Any]]:
     if not raw:
         for tid in team_ids:
-            raw = estimated_lineup(db, tid)
+            raw = estimated_lineup(db, tid, played_ids)
             if raw:
                 break
     out = []
     for p in raw:
-        x, y = _flip(p.get("pitch_x", 50), p.get("pitch_y", 50), away)
+        x, y = _flip_lineup(p.get("pitch_x", 50), p.get("pitch_y", 50), away)
         out.append({
             "player_id": p.get("player_id"),
             "name": p.get("player_name"),
@@ -384,6 +397,12 @@ def _build_players(
             if s["result"] == "goal":
                 helper["match"]["assists"] += 1
 
+    # Todo titular do campo tem ficha, mesmo sem ter chutado (antes só autores de
+    # chute/assistência ganhavam card e o resto ficava sem informação).
+    for side in ("home", "away"):
+        for lp in lineups.get(side, []):
+            entry(lp.get("name"), lp.get("player_id"), side)
+
     # vincula escalação ↔ ficha (por nome) para trazer camisa/posição
     for side in ("home", "away"):
         for lp in lineups.get(side, []):
@@ -392,7 +411,7 @@ def _build_players(
                 if rec["team"] == side and _same_person(ln, norm_person(rec["name"])):
                     lp["detail_key"] = rec["key"]
                     rec["shirt_number"] = lp.get("shirt_number")
-                    rec["position"] = lp.get("position") or lp.get("line_label")
+                    rec["position"] = lp.get("line_label") or lp.get("position")
                     if not rec["player_id"]:
                         rec["player_id"] = lp.get("player_id")
                     break
@@ -485,14 +504,19 @@ def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]
     if shots and all(s["xgot"] is None for s in shots):
         notes.append("xGOT não é fornecido pela fonte (aparece como —).")
 
-    lineup_payload = _lineup_for_match(db, m)
+    # Quem aparece nos chutes DESTA partida comprovadamente jogou: entra no XI estimado.
+    played_ids: set = set()
+    if mode == "match":
+        played_ids = {s["player_id"] for s in shots if s.get("player_id")}
+
+    lineup_payload = _lineup_for_match(db, m, played_ids)
     if not (lineup_payload["home"] or lineup_payload["away"]) and linked_match_id:
         twin_match = db.get(Match, linked_match_id)
         if twin_match is not None:
-            lineup_payload = _lineup_for_match(db, twin_match)
+            lineup_payload = _lineup_for_match(db, twin_match, played_ids)
     lineups = {
-        "home": _lineup_side(db, lineup_payload["home"], home_ids, away=False),
-        "away": _lineup_side(db, lineup_payload["away"], away_ids, away=True),
+        "home": _lineup_side(db, lineup_payload["home"], home_ids, away=False, played_ids=played_ids),
+        "away": _lineup_side(db, lineup_payload["away"], away_ids, away=True, played_ids=played_ids),
     }
     if not (lineups["home"] or lineups["away"]):
         notes.append("Escalação indisponível: elenco ainda não sincronizado para estes times.")

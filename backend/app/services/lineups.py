@@ -44,6 +44,9 @@ _LINE_BY_KEYWORD = [
 ]
 
 
+_UNDERSTAT_CODES = {"gk": "GK", "d": "DEF", "m": "MID", "f": "ATT", "fw": "ATT"}
+
+
 def _line_of(position: Optional[str]) -> Optional[str]:
     """Classifica a posição textual numa das 4 linhas do 4-3-3.
 
@@ -53,6 +56,14 @@ def _line_of(position: Optional[str]) -> Optional[str]:
     if not position:
         return None
     text = position.lower().strip()
+    # Understat: "GK", "D", "M", "F" e "S" (reserva), combináveis ("D M S").
+    # A primeira letra que não é "S" é a função principal do jogador.
+    tokens = re.findall(r"[a-z]+", text)
+    if tokens and all(t in _UNDERSTAT_CODES or t == "s" for t in tokens):
+        for t in tokens:
+            if t in _UNDERSTAT_CODES:
+                return _UNDERSTAT_CODES[t]
+        return None
     for line, keywords in _LINE_BY_KEYWORD:
         for keyword in keywords:
             if " " in keyword:
@@ -81,6 +92,32 @@ def _minutes_by_player(db: Session, player_ids: List[int]) -> Dict[int, int]:
     out: Dict[int, int] = {}
     for row in rows:
         out[row.player_id] = max(out.get(row.player_id, 0), int(row.minutes_played or 0))
+    return out
+
+
+def _stats_by_player(db: Session, player_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+    """Minutos e posição por jogador.
+
+    O Understat não grava ``Player.position``: a posição fica em
+    ``PlayerStatistics.recent_form["position"]``. Sem ler isso, quase nenhum
+    jogador era classificado numa linha e o XI saía incompleto/embaralhado.
+    """
+    if not player_ids:
+        return {}
+    from app.db.models import PlayerStatistics
+
+    rows = db.scalars(
+        select(PlayerStatistics)
+        .where(PlayerStatistics.player_id.in_(player_ids))
+        .order_by(desc(PlayerStatistics.season_id))
+    ).all()
+    out: Dict[int, Dict[str, Any]] = {}
+    for row in rows:
+        cur = out.setdefault(row.player_id, {"minutes": 0, "position": None})
+        cur["minutes"] = max(cur["minutes"], int(row.minutes_played or 0))
+        form = row.recent_form if isinstance(row.recent_form, dict) else {}
+        if cur["position"] is None and form.get("position"):
+            cur["position"] = form["position"]  # linhas já vêm da temporada mais recente
     return out
 
 
@@ -132,12 +169,16 @@ def _place(official: Dict[str, List[Dict[str, Any]]], side: str) -> List[Dict[st
     return out
 
 
-def estimated_lineup(db: Session, team_id: int) -> List[Dict[str, Any]]:
+def estimated_lineup(db: Session, team_id: int,
+                     played_ids: Optional[set] = None) -> List[Dict[str, Any]]:
     """Provável XI do time a partir do elenco sincronizado (1-4-3-3).
 
-    Ordena cada linha por minutos jogados na temporada e completa linhas
-    faltantes com jogadores de outras linhas, para sempre devolver 11 quando
-    o elenco tem jogadores suficientes.
+    * Posição vem de ``Player.position`` ou, se vazia, das estatísticas
+      (Understat grava D/M/F/GK lá).
+    * Quem comprovadamente jogou a partida (``played_ids``, ex.: autores de
+      chutes) tem prioridade; depois, mais minutos na temporada.
+    * Linhas sem gente suficiente são completadas por outras linhas, para
+      devolver 11 sempre que o elenco permitir.
     """
     squad = list(db.scalars(
         select(Player).where(Player.team_id == team_id).order_by(Player.last_name)
@@ -145,60 +186,56 @@ def estimated_lineup(db: Session, team_id: int) -> List[Dict[str, Any]]:
     if not squad:
         return []
 
-    minutes = _minutes_by_player(db, [p.id for p in squad])
+    played_ids = played_ids or set()
+    stats = _stats_by_player(db, [p.id for p in squad])
+
+    def minutes_of(p: Player) -> int:
+        return stats.get(p.id, {}).get("minutes", 0)
+
+    def line_of_player(p: Player) -> Optional[str]:
+        return _line_of(p.position) or _line_of(stats.get(p.id, {}).get("position"))
+
+    def rank(p: Player):
+        return (0 if p.id in played_ids else 1, -minutes_of(p), (p.last_name or "").lower())
+
     by_line: Dict[str, List[Player]] = {line: [] for line in _CAPACITY}
-    by_line["?"] = []
+    unknown: List[Player] = []
     for p in squad:
-        by_line[_line_of(p.position) or "?"].append(p)
+        line = line_of_player(p)
+        (by_line[line] if line else unknown).append(p)
     for players in by_line.values():
-        players.sort(key=lambda p: (-minutes.get(p.id, 0), (p.last_name or "").lower()))
+        players.sort(key=rank)
+    unknown.sort(key=rank)
 
     taken: set = set()
+    buckets: Dict[str, List[Player]] = {line: [] for line in _CAPACITY}
 
-    def take(line: str, count: int) -> List[Player]:
-        picked = []
-        for p in by_line.get(line, []):
-            if len(picked) >= count:
-                break
-            if p.id in taken:
-                continue
-            picked.append(p)
-            taken.add(p.id)
-        return picked
+    def take_from(pool: List[Player], line: str) -> None:
+        for p in pool:
+            if len(buckets[line]) >= _CAPACITY[line]:
+                return
+            if p.id not in taken:
+                buckets[line].append(p)
+                taken.add(p.id)
 
-    chosen: List[Player] = []
-    for line, count in _CAPACITY.items():
-        picked = take(line, count)
-        missing = count - len(picked)
+    # 1) cada linha com quem é dela
+    for line in _CAPACITY:
+        take_from(by_line[line], line)
+    # 2) vagas restantes: jogadores sem posição conhecida, depois sobras de outras linhas.
+    #    O goleiro NUNCA é preenchido por jogador de linha: sem goleiro conhecido a
+    #    vaga fica vazia (melhor que mostrar um atacante como "GOL").
+    for line in _CAPACITY:
+        if line != "GK":
+            take_from(unknown, line)
+    for line in _CAPACITY:
+        if line == "GK":
+            continue
         for fallback in _FILL_ORDER[line]:
-            if missing <= 0:
-                break
-            extra = take(fallback, missing)
-            picked.extend(extra)
-            missing -= len(extra)
-        chosen.extend(picked)
-    for p in squad:  # completa se o elenco ainda não fechou 11
-        if len(chosen) >= 11:
-            break
-        if p.id not in taken:
-            chosen.append(p)
-            taken.add(p.id)
+            leftovers = [p for p in by_line[fallback] if p.id not in taken]
+            # só empresta quem não é titular natural da própria linha
+            take_from(leftovers, line)
 
     out: List[Dict[str, Any]] = []
-    # Distribui nas coordenadas: cada linha recebe quem foi escolhido para ela,
-    # na ordem de prioridade (minutos jogados, depois nome).
-    buckets: Dict[str, List[Player]] = {line: [] for line in _CAPACITY}
-    for p in chosen:
-        line = _line_of(p.position)
-        if line is None or len(buckets[line]) >= _CAPACITY[line]:
-            for candidate in ("DEF", "MID", "ATT", "GK"):
-                if len(buckets[candidate]) < _CAPACITY[candidate]:
-                    line = candidate
-                    break
-        if line is None:
-            continue
-        buckets[line].append(p)
-
     for line, x, ys in _LINES:
         for index, y in enumerate(ys):
             if index >= len(buckets[line]):
@@ -207,9 +244,9 @@ def estimated_lineup(db: Session, team_id: int) -> List[Dict[str, Any]]:
             out.append({
                 "player_id": pick.id,
                 "player_name": _display_name(pick),
-                "position": pick.position,
+                "position": pick.position or stats.get(pick.id, {}).get("position"),
                 "shirt_number": None,
-                "minutes_played": minutes.get(pick.id),
+                "minutes_played": minutes_of(pick) or None,
                 "is_starter": True,
                 "pitch_x": x,
                 "pitch_y": y,

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { type StudioDataset, type StudioRealInfo } from "../api/studioData";
 import { crestFor } from "../api/footballDataOrg";
 import { JerseyGlyph, JerseyDefs, JerseyBadge, BallGlyph } from "./Jersey";
@@ -1147,7 +1148,7 @@ export function PitchStudio({
           )}
         </div>
 
-        {/* ====================== PAINEL LATERAL DE JOGADOR ====================== */}
+        {/* ====================== POP-UP (MODAL) DE JOGADOR ====================== */}
         {selectedPlayer && (
           <PlayerDrawer
             player={selectedPlayer}
@@ -1162,28 +1163,73 @@ export function PitchStudio({
   );
 }
 
+/** Escudo do time com a camisa no canto; se a imagem não existir ou falhar, mostra só a camisa. */
+function PlayerAvatar({ src, alt, number, color }: { src?: string; alt: string; number: number; color: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [src]);
+  if (!src || failed) {
+    return (
+      <div className="shrink-0 self-center">
+        <JerseyBadge number={number} color={color} size={56} />
+      </div>
+    );
+  }
+  return (
+    <div className="relative shrink-0">
+      <img src={src} alt={alt} referrerPolicy="no-referrer" onError={() => setFailed(true)}
+           className="w-16 h-16 rounded-2xl border border-white/15 object-contain p-2 bg-white/5 shadow-lg" />
+      <div className="absolute -bottom-2 -right-2">
+        <JerseyBadge number={number} color={color} size={32} />
+      </div>
+    </div>
+  );
+}
+
 /* ============== COMPONENTE SEPARADO: DRAWER DE JOGADOR (Estilo Sofascore) ============== */
-function PlayerDrawer({ player, teamColor, tab, setTab, onClose }: {
+type PlayerDrawerProps = {
   player: PlayerDetail; teamColor: string; tab: StatTab; setTab: (t: StatTab) => void; onClose: () => void;
-}) {
+};
+
+/** Pop-up centralizado (modal): não empurra o campo para o lado e não quebra o layout.
+ *  Fecha com Esc, clique fora ou no X. Renderizado em portal, fora dos containers com overflow. */
+function PlayerDrawer(props: PlayerDrawerProps) {
+  const { onClose, player } = props;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-3 sm:p-6"
+         onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={`Ficha de ${player.nick || player.name}`}
+           onClick={(e) => e.stopPropagation()}
+           className="relative w-full max-w-[560px] max-h-[90vh] flex flex-col rounded-2xl border border-sv-border bg-sv-panel2 shadow-2xl overflow-hidden">
+        <PlayerDrawerPanel {...props} />
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function PlayerDrawerPanel({ player, teamColor, tab, setTab, onClose }: PlayerDrawerProps) {
   const p = player;
   const rb = p.ratingBreakdown;
   const ratingColor = p.rating >= 8 ? "bg-emerald-500" : p.rating >= 7 ? "bg-sky-500" : p.rating >= 6 ? "bg-amber-500" : "bg-slate-500";
 
   return (
-    <div className="w-full lg:w-[420px] xl:w-[460px] shrink-0 border-t lg:border-t-0 lg:border-l border-sv-border bg-sv-panel2/70 backdrop-blur lg:max-h-[900px] max-h-none overflow-hidden flex flex-col">
+    <div className="w-full min-h-0 flex-1 overflow-hidden flex flex-col">
       {/* Header */}
       <div className="p-4 pb-3 border-b border-sv-border flex items-start gap-3"
            style={{ background: `linear-gradient(180deg, ${teamColor}33, transparent)` }}>
-        {/* Avatar + camisa do jogador */}
-        <div className="relative shrink-0">
-          <img src={p.avatar} alt={p.nick || p.name}
-               onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
-               className="w-24 h-24 rounded-2xl border-2 border-white/15 object-cover bg-slate-800 shadow-lg" />
-          <div className="absolute -bottom-2 -right-2">
-            <JerseyBadge number={p.number} color={teamColor} size={40} />
-          </div>
-        </div>
+        {/* Escudo do time (se carregar) + camisa. Sem escudo, só a camisa: nada de quadrado vazio. */}
+        <PlayerAvatar src={p.avatar} alt={p.nick || p.name} number={p.number} color={teamColor} />
 
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
