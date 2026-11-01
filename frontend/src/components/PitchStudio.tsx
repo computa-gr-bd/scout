@@ -910,6 +910,7 @@ export function PitchStudio({
                 team={current.team}
                 result={current.ownGoal ? "own_goal" : current.result}
                 teamColor={current.team === "home" ? HOME_COLOR : AWAY_COLOR}
+                foeColor={current.team === "home" ? AWAY_COLOR : HOME_COLOR}
                 progress={progress}
                 onClose={closeReplay}
               />
