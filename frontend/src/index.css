@@ -209,3 +209,9 @@
   display: inline-block;
   vertical-align: middle;
 }
+
+/* Tooltips do Recharts: o texto herdava a cor escura da série e ficava ilegível no fundo escuro. */
+.recharts-tooltip-wrapper .recharts-tooltip-item,
+.recharts-tooltip-wrapper .recharts-tooltip-label {
+  color: #e5e7eb !important;
+}

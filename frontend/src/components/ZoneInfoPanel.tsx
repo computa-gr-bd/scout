@@ -25,6 +25,17 @@ export interface WeaknessDetail {
   xga_per_90?: number;
   goals_conceded_per_90?: number;
   sample_size?: number;
+  /** Totais da janela e comparação com a liga (análise de partida). */
+  shots_conceded?: number;
+  goals_conceded?: number;
+  xga?: number;
+  xg_per_shot?: number | null;
+  goals_minus_xga?: number;
+  share_of_xga_pct?: number;
+  ratio_vs_league?: number;
+  ratio_recent?: number;
+  trend?: "worse" | "better" | "stable";
+  reliability?: "low" | "medium" | "high";
 }
 
 /** Oportunidades agregadas por zona, já posicionadas no gramado. */
@@ -179,7 +190,34 @@ export function ZoneStatsSection({
             {wDetail?.sample_size !== undefined && (
               <MiniStat label="Amostra" value={`${wDetail.sample_size} jogos`} />
             )}
+            {wDetail?.ratio_vs_league !== undefined && (
+              <MiniStat label="xGA vs. média da liga" value={`${wDetail.ratio_vs_league.toFixed(2)}x`} />
+            )}
+            {wDetail?.share_of_xga_pct !== undefined && (
+              <MiniStat label="% do xGA do time" value={`${wDetail.share_of_xga_pct.toFixed(0)}%`} />
+            )}
+            {wDetail?.xg_per_shot != null && (
+              <MiniStat label="xG por chute sofrido" value={wDetail.xg_per_shot.toFixed(2)} />
+            )}
+            {wDetail?.goals_minus_xga !== undefined && (wDetail.shots_conceded ?? 0) > 0 && (
+              <MiniStat
+                label="Gols − xGA"
+                value={`${wDetail.goals_minus_xga > 0 ? "+" : ""}${wDetail.goals_minus_xga.toFixed(2)}`}
+              />
+            )}
           </div>
+          {wDetail?.trend && wDetail.trend !== "stable" && (
+            <p className="text-[10.5px] leading-snug text-sv-muted">
+              {wDetail.trend === "worse"
+                ? `Piorando: nos últimos jogos concede ${wDetail.ratio_recent?.toFixed(2)}x a média da liga aqui.`
+                : `Melhorando: nos últimos jogos concede ${wDetail.ratio_recent?.toFixed(2)}x a média da liga aqui.`}
+            </p>
+          )}
+          {wDetail?.reliability === "low" && (
+            <p className="text-[10.5px] leading-snug text-amber-300/80">
+              Amostra pequena nesta zona ({wDetail.shots_conceded ?? 0} chutes): leia com cautela.
+            </p>
+          )}
           <p className="text-[10.5px] leading-snug text-sv-muted">
             {wDetail
               ? `Concede${wDetail.shots_conceded_per_90 !== undefined ? ` ${wDetail.shots_conceded_per_90.toFixed(2)} chutes` : " ataques"}${wDetail.xga_per_90 !== undefined ? ` e ${wDetail.xga_per_90.toFixed(2)} xGA` : ""} por 90 nesta região — ${wRank}ª pior zona de ${ranked.length} mapeadas.`

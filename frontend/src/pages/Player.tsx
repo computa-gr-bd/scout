@@ -6,11 +6,12 @@ import {
   PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  getGoalProbability, getPlayer, getPlayerOverview, getPlayerZones, getUnderstatPlayerShots,
+  getGoalProbability, getPlayer, getPlayerIndex, getPlayerOverview, getPlayerZones, getUnderstatPlayerShots,
   type PlayerLeagueAverage, type PlayerOverview, type PlayerStatistics, type PlayerZoneStat,
 } from "../api/client";
 import { Badge, EmptyState, TeamLogo } from "../components/ui";
 import { Pitch2D, type PitchShot } from "../components/Pitch";
+import { IndexKpiGrid, PositionIndexSection } from "../components/PositionIndex";
 
 /* ------------------------------------------------------------------ paleta (print de referência) */
 const C = {
@@ -22,6 +23,7 @@ const C = {
   grid: "#22314f",
   axis: "#8794ad",
   tip: { background: "#0f1830", border: "1px solid #22314f", borderRadius: 8, fontSize: 12, color: "#e5e7eb" },
+  tipText: { color: "#e5e7eb" },
 };
 
 const nf = (v: number | null | undefined, d = 2) => (v == null || Number.isNaN(v) ? "—" : v.toFixed(d));
@@ -57,7 +59,12 @@ const RATING_PARTS = [
   { key: "reg", label: "Regularidade", weight: 0.1, color: C.navy },
 ] as const;
 
-function computeRating(s: PlayerStatistics | undefined, ex: PlayerOverview["extras"] | undefined) {
+/** Meias pesam mais criação e construção; atacantes mantêm o peso em finalização/produção. */
+const MID_WEIGHTS: Record<string, number> = { fin: 0.15, cre: 0.3, pro: 0.15, con: 0.25, reg: 0.15 };
+const ratingParts = (role?: string | null) =>
+  RATING_PARTS.map((p) => ({ ...p, weight: role === "MID" ? MID_WEIGHTS[p.key] : p.weight }));
+
+function computeRating(s: PlayerStatistics | undefined, ex: PlayerOverview["extras"] | undefined, role?: string | null) {
   if (!s || !s.minutes_played) return null;
   const avg = (...v: number[]) => v.reduce((a, b) => a + b, 0) / v.length;
   const parts: Record<string, number> = {
@@ -67,7 +74,7 @@ function computeRating(s: PlayerStatistics | undefined, ex: PlayerOverview["extr
     con: norm(ex?.xg_buildup_per_90, 0.8),
     reg: clamp((s.minutes_played / Math.max(1, s.matches_played * 90)) * 100),
   };
-  const overall = RATING_PARTS.reduce((acc, p) => acc + parts[p.key] * p.weight, 0);
+  const overall = ratingParts(role).reduce((acc, p) => acc + parts[p.key] * p.weight, 0);
   return { overall: Math.round(overall), parts };
 }
 
@@ -130,6 +137,7 @@ export default function PlayerPage() {
   const overview = useQuery({ queryKey: ["player-overview", playerId], queryFn: () => getPlayerOverview(playerId), retry: 0 });
   const zones = useQuery({ queryKey: ["player-zones", playerId], queryFn: () => getPlayerZones(playerId), retry: 0 });
   const shotsQ = useQuery({ queryKey: ["player-shots", playerId], queryFn: () => getUnderstatPlayerShots(playerId), retry: 0 });
+  const indexQ = useQuery({ queryKey: ["player-index", playerId], queryFn: () => getPlayerIndex(playerId), retry: 0 });
 
   const p = player.data;
   const ov = overview.data;
@@ -140,7 +148,11 @@ export default function PlayerPage() {
   }, [p]);
 
   const avg = ov?.league_average ?? null;
-  const rating = useMemo(() => computeRating(stats, ov?.extras), [stats, ov]);
+  const role = indexQ.data?.role ?? ov?.role ?? null;
+  // Goleiros e defensores têm índice próprio (backend); atacantes e meias usam o índice ofensivo.
+  const specialRole = role === "GK" || role === "DEF";
+  const parts = useMemo(() => ratingParts(role), [role]);
+  const rating = useMemo(() => computeRating(stats, ov?.extras, role), [stats, ov, role]);
 
   // Probabilidade de gol no próximo jogo (baseline do backend); falha em silêncio.
   const nm = ov?.next_match;
@@ -299,14 +311,18 @@ export default function PlayerPage() {
       {tab === "overview" && (
         <>
           {/* ---------------------------------------------- KPIs */}
+          {specialRole ? (
+            indexQ.data?.kpis?.length ? <IndexKpiGrid kpis={indexQ.data.kpis} /> : null
+          ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Kpi label="Gols / 90" value={nf(stats?.goals_per_90)} sub={`Total: ${stats?.goals ?? "—"}`} accent />
             <Kpi label="Assistências / 90" value={nf(stats?.assists_per_90)} sub={`Total: ${stats?.assists ?? "—"}`} />
             <Kpi label="xG / 90" value={nf(stats?.xg_per_90)} sub={`Total: ${nf(stats?.xg_total)}`} accent />
             <Kpi label="xA / 90" value={nf(stats?.xa_per_90)} sub={`Total: ${nf(stats?.xa_total)}`} />
           </div>
+          )}
 
-          {stats?.supplemental_stats?.soccerdata ? (
+          {!specialRole && stats?.supplemental_stats?.soccerdata ? (
             <Panel title="Defesa e duelos" right={<Badge kind="accent">FBref · SoccerData</Badge>}>
               <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
                 <Kpi label="Desarmes ganhos" value={stats.tackles} />
@@ -318,6 +334,12 @@ export default function PlayerPage() {
             </Panel>
           ) : null}
 
+          {specialRole ? (
+            indexQ.isLoading
+              ? <div className="sv-card h-24 skeleton" />
+              : indexQ.data ? <PositionIndexSection data={indexQ.data} /> : null
+          ) : (
+            <>
           <div className="grid lg:grid-cols-2 gap-4">
             {/* ---------------------------------------------- radar */}
             <Panel
@@ -343,7 +365,7 @@ export default function PlayerPage() {
                       <Radar name="Jogador" dataKey="Jogador" stroke={C.cyan} fill={C.cyan} fillOpacity={0.35} />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
                       <Tooltip
-                        contentStyle={C.tip}
+                        contentStyle={C.tip} itemStyle={C.tipText} labelStyle={C.tipText}
                         formatter={(v: any, name: any, item: any) => [
                           `${v}/100 (${nf(name === "Jogador" ? item.payload.real : item.payload.realAvg)} por 90)`,
                           name,
@@ -369,12 +391,12 @@ export default function PlayerPage() {
                     <ResponsiveContainer>
                       <PieChart>
                         <Pie
-                          data={RATING_PARTS.map((r) => ({ name: r.label, value: Math.max(0.5, rating.parts[r.key] * r.weight) }))}
+                          data={parts.map((r) => ({ name: r.label, value: Math.max(0.5, rating.parts[r.key] * r.weight) }))}
                           dataKey="value" innerRadius="66%" outerRadius="100%" paddingAngle={1} stroke="none" startAngle={90} endAngle={-270}
                         >
-                          {RATING_PARTS.map((r) => <Cell key={r.key} fill={r.color} />)}
+                          {parts.map((r) => <Cell key={r.key} fill={r.color} />)}
                         </Pie>
-                        <Tooltip contentStyle={C.tip} formatter={(v: any) => Number(v).toFixed(1)} />
+                        <Tooltip contentStyle={C.tip} itemStyle={C.tipText} labelStyle={C.tipText} formatter={(v: any) => Number(v).toFixed(1)} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="absolute inset-0 grid place-items-center pointer-events-none">
@@ -385,7 +407,7 @@ export default function PlayerPage() {
                     </div>
                   </div>
                   <ul className="space-y-1.5 text-xs w-full">
-                    {RATING_PARTS.map((r) => (
+                    {parts.map((r) => (
                       <li key={r.key} className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: r.color }} />
                         <span className="flex-1">{r.label} ({Math.round(r.weight * 100)}%)</span>
@@ -416,7 +438,7 @@ export default function PlayerPage() {
                     <XAxis dataKey="name" stroke={C.axis} fontSize={11} />
                     <YAxis domain={[0, 100]} stroke={C.axis} fontSize={10} width={28} />
                     <Tooltip
-                      contentStyle={C.tip}
+                      contentStyle={C.tip} itemStyle={C.tipText} labelStyle={C.tipText}
                       cursor={{ fill: "rgba(255,255,255,0.04)" }}
                       formatter={(v: any, name: any, item: any) => [
                         `${v}/100 (${nf(name === "Jogador" ? item.payload.real : item.payload.realAvg)} por 90)`,
@@ -444,7 +466,7 @@ export default function PlayerPage() {
                       <CartesianGrid strokeDasharray="3 3" stroke={C.grid} />
                       <XAxis dataKey="label" stroke={C.axis} fontSize={10} />
                       <YAxis stroke={C.axis} fontSize={10} width={24} allowDecimals />
-                      <Tooltip contentStyle={C.tip} labelFormatter={(_l, pl: any) => {
+                      <Tooltip contentStyle={C.tip} itemStyle={C.tipText} labelStyle={C.tipText} labelFormatter={(_l, pl: any) => {
                         const r = pl?.[0]?.payload;
                         return r ? `${r.opponent ?? ""}${r.date ? ` · ${new Date(r.date).toLocaleDateString("pt-BR")}` : ""}` : "";
                       }} />
@@ -483,7 +505,7 @@ export default function PlayerPage() {
                       <CartesianGrid strokeDasharray="3 3" stroke={C.grid} />
                       <XAxis dataKey="label" stroke={C.axis} fontSize={10} />
                       <YAxis stroke={C.axis} fontSize={10} width={24} />
-                      <Tooltip contentStyle={C.tip} />
+                      <Tooltip contentStyle={C.tip} itemStyle={C.tipText} labelStyle={C.tipText} />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
                       <Area type="monotone" dataKey="xG acum." stroke={C.cyan} fill="url(#evoXg)" strokeWidth={2} />
                       <Area type="monotone" dataKey="Gols acum." stroke={C.blue} fill="transparent" strokeWidth={2} />
@@ -495,6 +517,8 @@ export default function PlayerPage() {
               </div>
             </Panel>
           </div>
+            </>
+          )}
 
           <div className="grid lg:grid-cols-2 gap-4">
             {/* ---------------------------------------------- resumo */}
@@ -578,7 +602,7 @@ export default function PlayerPage() {
                     <CartesianGrid strokeDasharray="3 3" stroke={C.grid} />
                     <XAxis dataKey="zone" stroke={C.axis} fontSize={10} />
                     <YAxis stroke={C.axis} fontSize={10} width={28} />
-                    <Tooltip contentStyle={C.tip} />
+                    <Tooltip contentStyle={C.tip} itemStyle={C.tipText} labelStyle={C.tipText} />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     <RBar dataKey="Freq" name="Frequência %" fill={C.cyan} radius={[3, 3, 0, 0]} />
                     <RBar dataKey="Força" name="Força ofensiva" fill={C.blue} radius={[3, 3, 0, 0]} />

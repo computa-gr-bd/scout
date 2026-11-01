@@ -392,3 +392,73 @@ def test_event_reaggregation_preserves_soccerdata_values(db_session, seeded):
     assert (season_stats.tackles, season_stats.clearances) == (4, 2)
     assert (season_stats.aerials_won, season_stats.aerials_lost) == (5, 1)
     assert season_stats.supplemental_stats["soccerdata"]["assists"] == 5
+
+
+def test_extra_tables_feed_defender_and_goalkeeper_stats(db_session, seeded):
+    keeper = Player(
+        external_id="raya-us", last_name="David Raya", display_name="David Raya",
+        team_id=seeded["home"].id, position="GK", data_source=DataSource.UNDERSTAT,
+    )
+    db_session.add(keeper)
+    db_session.commit()
+
+    schedule = [{
+        "game_id": "fbref-game-1", "date": "2026-09-12",
+        "home_team": "Arsenal", "away_team": "Brighton & Hove Albion", "score": "1–0",
+    }]
+    standard = [
+        {"team": "Arsenal", "player": "David Raya", ("Playing Time", "MP"): 2,
+         ("Playing Time", "Min"): 180, ("Playing Time", "Starts"): 2},
+        {"team": "Arsenal", "player": "Bukayo Saka", ("Playing Time", "MP"): 2,
+         ("Playing Time", "Min"): 180, ("Playing Time", "Starts"): 2},
+    ]
+    extra = {
+        "keeper": [{
+            "team": "Arsenal", "player": "David Raya",
+            ("Performance", "GA"): 1, ("Performance", "SoTA"): 6, ("Performance", "Saves"): 5,
+            ("Performance", "CS"): 1,
+        }],
+        "keeper_adv": [{
+            "team": "Arsenal", "player": "David Raya",
+            ("Expected", "PSxG"): 1.4, ("Crosses", "Opp"): 8, ("Crosses", "Stp"): 1,
+            ("Launched", "Cmp"): 10, ("Launched", "Att"): 20,
+        }],
+        "defense": [{
+            "team": "Arsenal", "player": "Bukayo Saka",
+            ("Tackles", "Tkl"): 6, ("Tackles", "TklW"): 4, ("Blocks", "Blocks"): 3,
+            "Int": 2, "Clr": 7, "Tkl+Int": 8,
+        }],
+        "passing": [{
+            "team": "Arsenal", "player": "Bukayo Saka",
+            ("Total", "Cmp"): 80, ("Total", "Att"): 100, "KP": 5, "PrgP": 9,
+        }],
+    }
+    keeper_match = [{
+        "game_id": "fbref-game-1", "team": "Arsenal", "player": "David Raya",
+        ("Performance", "Saves"): 3, ("Performance", "GA"): 0, ("Performance", "SoTA"): 3,
+        ("Playing Time", "Min"): 90,
+    }]
+
+    result = sync_soccerdata_rows(
+        db_session, "PL", schedule, [], [], standard, [], extra, keeper_match,
+    )
+
+    assert result["keeper_match_stats_inserted"] == 1
+    gk_match = db_session.scalar(select(PlayerMatchStatistics).where(
+        PlayerMatchStatistics.player_id == keeper.id))
+    assert (gk_match.saves, gk_match.goals_conceded, gk_match.shots_faced) == (3, 0, 3)
+
+    gk_stats = db_session.scalar(select(PlayerStatistics).where(
+        PlayerStatistics.player_id == keeper.id))
+    provider = gk_stats.supplemental_stats["soccerdata"]
+    assert (provider["gk_saves"], provider["gk_sota"], provider["gk_ga"]) == (5, 6, 1)
+    assert provider["gk_psxg"] == 1.4 and provider["gk_crosses_opp"] == 8
+
+    saka = db_session.scalar(select(PlayerStatistics).where(
+        PlayerStatistics.player_id == seeded["home_player"].id,
+        PlayerStatistics.season_id == seeded["match"].season_id,
+    ))
+    assert saka.clearances == 7            # só a tabela "defense" traz Cortes
+    assert saka.interceptions == 2 and saka.key_passes == 5
+    assert (saka.passes, saka.passes_completed) == (100, 80)
+    assert saka.supplemental_stats["soccerdata"]["progressive_passes"] == 9

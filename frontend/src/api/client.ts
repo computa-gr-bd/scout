@@ -198,6 +198,11 @@ export interface PlayerMatchPrediction {
   xg_per_match?: number;
   rate_per_match?: number;
   opp_factor?: number;
+  /** Minutos esperados (Lineup/FBref); null quando não há minutos recentes registrados. */
+  expected_minutes?: number | null;
+  minutes_known?: boolean;
+  /** Multiplicador do goleiro adversário na chance de gol (1,0 = médio). */
+  gk_factor?: number | null;
 }
 
 export interface MatchupScore {
@@ -247,8 +252,10 @@ export interface PlayerLeagueAverage {
   goals_per_90: number; assists_per_90: number;
   npxg_per_90: number; xg_chain_per_90: number; xg_buildup_per_90: number;
 }
+export type PlayerRole = "GK" | "DEF" | "MID" | "ATT";
 export interface PlayerOverview {
   player_id: number;
+  role?: PlayerRole | null;
   team: { id: number | null; name: string | null; short_name: string | null; logo_url: string | null };
   league: { code: string | null; name: string | null };
   extras: {
@@ -263,6 +270,37 @@ export interface PlayerOverview {
   } | null;
   league_average: PlayerLeagueAverage | null;
 }
+/** Índice por função: defensivo (DEF) ou de goleiro (GK). MID/ATT voltam com available=false. */
+export interface IndexMetric {
+  key: string; label: string; unit: string; value: number | null; score: number | null;
+  league_avg: number | null; higher_is_better: boolean; method?: "percentile" | "anchor";
+}
+export interface IndexComponent {
+  key: string; label: string; weight: number; hint?: string; score: number | null; metrics: IndexMetric[];
+}
+export interface IndexKpi {
+  key: string; label: string; unit: string; value: number | null; sub?: string | null; league_avg?: number | null;
+}
+export interface PlayerIndex {
+  player_id: number;
+  role: PlayerRole | null;
+  role_label?: string | null;
+  available: boolean;
+  index: number | null;
+  raw_index?: number | null;
+  name?: string;
+  reason?: string;
+  coverage?: number;
+  reliability?: number;
+  peers?: number;
+  method?: "percentile" | "anchor" | "mixed";
+  components?: IndexComponent[];
+  kpis?: IndexKpi[];
+  sample?: { minutes: number | null; matches: number | null; season_id: number | null; league: string | null; peers: number };
+  notes?: string[];
+}
+export async function getPlayerIndex(id: number) { return api.get<PlayerIndex>(`/players/${id}/index`).then((r) => r.data); }
+
 export async function getPlayerOverview(id: number) { return api.get<PlayerOverview>(`/players/${id}/overview`).then((r) => r.data); }
 export async function getShotProbability(playerId: number, opponentTeamId: number, venue: "home" | "away" = "home") {
   return api.get(`/players/${playerId}/shot-probability`, { params: { opponent_team_id: opponentTeamId, venue } }).then((r) => r.data);
@@ -276,10 +314,7 @@ export async function listMatches(params?: {
   /** Tela de Análise: jogos passados só da Understat; jogos futuros de qualquer fonte. */
   analysis?: boolean;
 }) {
-  // Champions League está fora do escopo do ScoutVision (o backend já a esconde; este filtro
-  // cobre respostas em cache / banco ainda não limpo).
-  return api.get<Match[]>("/matches", { params }).then((r) =>
-    r.data.filter((m) => !/champions\s*league/i.test(m.competition_name ?? "")));
+  return api.get<Match[]>("/matches", { params }).then((r) => r.data);
 }
 
 /** Linha da classificação de uma temporada (com escudo vindo do backend). */
@@ -303,6 +338,14 @@ export async function getMatch(id: number) { return api.get(`/matches/${id}`).th
 export async function getMatchAnalysis(id: number) { return api.get<MatchAnalysis>(`/matches/${id}/analysis`).then((r) => r.data); }
 export async function getMatchPredictions(id: number) { return api.get(`/matches/${id}/predictions`).then((r) => r.data); }
 /** Análise tática calculada dos chutes reais (Understat): zonas fracas, previsões por jogador e confrontos. */
+export interface TeamGoalkeeper {
+  player_id: number; name: string; minutes: number | null; matches?: number | null;
+  has_fbref: boolean; index: number | null; reliability?: number;
+  components?: Array<{ key: string; label: string; score: number | null }>;
+  save_pct?: number | null; psxg_diff_p90?: number | null; ga_p90?: number | null;
+  clean_sheet_pct?: number | null; cross_stop_pct?: number | null;
+  goal_factor: number | null; shots_on_target_faced?: number | null;
+}
 export interface MatchInsights {
   available: boolean;
   match_id: number;
@@ -313,6 +356,7 @@ export interface MatchInsights {
     home_team_weaknesses: any[]; away_team_weaknesses: any[];
     home_team_attack?: any[]; away_team_attack?: any[];
   };
+  goalkeepers?: { home: TeamGoalkeeper | null; away: TeamGoalkeeper | null };
   predictions?: PlayerMatchPrediction[];
   matchups?: Array<MatchupScore & { attacker_name?: string; defender_name?: string | null }>;
 }

@@ -260,7 +260,8 @@ def team_profile(db: Session, team: Team, season_id: Optional[int] = None) -> Di
 
     events = _load_shot_events(db, match_ids)
     att_base, def_base, league_n = season_baseline(db, season_id, horizon, events)
-    weaknesses = _defense_profile(events, tset, match_ids, def_base)
+    # _defense_profile espera do jogo mais recente para o mais antigo; perfil de temporada = sem peso de recência.
+    weaknesses = _defense_profile(events, tset, list(reversed(match_ids)), def_base, recency=False)
     attack = _attack_profile(events, tset, match_ids, att_base)
 
     per_match: Dict[int, Dict[str, float]] = defaultdict(lambda: {"xf": 0.0, "xa": 0.0, "sf": 0, "sa": 0})

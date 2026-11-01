@@ -14,6 +14,7 @@ analisada, então não há vazamento do resultado na análise de um jogo já dis
 """
 from __future__ import annotations
 
+import logging
 import math
 from collections import defaultdict
 from datetime import datetime
@@ -23,14 +24,22 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Event, EventType, Match, ZONE_ORDER
+from app.services.index_service import recent_minutes, team_goalkeeper
 from app.services.studio import (
     _load_shot_events, _player_name, _recent_match_ids, _same_person, _team_ids_like, norm_person,
 )
+
+log = logging.getLogger(__name__)
 
 WINDOW = 10            # jogos recentes de cada time
 LEAGUE_WINDOW = 120    # jogos da temporada usados como média da liga
 PRIOR_MATCHES = 3.0    # "jogos fictícios na média" que suavizam amostras pequenas
 TOP_PLAYERS = 10       # jogadores por time na lista de estimativas
+RECENCY_HALF_LIFE = 6.0   # jogos: um jogo 6 rodadas atrás pesa metade na defesa
+RECENT_FORM_MATCHES = 5   # janela da "tendência" por zona
+MINUTES_HALF_LIFE = 5.0   # jogos: peso dos minutos recentes na projeção de minutos
+SHRINK_K = 2.0            # "jogos de 90' fictícios" que puxam a taxa do jogador para a média do time
+METHOD = "shot-poisson@2"
 
 ZONE_LABEL_PT = {
     "central_box": "área central",
@@ -147,33 +156,88 @@ def _zone_ratio(total: float, n_matches: int, baseline_per_match: float) -> floa
     return (total + PRIOR_MATCHES * baseline_per_match) / ((n_matches + PRIOR_MATCHES) * baseline_per_match)
 
 
-def _defense_profile(events: List[Event], team_ids: set, match_ids: List[int], base_def: Dict[str, float]) -> List[Dict[str, Any]]:
-    """Fraqueza defensiva por zona (zona própria do defensor) a partir dos chutes sofridos."""
+def _recency_weight(rank: int) -> float:
+    """Peso do jogo ``rank`` (0 = mais recente) na janela — decaimento exponencial."""
+    return 0.5 ** (rank / RECENCY_HALF_LIFE)
+
+
+def _zone_reliability(shots: int, n_matches: int) -> str:
+    if n_matches < 4 or shots < 3:
+        return "low"
+    return "high" if (shots >= 10 and n_matches >= 6) else "medium"
+
+
+def _defense_profile(events: List[Event], team_ids: set, match_ids: List[int], base_def: Dict[str, float],
+                     recency: bool = True) -> List[Dict[str, Any]]:
+    """Fraqueza defensiva por zona (zona própria do defensor) a partir dos chutes sofridos.
+
+    ``match_ids`` vem do mais recente para o mais antigo. Com ``recency=True`` a razão contra a liga
+    (``ratio_vs_league``) pondera os jogos por recência (janela curta da Análise de partida); com
+    ``False`` todos pesam igual (perfil de temporada). ``ratio_recent``/``trend`` comparam os
+    últimos jogos com a janela toda nos dois casos.
+    Os valores "por 90" e totais continuam descritivos (sem peso).
+    """
     n = max(1, len(match_ids))
+    rank = {mid: i for i, mid in enumerate(match_ids)}
+    weights = [(_recency_weight(i) if recency else 1.0) for i in range(len(match_ids))] or [1.0]
+    w_total = sum(weights)
+    recent_n = min(n, RECENT_FORM_MATCHES)
+
     xg_by: Dict[str, float] = defaultdict(float)
+    xg_w: Dict[str, float] = defaultdict(float)
+    xg_recent: Dict[str, float] = defaultdict(float)
     shots_by: Dict[str, int] = defaultdict(int)
     goals_by: Dict[str, int] = defaultdict(int)
     for e in events:
         if e.team_id in team_ids:
             continue  # só o que o time SOFREU
         _, zone = _own_zone(e)
-        xg_by[zone] += _xg(e)
+        xg = _xg(e)
+        r = rank.get(e.match_id)
+        xg_by[zone] += xg
+        xg_w[zone] += xg * (_recency_weight(r) if (recency and r is not None) else 1.0)
+        if r is not None and r < RECENT_FORM_MATCHES:
+            xg_recent[zone] += xg
         shots_by[zone] += 1
         goals_by[zone] += 1 if _is_goal(e) else 0
+
+    total_xga = sum(xg_by.values())
     out = []
     for zone in ZONE_ORDER:
         z = zone.value
-        ratio = _zone_ratio(xg_by.get(z, 0.0), n, base_def.get(z, 0.0))
+        base = base_def.get(z, 0.0)
+        # média ponderada por jogo x n jogos = "total equivalente" para o mesmo encolhimento de antes
+        ratio = _zone_ratio((xg_w.get(z, 0.0) / w_total) * n, n, base)
         # Zona em que ninguém finaliza (nem a liga, nem este time): sem informação -> sem fraqueza.
         # (Antes saía 0,5 = "na média" e pintava de vermelho alas e meio-campo sem dado nenhum.)
-        informative = base_def.get(z, 0.0) > 1e-9 or xg_by.get(z, 0.0) > 0
+        informative = base > 1e-9 or xg_by.get(z, 0.0) > 0
+        ratio_recent = _zone_ratio(xg_recent.get(z, 0.0), recent_n, base)
+        trend = "stable"
+        if n >= 2 * RECENT_FORM_MATCHES - 2:
+            if ratio_recent - ratio >= 0.2:
+                trend = "worse"
+            elif ratio - ratio_recent >= 0.2:
+                trend = "better"
+        shots_z = shots_by.get(z, 0)
+        goals_z = goals_by.get(z, 0)
+        xga_z = xg_by.get(z, 0.0)
         out.append({
             "zone": z,
             "weakness_score": round(clamp(ratio / 2.0), 4) if informative else 0.0,
             "ratio_vs_league": round(ratio, 3),
-            "shots_conceded_per_90": round(shots_by.get(z, 0) / n, 3),
-            "xga_per_90": round(xg_by.get(z, 0.0) / n, 3),
-            "goals_conceded_per_90": round(goals_by.get(z, 0) / n, 3),
+            "ratio_recent": round(ratio_recent, 3),
+            "trend": trend,
+            "shots_conceded": shots_z,
+            "goals_conceded": goals_z,
+            "xga": round(xga_z, 3),
+            "xg_per_shot": round(xga_z / shots_z, 3) if shots_z else None,
+            # > 0: sofreu mais gols do que o xG dos chutes (goleiro/finalização adversária acima do esperado)
+            "goals_minus_xga": round(goals_z - xga_z, 3),
+            "share_of_xga_pct": round(100 * xga_z / total_xga, 1) if total_xga > 0 else 0.0,
+            "reliability": _zone_reliability(shots_z, len(match_ids)),
+            "shots_conceded_per_90": round(shots_z / n, 3),
+            "xga_per_90": round(xga_z / n, 3),
+            "goals_conceded_per_90": round(goals_z / n, 3),
             "sample_size": len(match_ids),
         })
     return out
@@ -266,32 +330,89 @@ def _poisson(lmbda: float) -> float:
     return 1.0 - math.exp(-max(0.0, lmbda))
 
 
-def _confidence(shots: int) -> str:
-    return "high" if shots >= 12 else ("medium" if shots >= 6 else "low")
+def _confidence(shots: int, expected_90s: Optional[float] = None) -> str:
+    level = 2 if shots >= 12 else (1 if shots >= 6 else 0)
+    if expected_90s is not None and expected_90s < 0.4:
+        level = max(0, level - 1)  # poucos minutos recentes: menos certeza
+    return ("low", "medium", "high")[level]
+
+
+def _minutes_profile(mins: List[int]) -> Dict[str, float]:
+    """Minutos recentes (do mais novo ao mais antigo) -> total em jogos de 90' e minutos esperados."""
+    weights = [0.5 ** (i / MINUTES_HALF_LIFE) for i in range(len(mins))]
+    expected = sum(w * m for w, m in zip(weights, mins)) / max(sum(weights), 1e-9)
+    return {
+        "total_90s": sum(mins) / 90.0,
+        "expected_90s": max(0.0, min(1.33, expected / 90.0)),
+        "starts": float(sum(1 for m in mins if m >= 60)),
+    }
+
+
+def _pooled_rates(players: Dict[int, Dict[str, Any]], profiles: Dict[int, Dict[str, float]]) -> Dict[str, float]:
+    """Taxa por 90' do time inteiro (jogadores com minutos conhecidos): a âncora do encolhimento."""
+    total_90 = sum(pr["total_90s"] for pid, pr in profiles.items() if pid in players)
+    if total_90 <= 0:
+        return {}
+    pool = {"shots": 0.0, "on_target": 0.0, "goal": 0.0, "assist": 0.0}
+    for pid, pr in profiles.items():
+        p = players.get(pid)
+        if p is None:
+            continue
+        pool["shots"] += p["shots"]
+        pool["on_target"] += p["on_target"]
+        pool["goal"] += 0.6 * p["xg"] + 0.4 * p["goals"]
+        pool["assist"] += p["assists"]
+    return {k: v / total_90 for k, v in pool.items()}
 
 
 def _predictions_for_team(
     side: str, team_id: int, players: Dict[int, Dict[str, Any]], n_matches: int,
     opp_weak: Dict[str, Dict[str, Any]], opp_name: str,
+    minutes: Optional[Dict[int, List[int]]] = None,
+    opp_gk: Optional[Dict[str, Any]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Estimativas por jogador.
+
+    * Sem ``minutes``: taxa por jogo do TIME (como antes).
+    * Com ``minutes`` (Lineup/PlayerMatchStatistics): taxa por 90' encolhida para a média do time
+      (poucos minutos = menos extremo) x minutos esperados (recência ponderada). Quem vem sendo
+      poupado/lesionado perde probabilidade; quem joga 90' não é penalizado por jogos que não disputou.
+    * ``opp_gk``: goleiro adversário (``index_service.team_goalkeeper``) ajusta só gol e participação em gol.
+    """
     home_mult = 1.05 if side == "home" else 0.95
     ranked = sorted(players.values(), key=lambda p: (p["xg"] + 0.3 * p["shots"]), reverse=True)[:TOP_PLAYERS]
     preds: List[Dict[str, Any]] = []
     matchups: List[Dict[str, Any]] = []
     n = max(1, n_matches)
+    profiles = {pid: _minutes_profile(mins) for pid, mins in (minutes or {}).items() if mins}
+    pool = _pooled_rates(players, profiles)
+    gk_factor = (opp_gk or {}).get("goal_factor")
+    gk_name = (opp_gk or {}).get("name")
+
     for p in ranked:
         f_shot = _opp_factor(p, opp_weak, "n")
         f_xg = _opp_factor(p, opp_weak, "xg")
-        shots_pm = p["shots"] / n
-        sot_pm = p["on_target"] / n
-        goal_pm = (0.6 * p["xg"] + 0.4 * p["goals"]) / n
-        assist_pm = p["assists"] / n
+        prof = profiles.get(p["player_id"]) if pool else None
+
+        def per_match(value: float, pool_key: str) -> float:
+            if prof is None:
+                return value / n
+            rate_90 = (value + SHRINK_K * pool.get(pool_key, 0.0)) / (prof["total_90s"] + SHRINK_K)
+            return rate_90 * prof["expected_90s"]
+
+        goal_value = 0.6 * p["xg"] + 0.4 * p["goals"]
+        shots_pm = per_match(p["shots"], "shots")
+        sot_pm = per_match(p["on_target"], "on_target")
+        goal_pm = per_match(goal_value, "goal")
+        assist_pm = per_match(p["assists"], "assist")
+        gk_mult = gk_factor if gk_factor else 1.0
         rates = {
-            "shot": (shots_pm, f_shot),
-            "shot_on_target": (sot_pm, f_shot),
-            "goal": (goal_pm, f_xg),
-            "goal_involvement": (goal_pm + 0.8 * assist_pm, f_xg),
+            "shot": (shots_pm, f_shot, 1.0),
+            "shot_on_target": (sot_pm, f_shot, 1.0),
+            "goal": (goal_pm, f_xg, gk_mult),
+            "goal_involvement": (goal_pm + 0.8 * assist_pm, f_xg, gk_mult),
         }
+        expected_min = round(prof["expected_90s"] * 90) if prof else None
         total_shots = max(1, p["shots"])
         zone_opps = []
         for zone in ZONE_ORDER:
@@ -324,23 +445,37 @@ def _predictions_for_team(
             positives.append({"feature": "opp_weak", "factor": f"{opp_name} cede acima da média onde ele finaliza (x{f_shot:.2f})"})
         elif f_shot <= 0.9:
             negatives.append({"feature": "opp_strong", "factor": f"{opp_name} cede menos que a média onde ele finaliza (x{f_shot:.2f})"})
+        if prof is not None:
+            if expected_min >= 70:
+                positives.append({"feature": "minutes", "factor": f"deve jogar ~{expected_min}' (titular nos últimos jogos)"})
+            elif expected_min < 45:
+                negatives.append({"feature": "minutes", "factor": f"poucos minutos recentes (~{expected_min}' esperados)"})
+            else:
+                negatives.append({"feature": "minutes", "factor": f"minutos limitados (~{expected_min}' esperados)"})
+        if gk_factor and gk_name:
+            if gk_factor <= 0.96:
+                negatives.append({"feature": "opp_gk", "factor": f"goleiro {gk_name} evita gols acima da média (x{gk_factor:.2f})"})
+            elif gk_factor >= 1.04:
+                positives.append({"feature": "opp_gk", "factor": f"goleiro {gk_name} defende abaixo da média (x{gk_factor:.2f})"})
         if p["shots"] < 6:
             negatives.append({"feature": "sample", "factor": f"amostra pequena ({p['shots']} chutes)"})
         if side == "away":
             negatives.append({"feature": "venue", "factor": "joga fora de casa"})
 
-        for target, (rate, factor) in rates.items():
+        for target, (rate, factor, gk_adj) in rates.items():
             base = _poisson(rate)
-            prob = _poisson(rate * factor * home_mult)
+            prob = _poisson(rate * factor * home_mult * gk_adj)
             preds.append({
                 "player_id": p["player_id"], "player_name": p["name"], "team_id": team_id,
                 "target": target, "probability": round(prob, 4), "baseline_probability": round(base, 4),
-                "venue": side, "confidence": _confidence(p["shots"]),
+                "venue": side, "confidence": _confidence(p["shots"], prof["expected_90s"] if prof else None),
                 "positive_factors": positives, "negative_factors": negatives,
-                "zone_opportunities": zone_opps, "model_version": "shot-poisson@1",
+                "zone_opportunities": zone_opps, "model_version": METHOD,
                 # Taxas usadas no cálculo (alimentam o gráfico de dispersão da tela).
                 "shots_per_match": round(shots_pm, 3), "xg_per_match": round(p["xg"] / n, 3),
                 "rate_per_match": round(rate, 3), "opp_factor": round(factor, 3),
+                "expected_minutes": expected_min, "minutes_known": prof is not None,
+                "gk_factor": round(gk_adj, 3) if gk_factor else None,
             })
 
         # Confronto: atacante x defesa adversária.
@@ -376,13 +511,27 @@ def _own_zone_label(zone: str) -> str:
     return _OWN_LABEL.get(zone, zone.replace("_", " "))
 
 
+def _safe(db: Session, fn, what: str):
+    """Executa um bloco opcional; erro vira log e ``None`` (não derruba a tela de Análise)."""
+    try:
+        return fn()
+    except Exception:  # noqa: BLE001
+        log.warning("shot_insights: %s indisponível", what, exc_info=True)
+        # Em PostgreSQL uma consulta que falha deixa a transação "abortada"; limpa para as próximas.
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+
 def match_insights(db: Session, m: Match) -> Dict[str, Any]:
     """Zonas, previsões e confrontos de uma partida, calculados dos chutes reais anteriores a ela."""
     home_ids = _team_ids_like(db, m.home_team)
     away_ids = _team_ids_like(db, m.away_team)
     home_recent = _recent_match_ids(db, home_ids, m.kickoff_time, WINDOW)
     away_recent = _recent_match_ids(db, away_ids, m.kickoff_time, WINDOW)
-    base = {"available": False, "match_id": m.id, "method": "shot-poisson@1"}
+    base = {"available": False, "match_id": m.id, "method": METHOD}
     if not home_recent and not away_recent:
         return {**base, "notes": ["Sem chutes anteriores a esta partida para os dois times."]}
 
@@ -400,9 +549,18 @@ def match_insights(db: Session, m: Match) -> Dict[str, Any]:
     away_players = _player_rows(away_events, aset, len(away_recent))
     home_name = m.home_team.name if m.home_team else "mandante"
     away_name = m.away_team.name if m.away_team else "visitante"
-    # Atacantes do mandante enfrentam a defesa do visitante (e vice-versa).
-    p1, m1 = _predictions_for_team("home", m.home_team_id, home_players, len(home_recent), weak_away_map, away_name)
-    p2, m2 = _predictions_for_team("away", m.away_team_id, away_players, len(away_recent), weak_home_map, home_name)
+
+    # Dados opcionais (FBref/Lineup): se faltarem ou falharem, a análise segue só com os chutes.
+    home_gk = _safe(db, lambda: team_goalkeeper(db, home_ids), "goleiro do mandante")
+    away_gk = _safe(db, lambda: team_goalkeeper(db, away_ids), "goleiro do visitante")
+    home_minutes = _safe(db, lambda: recent_minutes(db, list(home_players), home_recent), "minutos do mandante") or {}
+    away_minutes = _safe(db, lambda: recent_minutes(db, list(away_players), away_recent), "minutos do visitante") or {}
+
+    # Atacantes do mandante enfrentam a defesa e o goleiro do visitante (e vice-versa).
+    p1, m1 = _predictions_for_team("home", m.home_team_id, home_players, len(home_recent), weak_away_map, away_name,
+                                   minutes=home_minutes, opp_gk=away_gk)
+    p2, m2 = _predictions_for_team("away", m.away_team_id, away_players, len(away_recent), weak_home_map, home_name,
+                                   minutes=away_minutes, opp_gk=home_gk)
     matchups = sorted(m1 + m2, key=lambda x: abs(x["score"] - 0.5), reverse=True)
 
     notes = [
@@ -411,6 +569,10 @@ def match_insights(db: Session, m: Match) -> Dict[str, Any]:
         "Só jogos anteriores a esta partida entram no cálculo.",
         "Probabilidade = chance de pelo menos 1 evento (Poisson), ajustada pela fraqueza da defesa adversária.",
     ]
+    if home_minutes or away_minutes:
+        notes.append("Taxas por 90' suavizadas para a média do time e multiplicadas pelos minutos esperados (jogos recentes pesam mais).")
+    if (home_gk and home_gk.get("goal_factor")) or (away_gk and away_gk.get("goal_factor")):
+        notes.append("Chance de gol também considera o desempenho do goleiro adversário (defesas vs. esperado, FBref).")
     return {
         **base,
         "available": True,
@@ -421,6 +583,7 @@ def match_insights(db: Session, m: Match) -> Dict[str, Any]:
             "home_team_attack": _attack_profile(home_events, hset, home_recent, att_base),
             "away_team_attack": _attack_profile(away_events, aset, away_recent, att_base),
         },
+        "goalkeepers": {"home": home_gk, "away": away_gk},
         "predictions": p1 + p2,
         "matchups": matchups,
         "notes": notes,

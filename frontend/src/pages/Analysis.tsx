@@ -10,6 +10,7 @@ import { payloadToDataset } from "../api/studioReal";
 import { PitchStudio } from "../components/PitchStudio";
 import { Pitch3D } from "../components/Pitch3D";
 import { ZoneMap2D } from "../components/ZoneMap2D";
+import { GoalkeeperCompare } from "../components/GoalkeeperCompare";
 import type { WeaknessDetail, ZoneStatEntry } from "../components/ZoneInfoPanel";
 import { ZONE_GEOMETRY } from "../components/Pitch";
 import {
@@ -365,7 +366,7 @@ export default function AnalysisPage() {
                   <SectionTitle
                     title="Probabilidades de eventos por jogador"
                     hint="Cálculos experimentais com eventos reais anteriores; não são resultados observados nem garantias."
-                    right={<Badge kind="warn">Poisson · experimental</Badge>}
+                    right={<Badge kind="warn">Poisson + minutos + goleiro · experimental</Badge>}
                   />
                   {insightsQuery.isError ? (
                     <EmptyState
@@ -385,7 +386,7 @@ export default function AnalysisPage() {
                         <div className="sv-card-inner space-y-3">
                           <p className="text-sm text-sv-muted">
                             Chance estimada de pelo menos um evento na partida. A barra compara o cálculo ajustado
-                            à taxa recente do jogador sem ajuste do adversário; estimativas experimentais, não validadas.
+                            (adversário, minutos esperados e goleiro) à taxa recente do jogador sem esses ajustes; estimativas experimentais, não validadas.
                             Amostra:{" "}
                             <strong className="text-sv-text">{insightsQuery.data.sample?.home_matches ?? 0}</strong>{" "}
                             jogos anteriores de {selectedRealMatch.home_team.name} e{" "}
@@ -396,6 +397,17 @@ export default function AnalysisPage() {
                           </p>
                         </div>
                       </div>
+                      {insightsQuery.data.goalkeepers && (
+                        <div className="space-y-2">
+                          <div className="text-sm font-semibold">Goleiros titulares</div>
+                          <GoalkeeperCompare
+                            homeName={selectedRealMatch.home_team.name}
+                            awayName={selectedRealMatch.away_team.name}
+                            home={insightsQuery.data.goalkeepers.home}
+                            away={insightsQuery.data.goalkeepers.away}
+                          />
+                        </div>
+                      )}
                       <div className="flex flex-wrap gap-2" role="group" aria-label="Tipo de estimativa">
                         {predictionTargets.map(([target, label]) => (
                           <button
@@ -617,6 +629,14 @@ function PlayerEstimateCard({
           <ConfidenceBadge c={prediction.confidence} />
         </div>
         <ProbabilityBar p={prediction.probability} baseline={prediction.baseline_probability} />
+        {(prediction.expected_minutes != null || prediction.gk_factor != null) && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-sv-muted">
+            {prediction.expected_minutes != null && <span>Minutos esperados: ~{prediction.expected_minutes}&apos;</span>}
+            {prediction.gk_factor != null && prediction.target.startsWith("goal") && (
+              <span>Goleiro adversário: x{prediction.gk_factor.toFixed(2)}</span>
+            )}
+          </div>
+        )}
         {factors.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {factors.map(({ item, negative }, index) => (

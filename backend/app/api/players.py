@@ -11,6 +11,8 @@ from app.schemas import (
     PlayerOut, PlayerDetailedOut, PlayerStatisticsOut, PlayerZoneStatsOut,
     ProbabilityPrediction,
 )
+from app.services.index_service import player_index_payload
+from app.services.position_index import classify_role
 from app.services.predictions import predict_for_player, TARGETS
 from app.services.player_profile import (
     TOP5_CODES, decorate_players, derive_zone_stats, extras_from_stat, league_averages,
@@ -129,6 +131,7 @@ def get_player_overview(player_id: int, db: Session = Depends(get_db)):
     stat = ps_repo.for_player(db, player_id)
     return {
         "player_id": p.id,
+        "role": classify_role(p.position),
         "team": {
             "id": p.team_id,
             "name": getattr(p, "team_name", None),
@@ -142,6 +145,18 @@ def get_player_overview(player_id: int, db: Session = Depends(get_db)):
         "league_average": None if (p.position and "GK" in p.position.upper())
         else league_averages(db, getattr(p, "league_code", None), league_map),
     }
+
+
+@router.get("/players/{player_id}/index")
+def get_player_index(player_id: int, db: Session = Depends(get_db)):
+    """Índice por função: defensivo (defensores) ou de goleiro (goleiros), com componentes e KPIs.
+
+    Para atacantes/meias devolve só ``role`` (``available=false``): o índice ofensivo é calculado na tela.
+    """
+    p = player_repo.get(db, player_id)
+    if not p:
+        raise HTTPException(404, "Player not found")
+    return player_index_payload(db, p)
 
 
 @router.get("/players/{player_id}/statistics", response_model=List[PlayerStatisticsOut])

@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 import json
 import math
 import re
+import sys
 from typing import Any, Iterable, Mapping
 
 import pandas as pd
@@ -24,6 +25,9 @@ from app.db import SessionLocal
 from app.db.models import (
     CollectionState, Competition, Lineup, Match, Player, PlayerMatchStatistics,
     PlayerStatistics, Season, Team,
+)
+from app.services.fbref_stats import (
+    COLUMN_BACKED_FIELDS, extract_keeper_match, extract_season_stats, finalize_totals, merge_totals,
 )
 from app.services.studio import _player_name, _same_person, _same_team_name, norm_person, norm_team
 
@@ -66,6 +70,12 @@ DEFENSIVE_SEASON_FIELDS = {
     "aerials_won": (("Won",), "aerial"),
     "aerials_lost": (("Lost",), "aerial"),
 }
+
+
+# Tabelas sazonais extras do FBref (SoccerData): goleiro, defesa, passes e posse.
+# ``misc`` já é lida acima e também alimenta cartões/faltas/bola aérea.
+EXTRA_SEASON_STAT_TYPES = ("keeper", "keeper_adv", "defense", "passing", "possession")
+PLAYER_STAT_COLUMNS = frozenset(PlayerStatistics.__table__.columns.keys())
 
 
 def _records(frame: Any) -> list[dict[Any, Any]]:
@@ -626,30 +636,67 @@ def _season_stats(
     standard_rows: list[dict[Any, Any]],
     misc_rows: list[dict[Any, Any]],
     team_context: Mapping[str, set[tuple[int, int]]],
+    extra_rows: Mapping[str, list[dict[Any, Any]]] | None = None,
 ) -> tuple[int, int]:
+    """Soma as estatísticas sazonais por (jogador, temporada) e grava em ``PlayerStatistics``.
+
+    ``extra_rows`` = ``{stat_type: linhas}`` com goleiro/defesa/passes/posse; a tabela ``misc`` é
+    reaproveitada para cartões, faltas e bola aérea. Só contagens são guardadas em
+    ``supplemental_stats["soccerdata"]`` (percentuais e por-90 saem dos totais na leitura).
+    """
+    extra_sources: dict[str, list[dict[Any, Any]]] = dict(extra_rows or {})
+    extra_sources.setdefault("misc", misc_rows)
+
     totals: dict[tuple[int, int], dict[str, int]] = defaultdict(dict)
+    extra_totals: dict[tuple[int, int], dict[str, float]] = defaultdict(dict)
     unresolved = 0
+
+    def resolve(source: Mapping[Any, Any]) -> tuple[int, int] | None:
+        nonlocal unresolved
+        team_context_value = _team_for_row(source, team_context)
+        player = player_resolver.resolve(
+            team_context_value[0],
+            _row_text(source, "player"),
+        ) if team_context_value else None
+        if not player or not team_context_value:
+            unresolved += 1
+            return None
+        return player.id, team_context_value[1]
+
     for rows, field_map in (
         (standard_rows, SEASON_STAT_FIELDS),
         (misc_rows, DEFENSIVE_SEASON_FIELDS),
     ):
         for source in rows:
-            team_context_value = _team_for_row(source, team_context)
-            player = player_resolver.resolve(
-                team_context_value[0],
-                _row_text(source, "player"),
-            ) if team_context_value else None
-            if not player or not team_context_value:
-                unresolved += 1
+            key = resolve(source)
+            if key is None:
                 continue
-            key = (player.id, team_context_value[1])
             for field, (aliases, group) in field_map.items():
                 value = _row_number(source, aliases, group)
                 if value is not None:
                     totals[key][field] = totals[key].get(field, 0) + value
 
+    for stat_type, rows in extra_sources.items():
+        for source in rows:
+            values = extract_season_stats(stat_type, source)
+            if not values:
+                continue
+            player_key = _team_for_row(source, team_context)
+            player = player_resolver.resolve(
+                player_key[0], _row_text(source, "player"),
+            ) if player_key else None
+            if not player or not player_key:
+                # já contado como não resolvido nas tabelas principais; não conta de novo
+                continue
+            merge_totals(extra_totals[(player.id, player_key[1])], values)
+
     updated = 0
-    for (player_id, season_id), source_values in totals.items():
+    for key in set(totals) | set(extra_totals):
+        player_id, season_id = key
+        extras = finalize_totals(extra_totals.get(key, {}))
+        # Totais "padrão" (Min, MP, Gls, Ast) + TklW/Int/Won/Lost da misc; as tabelas extras
+        # (ex.: ``defense`` traz Clr, que a ``misc`` NÃO tem) complementam e têm prioridade.
+        source_values: dict[str, Any] = {**totals.get(key, {}), **extras}
         existing = db.scalar(
             select(PlayerStatistics).where(
                 PlayerStatistics.player_id == player_id,
@@ -664,11 +711,60 @@ def _season_stats(
                 scope="overall",
             )
             db.add(existing)
-        _merge_sourced_stats(
-            existing, source_values, source_values.keys(), preserve_existing=True,
-        )
+        column_fields = [field for field in source_values if field in PLAYER_STAT_COLUMNS]
+        _merge_sourced_stats(existing, source_values, column_fields, preserve_existing=True)
+        # Contagens do FBref com nome diferente da coluna (ex.: pass_cmp -> passes_completed).
+        for field, column in COLUMN_BACKED_FIELDS.items():
+            incoming = extras.get(field)
+            if incoming is None or field in column_fields:
+                continue
+            if getattr(existing, column) in (None, 0):
+                setattr(existing, column, int(incoming))
+        pass_att, pass_cmp = extras.get("pass_att"), extras.get("pass_cmp")
+        if pass_att and pass_cmp is not None and not existing.pass_accuracy_pct:
+            existing.pass_accuracy_pct = round(100.0 * pass_cmp / pass_att, 1)
         updated += 1
     return updated, unresolved
+
+
+def _upsert_keeper_match_stats(
+    db: Session,
+    match: Match,
+    team_id: int,
+    player: Player,
+    row: Mapping[Any, Any],
+) -> bool:
+    """Defesas, gols sofridos e chutes no alvo enfrentados por partida (tabela ``keepers``)."""
+    values = extract_keeper_match(row)
+    if not values:
+        return False
+    minutes = _row_number(row, ("min", "minutes_played"), "playing time")
+    existing = db.scalar(
+        select(PlayerMatchStatistics).where(
+            PlayerMatchStatistics.match_id == match.id,
+            PlayerMatchStatistics.player_id == player.id,
+        )
+    )
+    created = existing is None
+    if existing is None:
+        existing = PlayerMatchStatistics(
+            match_id=match.id,
+            team_id=team_id,
+            player_id=player.id,
+            minutes_played=minutes or 0,
+            is_starter=True,
+            position="GK",
+        )
+        db.add(existing)
+    else:
+        if not existing.minutes_played and minutes is not None:
+            existing.minutes_played = minutes
+        if not existing.position:
+            existing.position = "GK"
+    _merge_sourced_stats(
+        existing, values, ("saves", "goals_conceded", "shots_faced"),
+    )
+    return created
 
 
 def sync_soccerdata_rows(
@@ -679,6 +775,8 @@ def sync_soccerdata_rows(
     player_match_rows: list[dict[Any, Any]],
     player_season_standard_rows: list[dict[Any, Any]],
     player_season_misc_rows: list[dict[Any, Any]],
+    player_season_extra_rows: Mapping[str, list[dict[Any, Any]]] | None = None,
+    keeper_match_rows: list[dict[Any, Any]] | None = None,
 ) -> dict[str, int]:
     if league_code not in FBREF_LEAGUES:
         raise ValueError(f"Liga sem mapeamento FBref: {league_code}")
@@ -691,6 +789,8 @@ def sync_soccerdata_rows(
         "lineups_skipped": 0,
         "player_match_stats_inserted": 0,
         "player_match_stats_skipped": 0,
+        "keeper_match_stats_inserted": 0,
+        "keeper_match_stats_updated": 0,
         "players_unmatched": 0,
     })
 
@@ -726,12 +826,26 @@ def sync_soccerdata_rows(
         )
         summary["player_match_stats_inserted"] += int(created)
 
+    for source in keeper_match_rows or []:
+        game_id = _row_text(source, "game_id")
+        match = game_matches.get(game_id or "")
+        if match is None or match.status != "finished":
+            continue
+        team_id = _team_in_match(_row_text(source, "team"), match, db)
+        player = player_resolver.resolve(team_id, _row_text(source, "player")) if team_id else None
+        if not team_id or not player:
+            summary["players_unmatched"] += 1
+            continue
+        created = _upsert_keeper_match_stats(db, match, team_id, player, source)
+        summary["keeper_match_stats_inserted" if created else "keeper_match_stats_updated"] += 1
+
     season_rows_updated, season_players_unmatched = _season_stats(
         db,
         player_resolver,
         player_season_standard_rows,
         player_season_misc_rows,
         team_context,
+        player_season_extra_rows,
     )
     summary["player_season_stats_updated"] = season_rows_updated
     summary["season_players_unmatched"] = season_players_unmatched
@@ -766,7 +880,17 @@ def _store_checkpoint(
         checkpoint.last_success_at = now
 
 
-def _sync_league(league_code: str, season: str) -> dict[str, Any]:
+def _read_optional(label: str, reader_call: Any, failures: list[str]) -> list[dict[Any, Any]]:
+    """Lê uma tabela opcional do FBref; falha em uma não derruba a sincronização inteira."""
+    try:
+        return _records(reader_call())
+    except Exception as error:  # noqa: BLE001 - tabelas extras são "best effort"
+        failures.append(label)
+        print(f"[soccerdata] aviso: tabela '{label}' indisponível ({type(error).__name__}: {error})", file=sys.stderr)
+        return []
+
+
+def _sync_league(league_code: str, season: str, include_extra: bool = True) -> dict[str, Any]:
     import soccerdata
 
     reader = soccerdata.FBref(leagues=FBREF_LEAGUES[league_code], seasons=season)
@@ -802,6 +926,25 @@ def _sync_league(league_code: str, season: str) -> dict[str, Any]:
         )
     player_season_standard = _records(reader.read_player_season_stats(stat_type="standard"))
     player_season_misc = _records(reader.read_player_season_stats(stat_type="misc"))
+    extra_failures: list[str] = []
+    player_season_extra: dict[str, list[dict[Any, Any]]] = {}
+    keeper_match_rows: list[dict[Any, Any]] = []
+    if include_extra:
+        for stat_type in EXTRA_SEASON_STAT_TYPES:
+            player_season_extra[stat_type] = _read_optional(
+                stat_type,
+                lambda stat_type=stat_type: reader.read_player_season_stats(stat_type=stat_type),
+                extra_failures,
+            )
+        if matched_game_ids:
+            keeper_match_rows = _attach_game_ids(
+                _read_optional(
+                    "keepers (partida)",
+                    lambda: reader.read_player_match_stats(stat_type="keepers", match_id=matched_game_ids),
+                    extra_failures,
+                ),
+                schedule,
+            )
     resource = f"{league_code}:{season}"
 
     with SessionLocal.begin() as db:
@@ -817,17 +960,27 @@ def _sync_league(league_code: str, season: str) -> dict[str, Any]:
             player_match_stats,
             player_season_standard,
             player_season_misc,
+            player_season_extra,
+            keeper_match_rows,
         )
+        summary["extra_tables_failed"] = len(extra_failures)
         _store_checkpoint(db, resource, summary)
-    return {"league": league_code, "season": season, **summary}
+    return {
+        "league": league_code, "season": season, **summary,
+        **({"extra_tables_failed_names": extra_failures} if extra_failures else {}),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Complementa dados existentes com FBref via SoccerData.")
     parser.add_argument("--leagues", nargs="+", required=True, choices=sorted(FBREF_LEAGUES))
     parser.add_argument("--season", required=True, help="Temporada FBref, por exemplo 2026-27.")
+    parser.add_argument(
+        "--basic-only", action="store_true",
+        help="Não lê as tabelas extras (goleiro, defesa, passes, posse); só o conjunto antigo.",
+    )
     args = parser.parse_args(argv)
-    results = [_sync_league(league, args.season) for league in args.leagues]
+    results = [_sync_league(league, args.season, include_extra=not args.basic_only) for league in args.leagues]
     print(json.dumps(results, ensure_ascii=False, indent=2))
     return 0
 
