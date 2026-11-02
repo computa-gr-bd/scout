@@ -12,6 +12,7 @@ from app.schemas import (
     ProbabilityPrediction,
 )
 from app.services.index_service import player_index_payload
+from app.services.player_dedupe import duplicate_index, fill_from_duplicates
 from app.services.position_index import classify_role
 from app.services.predictions import predict_for_player, TARGETS
 from app.services.player_profile import (
@@ -88,7 +89,9 @@ def list_players(q: Optional[str] = None, position: Optional[str] = None,
     if position:
         filters.append(_position_clause(position))
 
-    stmt = select(Player)
+    # Filtros e ordem valem para cada linha; jogadores repetidos entre fontes (Understat ×
+    # football-data: "Gabriel" × "Gabriel Magalhães") viram um só, com estatísticas e posição juntas.
+    stmt = select(Player.id)
     if filters:
         stmt = stmt.where(and_(*filters))
     if order in _ORDERS:
@@ -97,17 +100,42 @@ def list_players(q: Optional[str] = None, position: Optional[str] = None,
                 .order_by(desc(func.coalesce(getattr(agg.c, _ORDERS[order]), 0)), Player.last_name))
     else:
         stmt = stmt.order_by(Player.last_name)
-    players = list(db.scalars(stmt.offset(skip).limit(limit)).all())
+    index = duplicate_index(db)
+    ordered: List[int] = []
+    seen: set = set()
+    for pid in db.scalars(stmt).all():
+        canon = index.canonical_of.get(pid, pid)
+        if canon not in seen:
+            seen.add(canon)
+            ordered.append(canon)
+    page_ids = ordered[skip:skip + limit]
+    if not page_ids:
+        return []
 
+    member_ids = {m for c in page_ids for m in index.members.get(c, [c])}
+    loaded = {p.id: p for p in db.scalars(select(Player).where(Player.id.in_(member_ids))).all()}
     # Batch load statistics — one query for the page instead of one per player.
-    ids = [p.id for p in players]
     stats_by_player: Dict[int, list] = {}
-    if ids:
-        for s in db.scalars(select(PlayerStatistics).where(PlayerStatistics.player_id.in_(ids))).all():
-            stats_by_player.setdefault(s.player_id, []).append(s)
-    for p in players:
-        p.statistics = stats_by_player.get(p.id, [])
-    decorate_players(db, players, league_map)
+    for s in db.scalars(select(PlayerStatistics).where(PlayerStatistics.player_id.in_(member_ids))).all():
+        stats_by_player.setdefault(s.player_id, []).append(s)
+
+    players: List[Player] = []
+    with db.no_autoflush:  # as mesclagens abaixo são só da resposta: nunca vão para o banco
+        for canon in page_ids:
+            p = loaded.get(canon)
+            if p is None:
+                continue
+            others = [loaded[i] for i in index.members.get(canon, []) if i != canon and i in loaded]
+            own = stats_by_player.get(p.id, [])
+            if not any((s.minutes_played or 0) > 0 for s in own):
+                for o in others:  # a linha escolhida está sem números: usa a da outra fonte
+                    if any((s.minutes_played or 0) > 0 for s in stats_by_player.get(o.id, [])):
+                        own = stats_by_player[o.id]
+                        break
+            p.statistics = own
+            fill_from_duplicates(p, others)
+            players.append(p)
+        decorate_players(db, players, league_map)
     return players
 
 
@@ -116,7 +144,12 @@ def get_player(player_id: int, db: Session = Depends(get_db)):
     p = player_repo.get_detailed(db, player_id)
     if not p:
         raise HTTPException(404, "Player not found")
-    decorate_players(db, [p])
+    index = duplicate_index(db)
+    ids = [i for i in index.members.get(index.canonical_of.get(player_id, player_id), []) if i != player_id]
+    with db.no_autoflush:
+        if ids:  # posição/nome completos que só a outra fonte tem
+            fill_from_duplicates(p, db.scalars(select(Player).where(Player.id.in_(ids))).all())
+        decorate_players(db, [p])
     return p
 
 
