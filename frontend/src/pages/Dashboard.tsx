@@ -278,7 +278,10 @@ export default function Dashboard() {
       .at(-1);
   const lastUnderstat = lastOf("understat");
   const lastFootball = lastOf("football_data");
+  const understatStates = states.filter((s) => s.provider === "understat");
+  const understatFailed = understatStates.some((s) => s.status !== "success");
   const understatStale = !lastUnderstat || Date.now() - new Date(lastUnderstat).getTime() > 24 * 3600_000;
+  const understatNeedsAttention = understatStale || understatFailed;
   const footballStale = states.filter((s) => s.provider === "football_data").some((s) => s.is_stale || s.status !== "success");
   const fmtTs = (v?: string) => (v ? new Date(v).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "nunca");
 
@@ -290,13 +293,14 @@ export default function Dashboard() {
           <p className="text-sv-muted mt-1 text-sm">
             Consulte partidas, resultados, clubes e classificações das competições disponíveis.
           </p>
-          <p className={`mt-1 text-xs ${understatStale || footballStale ? "text-sv-warn" : "text-sv-muted"}`}>
+          <p className={`mt-1 text-xs ${understatNeedsAttention || footballStale ? "text-sv-warn" : "text-sv-muted"}`}>
             {dataStatusQ.isError
               ? "Status da coleta indisponível"
               : dataStatusQ.isPending
               ? "Consultando a última coleta…"
               : <>
-                  Ligas: {fmtTs(lastUnderstat)}{understatStale && <> · <Link to="/ligas" className="underline">sincronizar agora</Link></>}
+                  Ligas: {fmtTs(lastUnderstat)}
+                  {understatNeedsAttention && <> · {understatFailed ? "última tentativa falhou ou foi parcial" : "sincronizar agora"} · <Link to="/ligas" className="underline">ver status</Link></>}
                   {" · "}football-data: {fmtTs(lastFootball)}{footballStale && " · pode estar desatualizado"}
                 </>}
           </p>
