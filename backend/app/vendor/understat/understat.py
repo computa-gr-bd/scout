@@ -51,6 +51,11 @@ class Understat():
         filtered_data = filter_data(fixtures, kwargs)
         return filtered_data
 
+    async def get_league_calendar(self, league_name, season):
+        url = LEAGUE_URL.format(to_league_name(league_name), season)
+        dates_data = await get_data(self.session, url, "datesData")
+        return dates_data["dates"]
+
     async def get_league_table(self, league_name, season, with_headers=True, h_a="overall", start_date=None, end_date=None):
         url = LEAGUE_URL.format(to_league_name(league_name), season)
         stats = await get_data(self.session, url, "teamsData")

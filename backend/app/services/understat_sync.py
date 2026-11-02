@@ -191,7 +191,11 @@ def _save_collection_state(db: Session, resource: str, status: str, summary: dic
         db.add(row)
     else:
         row.status = status
-        row.summary = summary
+        if status == "success":
+            row.summary = summary
+        else:
+            previous_summary = row.summary if isinstance(row.summary, dict) else {}
+            row.summary = {**previous_summary, **summary}
         if status == "success":
             row.last_success_at = now
     db.flush()
@@ -405,6 +409,10 @@ class UnderstatClient:
     async def league_fixtures(self, league: str, season: int):
         await self._sleep()
         return await self.understat.get_league_fixtures(league, season)
+
+    async def league_calendar(self, league: str, season: int):
+        await self._sleep()
+        return await self.understat.get_league_calendar(league, season)
 
     async def match_shots(self, match_id: str):
         await self._sleep()
@@ -1012,10 +1020,7 @@ def _pending_finished_matches(db: Session, season_id: int) -> list[Match]:
 
 
 async def _fetch_calendar(client: UnderstatClient, league: str, season: int) -> list:
-    results, fixtures = await asyncio.gather(
-        client.league_results(league, season), client.league_fixtures(league, season)
-    )
-    return list(results or []) + list(fixtures or [])
+    return list(await client.league_calendar(league, season) or [])
 
 
 # Partidas já tentadas sem sucesso (fonte sem chutes ou erro): vão para o FIM da fila por um tempo,

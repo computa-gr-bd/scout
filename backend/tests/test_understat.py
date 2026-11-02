@@ -122,6 +122,9 @@ class FakeClient:
             }
         ]
 
+    async def league_calendar(self, league, season):
+        return await self.league_results(league, season) + await self.league_fixtures(league, season)
+
     async def match_shots(self, match_id):
         return {
             "h": [
@@ -147,6 +150,41 @@ class FakeClient:
 # ---------------------------------------------------------------------------
 # Coleta: funções puras
 # ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_fetch_calendar_uses_single_calendar_request():
+    class CalendarClient:
+        calls = 0
+
+        async def league_calendar(self, league, season):
+            self.calls += 1
+            return [{"id": "finished"}, {"id": "upcoming"}]
+
+    client = CalendarClient()
+
+    calendar = await us._fetch_calendar(client, "epl", 2026)
+
+    assert [match["id"] for match in calendar] == ["finished", "upcoming"]
+    assert client.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_understat_calendar_fetches_dates_once(monkeypatch):
+    calls = []
+    dates = [{"id": "finished", "isResult": True}, {"id": "upcoming", "isResult": False}]
+
+    async def get_data(session, url, data_type):
+        calls.append((session, url, data_type))
+        return {"dates": dates}
+
+    monkeypatch.setattr("app.vendor.understat.understat.get_data", get_data)
+    session = object()
+
+    result = await Understat(session).get_league_calendar("epl", 2026)
+
+    assert result == dates
+    assert calls == [(session, "https://understat.com/getLeagueData/EPL/2026", "datesData")]
+
+
 def test_table_columns_contract():
     # A ordem precisa bater com o retorno de get_league_table(with_headers=False).
     assert us.TABLE_COLUMNS == [
@@ -404,6 +442,7 @@ def test_fast_sync_reports_all_calendar_timeouts_and_preserves_last_success(
     db_session.refresh(state)
     assert state.status == "failed"
     assert state.last_success_at == last_success
+    assert state.summary["shots"] == 2441
     assert state.summary["error"] == "Tempo esgotado ao consultar a Understat."
 
 
