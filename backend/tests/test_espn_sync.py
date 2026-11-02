@@ -233,9 +233,11 @@ def test_sync_is_idempotent_and_preserves_provider_stats(db_session, seeded):
     assert first["lineups_inserted"] == 2
     assert first["player_match_stats_inserted"] == 2
     assert first["team_match_stats_inserted"] == 2
+    assert first["team_match_stats_updated"] == 0
     assert second["lineups_inserted"] == 0
     assert second["player_match_stats_inserted"] == 0
     assert second["team_match_stats_inserted"] == 0
+    assert second["team_match_stats_updated"] == 2
     assert db_session.scalar(select(func.count(Lineup.id))) == 2
     assert db_session.scalar(select(func.count(PlayerMatchStatistics.id))) == 2
     assert db_session.scalar(select(func.count(TeamMatchStatistics.id))) == 2

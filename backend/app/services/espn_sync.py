@@ -609,6 +609,7 @@ def sync_espn_rows(
         "player_match_stats_inserted": 0,
         "player_match_stats_skipped": 0,
         "team_match_stats_inserted": 0,
+        "team_match_stats_updated": 0,
         "team_match_stats_skipped": 0,
         "players_unmatched": 0,
         "summaries_missing": 0,
@@ -688,6 +689,7 @@ def sync_espn_rows(
                 db, match, source, team_stats_by_key.get(key),
             )
             totals["team_match_stats_inserted"] += int(created)
+            totals["team_match_stats_updated"] += int(not created)
             team_stats_by_key[key] = team_match_stats
         totals["player_match_stats_skipped"] += max(
             0, len(player_rows) - len(resolved_player_rows),

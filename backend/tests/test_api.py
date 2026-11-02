@@ -6,7 +6,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, get_db
-from app.db.models import CollectionState
+from app.db.models import (
+    CollectionState, Competition, DataSource, Match, Player, PlayerMatchStatistics,
+    Season, Team, TeamMatchStatistics,
+)
 from app.main import app as fastapi_app
 
 SQLITE_URL = "sqlite:///./test_api.db"
@@ -87,6 +90,98 @@ def test_team_player_detail_404():
     assert r.status_code == 404
     r = client.get("/api/matches/999999")
     assert r.status_code == 404
+
+
+def test_team_defensive_stats_endpoint_uses_provider_data_and_team_alias(_setup):
+    db = _setup
+    competition = Competition(
+        name="Premier League", code="PL", data_source=DataSource.UNDERSTAT,
+    )
+    db.add(competition)
+    db.flush()
+    season = Season(
+        competition_id=competition.id, name="2026-27",
+        start_date=datetime(2026, 8, 1).date(), current=True,
+        data_source=DataSource.UNDERSTAT,
+    )
+    team = Team(name="Arsenal", data_source=DataSource.UNDERSTAT)
+    alias = Team(name="Arsenal FC", data_source=DataSource.FOOTBALL_DATA)
+    opponent = Team(name="Brighton", data_source=DataSource.UNDERSTAT)
+    db.add_all([season, team, alias, opponent])
+    db.flush()
+    match = Match(
+        season_id=season.id, home_team_id=team.id, away_team_id=opponent.id,
+        kickoff_time=datetime(2026, 9, 12, 14), status="finished",
+        data_source=DataSource.UNDERSTAT,
+    )
+    goalkeeper = Player(
+        last_name="Raya", display_name="David Raya", position="Goalkeeper",
+        data_source=DataSource.UNDERSTAT,
+    )
+    db.add_all([match, goalkeeper])
+    db.flush()
+    db.add_all([
+        TeamMatchStatistics(
+            team_id=alias.id, match_id=match.id,
+            supplemental_stats={"espn": {"mapped": {
+                "tackles": 14, "interceptions": 5, "clearances": 21,
+                "shots_blocked": 2, "saves": 4,
+            }}},
+        ),
+        TeamMatchStatistics(
+            team_id=team.id, match_id=match.id,
+            supplemental_stats={"espn": {"mapped": {
+                "tackles": 14, "interceptions": 5, "clearances": 21,
+                "shots_blocked": 2, "saves": 4,
+            }}},
+        ),
+        PlayerMatchStatistics(
+            player_id=goalkeeper.id, match_id=match.id, team_id=alias.id,
+            position="GK", saves=4, goals_conceded=1, shots_faced=0,
+            supplemental_stats={"espn": {"mapped": {
+                "saves": 4, "goals_conceded": 1,
+            }}},
+        ),
+    ])
+    db.commit()
+
+    response = client.get(f"/api/teams/{team.id}/defensive-stats")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["available"] is True
+    assert payload["matches_with_stats"] == 1
+    assert payload["metrics"]["tackles"] == {
+        "total": 14.0, "per_match": 14.0, "matches": 1, "sources": ["espn"],
+    }
+    assert payload["goalkeepers"] == [{
+        "player_id": goalkeeper.id,
+        "name": "David Raya",
+        "appearances": 1,
+        "sources": ["espn"],
+        "saves": 4.0,
+        "saves_per_match": 4.0,
+        "goals_conceded": 1.0,
+        "goals_conceded_per_match": 1.0,
+        "shots_faced": None,
+        "shots_faced_per_match": None,
+    }]
+
+
+def test_team_defensive_stats_endpoint_marks_missing_values_unavailable(_setup):
+    db = _setup
+    team = Team(name="Arsenal", data_source=DataSource.UNDERSTAT)
+    db.add(team)
+    db.commit()
+
+    response = client.get(f"/api/teams/{team.id}/defensive-stats")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["available"] is False
+    assert payload["matches_with_stats"] == 0
+    assert payload["metrics"]["tackles"]["per_match"] is None
+    assert payload["goalkeepers"] == []
 
 
 def test_invalid_token_is_rejected():

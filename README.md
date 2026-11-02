@@ -272,6 +272,10 @@ completed fixtures around their database dates, and commits in resumable batches
 Responses are cached outside the repository in `~/.scoutvision/espn-cache`.
 Unmatched or unavailable fixtures remain explicit in the collection checkpoint;
 the collector never fabricates statistics.
+The team profile exposes these stored collective metrics and goalkeeper match
+stats from `/api/teams/{team_id}/defensive-stats`, including their sample counts
+and data sources. Missing values stay unavailable; save percentage is not
+calculated when shots faced are absent.
 
 StatsBomb Open Data is a limited historical catalog, not a current league feed. The Brasileirão (BSA) was removed from the project.
 It requires no API key. Only selected JSONs are fetched, and unchanged matches are

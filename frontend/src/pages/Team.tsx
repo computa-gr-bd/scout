@@ -2,9 +2,10 @@ import { useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  getTeam, getTeamProfile, getTeamStatistics, listMatches, listPlayers, getStandings,
+  getTeam, getTeamDefensiveStats, getTeamProfile, getTeamStatistics, listMatches, listPlayers, getStandings,
   type Match, type Player, type SquadGroupKey, type StandingRow,
-  type TeamProfile, type TeamProfileMatch, type TeamProfilePlayer, type TeamZoneWeakness,
+  type TeamDefensiveMetricKey, type TeamProfile, type TeamProfileMatch, type TeamProfilePlayer,
+  type TeamZoneWeakness,
 } from "../api/client";
 import { Badge, EmptyState, SectionTitle, StatCard, TeamLogo } from "../components/ui";
 import { TeamZoneMaps, WeaknessRanking, useTeamZoneData } from "../components/TeamZones";
@@ -254,6 +255,18 @@ const RESULT_PT: Record<"W" | "D" | "L", "V" | "E" | "D"> = { W: "V", D: "E", L:
 const resultChip = (r: "V" | "E" | "D") =>
   r === "V" ? "bg-sv-accent2/20 text-sv-accent3" : r === "E" ? "bg-sv-warn/15 text-sv-warn" : "bg-sv-danger/15 text-sv-danger";
 
+const DEFENSIVE_METRICS: { key: TeamDefensiveMetricKey; label: string }[] = [
+  { key: "tackles", label: "Desarmes" },
+  { key: "interceptions", label: "Interceptações" },
+  { key: "clearances", label: "Cortes" },
+  { key: "shots_blocked", label: "Chutes bloqueados" },
+  { key: "saves", label: "Defesas coletivas" },
+];
+
+function formatDefensiveValue(value: number | null) {
+  return value == null ? "—" : Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
 /** xG a favor × xG contra nos últimos jogos (dados reais da Understat), com o resultado de cada um. */
 function FormXgChart({ matches }: { matches: TeamProfileMatch[] }) {
   const data = matches.slice(-8).map((m) => ({
@@ -309,6 +322,11 @@ function FormXgChart({ matches }: { matches: TeamProfileMatch[] }) {
 function ApiTeamPage({ teamId }: { teamId: number }) {
   const t = useQuery({ queryKey: ["team", teamId], queryFn: () => getTeam(teamId) });
   const stats = useQuery({ queryKey: ["team-stats", teamId], queryFn: () => getTeamStatistics(teamId) });
+  const defensiveStatsQ = useQuery({
+    queryKey: ["team-defensive-stats", teamId],
+    queryFn: () => getTeamDefensiveStats(teamId),
+    retry: 1, retryDelay: 600, staleTime: 5 * 60 * 1000,
+  });
   // xG, zonas, jogo a jogo e jogadores vêm dos chutes reais da Understat (o time pode ser de outra fonte).
   const profileQ = useQuery({
     queryKey: ["team-profile", teamId],
@@ -419,6 +437,96 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
           </p>
         )}
       </div>
+
+      <section className="sv-card" aria-label="Defesa coletiva e goleiros">
+        <div className="sv-card-inner">
+          <SectionTitle
+            title="Defesa coletiva e goleiros"
+            hint={defensiveStatsQ.data?.available
+              ? [
+                defensiveStatsQ.data.competition_code,
+                defensiveStatsQ.data.season_name,
+                `${defensiveStatsQ.data.matches_with_stats} jogos com estatísticas coletivas`,
+              ].filter(Boolean).join(" · ")
+              : "Dados reais de defesa e goleiros, quando disponíveis no banco"}
+          />
+          {defensiveStatsQ.isPending ? (
+            <div className="sv-card h-36 skeleton" />
+          ) : defensiveStatsQ.isError ? (
+            <p className="text-sm text-sv-danger" role="alert">
+              Não foi possível carregar as estatísticas defensivas.
+            </p>
+          ) : !defensiveStatsQ.data.available ? (
+            <EmptyState
+              title="Dados defensivos indisponíveis"
+              description="Ainda não há estatísticas coletivas ou de goleiros importadas para este time e temporada."
+            />
+          ) : (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                {DEFENSIVE_METRICS.map(({ key, label }) => {
+                  const metric = defensiveStatsQ.data.metrics[key];
+                  return (
+                    <div key={key} className="rounded-lg border border-sv-border/60 bg-sv-panel2/50 p-3">
+                      <div className="sv-stat-k">{label}</div>
+                      <div className="mt-1 text-xl font-semibold font-mono">
+                        {formatDefensiveValue(metric.per_match)}
+                      </div>
+                      <div className="mt-1 text-[11px] text-sv-muted">
+                        por jogo · {metric.matches} jogos
+                        {metric.sources.length > 0 ? ` · ${metric.sources.join(", ")}` : ""}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold mb-2">Goleiros</h3>
+                {defensiveStatsQ.data.goalkeepers.length === 0 ? (
+                  <p className="text-sm text-sv-muted">Sem estatísticas individuais de goleiros disponíveis.</p>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[480px] text-sm">
+                        <thead className="text-sv-muted text-xs">
+                          <tr className="border-b border-sv-border">
+                            <th className="text-left py-2 font-medium">Jogador</th>
+                            <th className="text-right py-2 font-medium">J</th>
+                            <th className="text-right py-2 font-medium">Defesas</th>
+                            <th className="text-right py-2 font-medium">Gols sofridos</th>
+                            <th className="text-right py-2 font-medium">Chutes enfrentados</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {defensiveStatsQ.data.goalkeepers.map((goalkeeper) => (
+                            <tr key={goalkeeper.player_id} className="border-b border-sv-border/40 last:border-0">
+                              <td className="py-2 font-medium">
+                                <div>{goalkeeper.name}</div>
+                                {goalkeeper.sources.length > 0 && (
+                                  <div className="text-[10px] font-normal text-sv-muted">
+                                    {goalkeeper.sources.join(", ")}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="text-right font-mono">{goalkeeper.appearances}</td>
+                              <td className="text-right font-mono">{formatDefensiveValue(goalkeeper.saves)}</td>
+                              <td className="text-right font-mono">{formatDefensiveValue(goalkeeper.goals_conceded)}</td>
+                              <td className="text-right font-mono">{formatDefensiveValue(goalkeeper.shots_faced)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="mt-2 text-[11px] text-sv-muted">
+                      Valores somados por temporada; percentual de defesas não é estimado quando faltam chutes enfrentados.
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* Próximos confrontos e resultados recentes — filtrados por este time */}
       <div className="grid lg:grid-cols-2 gap-5">

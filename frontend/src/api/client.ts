@@ -43,6 +43,39 @@ export interface TeamStatistics {
     | null;
 }
 
+export type TeamDefensiveMetricKey = "tackles" | "interceptions" | "clearances" | "shots_blocked" | "saves";
+
+export interface TeamDefensiveMetric {
+  total: number | null;
+  per_match: number | null;
+  matches: number;
+  sources: string[];
+}
+
+export interface TeamGoalkeeperStats {
+  player_id: number;
+  name: string;
+  appearances: number;
+  saves: number | null;
+  saves_per_match: number | null;
+  goals_conceded: number | null;
+  goals_conceded_per_match: number | null;
+  shots_faced: number | null;
+  shots_faced_per_match: number | null;
+  sources: string[];
+}
+
+export interface TeamDefensiveStats {
+  team_id: number;
+  season_id: number | null;
+  season_name: string | null;
+  competition_code: string | null;
+  available: boolean;
+  matches_with_stats: number;
+  metrics: Record<TeamDefensiveMetricKey, TeamDefensiveMetric>;
+  goalkeepers: TeamGoalkeeperStats[];
+}
+
 export interface DefensiveWeakness {
   id: number;
   team_id: number;
@@ -229,6 +262,11 @@ export async function listTeams(params?: { q?: string; season_id?: number; skip?
 export async function getTeam(id: number) { return api.get<Team>(`/teams/${id}`).then((r) => r.data); }
 export async function getTeamStatistics(id: number) { return api.get<TeamStatistics[]>(`/teams/${id}/statistics`).then((r) => r.data); }
 export async function getTeamWeaknesses(id: number) { return api.get<DefensiveWeakness[]>(`/teams/${id}/weaknesses`).then((r) => r.data); }
+export async function getTeamDefensiveStats(id: number, seasonId?: number) {
+  return api.get<TeamDefensiveStats>(`/teams/${id}/defensive-stats`, {
+    params: seasonId == null ? undefined : { season_id: seasonId },
+  }).then((r) => r.data);
+}
 
 export type PlayerOrder = "name" | "goals" | "assists" | "xg" | "minutes";
 export async function listPlayers(params?: {
