@@ -155,10 +155,20 @@ def build_kpis(role: str, flat: Dict[str, Any], m: Dict[str, Optional[float]],
                  sub=f"de {int(pk_att)} cobrados" if pk_att else None),
         ]
     if role == "DEF":
+        tackle_win_pct = m.get("tackle_win_pct")
+        tackles = flat.get("tkl_won")
+        if tackles is None:
+            tackles = g("tackles")
+        tackle_value = tackle_win_pct if tackle_win_pct is not None else tackles
+        tackle_unit = "%" if tackle_win_pct is not None else ""
+        tackle_sub = (
+            None if tackle_win_pct is not None or tackles is None
+            else f"{int(tackles)} desarmes ganhos na temporada"
+        )
         return [
             _kpi("tkl_int_p90", "Desarmes + interc. / 90", m.get("tkl_int_p90"), "", 2,
                  league_avg=_avg(peer_metrics, "tkl_int_p90")),
-            _kpi("tackle_win_pct", "Desarmes ganhos", m.get("tackle_win_pct"), "%", 1,
+            _kpi("tackle_win_pct", "Desarmes ganhos", tackle_value, tackle_unit, 1, sub=tackle_sub,
                  league_avg=_avg(peer_metrics, "tackle_win_pct")),
             _kpi("aerials_won_p90", "Aéreos ganhos / 90", m.get("aerials_won_p90"), "", 2,
                  sub=f"{m['aerial_win_pct']:.0f}% de aproveitamento" if m.get("aerial_win_pct") is not None else None,
@@ -182,7 +192,10 @@ def _data_sources(flat: Dict[str, Any]) -> List[str]:
         out.append("Understat (xGBuildup, xGChain, passes-chave, cartões)")
     if any(k.startswith("d_") for k in flat):
         out.append("Derivado dos chutes do Understat + escalações (defesas, gols evitados, defesa em campo)")
-    if any(k in flat for k in ("gk_sota", "tkl", "tkl_plus_int", "progressive_passes", "pass_att")):
+    if any(k in flat for k in (
+        "gk_sota", "tkl", "tkl_plus_int", "tackles", "interceptions", "clearances",
+        "aerials_won", "aerials_lost", "progressive_passes", "pass_att",
+    )):
         out.append("FBref / SoccerData")
     return out
 

@@ -504,6 +504,26 @@ class PlayerResolver:
             for player in self.players_by_team.get(related_id, [])
         ]
         source_name = norm_person(name)
+        if len(source_name.split()) == 1:
+            # FBref often uses surnames; prefer the canonical team record to a duplicate alias.
+            surname_matches = [
+                player for player in candidates
+                if (
+                    norm_person(player.last_name) == source_name
+                    or norm_person(_player_name(player)).split()[-1:] == [source_name]
+                )
+            ]
+            canonical = [
+                player for player in surname_matches if player.team_id == team_id
+            ]
+            scoped_matches = canonical or surname_matches
+            if scoped_matches:
+                if len({
+                    norm_person(_player_name(player)) for player in scoped_matches
+                }) != 1:
+                    return None
+                return self._select(surname_matches, team_id)
+
         exact = [
             player for player in candidates
             if norm_person(_player_name(player)) == source_name
@@ -514,7 +534,9 @@ class PlayerResolver:
             player for player in candidates
             if _same_person(source_name, norm_person(_player_name(player)))
         ]
-        return self._select(similar, team_id)
+        if similar:
+            return self._select(similar, team_id)
+        return None
 
 
 def _source_bucket(value: Any) -> dict[str, Any]:

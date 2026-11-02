@@ -274,6 +274,80 @@ def test_sync_enriches_existing_rows_idempotently_without_duplicate_entities(db_
     assert db_session.scalar(select(func.count()).select_from(PlayerMatchStatistics)) == 2
 
 
+def test_season_stats_resolve_fbref_surname_only_player_name(db_session, seeded):
+    catena = Player(
+        external_id="catena-us",
+        last_name="Catena",
+        display_name="Alejandro Catena",
+        team_id=seeded["home"].id,
+        data_source=DataSource.UNDERSTAT,
+    )
+    duplicate_team = Team(
+        external_id="arsenal-football-data",
+        name="Arsenal FC",
+        data_source=DataSource.FOOTBALL_DATA,
+    )
+    db_session.add(duplicate_team)
+    db_session.flush()
+    duplicate_catena = Player(
+        external_id="catena-football-data",
+        last_name="Catena",
+        team_id=duplicate_team.id,
+        data_source=DataSource.FOOTBALL_DATA,
+    )
+    db_session.add_all([catena, duplicate_catena])
+    db_session.flush()
+
+    schedule = [{
+        "game_id": "fbref-game-1", "date": "2026-09-12",
+        "home_team": "Arsenal", "away_team": "Brighton & Hove Albion", "score": "1–0",
+    }]
+    standard = [{
+        "team": "Arsenal", "player": "Catena", ("Playing Time", "Min"): 810,
+        ("Playing Time", "MP"): 9, ("Playing Time", "Starts"): 9, "pos": "DF",
+    }]
+    misc = [{
+        "team": "Arsenal", "player": "Catena",
+        ("Performance", "TklW"): 4, ("Performance", "Int"): 9,
+    }]
+
+    result = sync_soccerdata_rows(
+        db_session, "PL", schedule, [], [], standard, misc,
+    )
+    stats = db_session.scalar(select(PlayerStatistics).where(
+        PlayerStatistics.player_id == catena.id,
+        PlayerStatistics.season_id == seeded["match"].season_id,
+    ))
+
+    assert result["season_players_unmatched"] == 0
+    assert stats is not None
+    assert (stats.tackles, stats.interceptions) == (4, 9)
+    assert stats.supplemental_stats["soccerdata"]["tackles"] == 4
+    assert db_session.scalar(select(PlayerStatistics).where(
+        PlayerStatistics.player_id == duplicate_catena.id,
+        PlayerStatistics.season_id == seeded["match"].season_id,
+    )) is None
+
+
+def test_player_resolver_does_not_guess_ambiguous_surname(db_session, seeded):
+    players = [
+        Player(
+            external_id=f"smith-{name.lower().replace(' ', '-')}",
+            last_name="Smith",
+            display_name=name,
+            team_id=seeded["home"].id,
+            data_source=DataSource.UNDERSTAT,
+        )
+        for name in ("Alex Smith", "Adam Smith")
+    ]
+    db_session.add_all(players)
+    db_session.flush()
+
+    resolver = soccerdata_sync.PlayerResolver(db_session)
+
+    assert resolver.resolve(seeded["home"].id, "Smith") is None
+
+
 def test_sync_skips_unmatched_fixtures_instead_of_creating_matches(db_session, seeded):
     result = sync_soccerdata_rows(
         db_session,

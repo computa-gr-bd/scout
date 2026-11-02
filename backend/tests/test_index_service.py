@@ -90,6 +90,27 @@ def test_outfield_player_without_fbref_data_is_not_scored(db, world):
     assert out["role"] == "DEF" and out["available"] is False and out["index"] is None
 
 
+def test_defender_shows_fbref_tackles_without_unavailable_success_rate(db, world):
+    defender = _player(db, "d2", "Catena", "DF", world["home"])
+    db.add(PlayerStatistics(
+        player_id=defender.id, season_id=world["season"].id, scope="overall",
+        matches_played=9, minutes_played=810,
+        recent_form={"position": "DF", "xg_buildup": 1.0, "xg_chain": 1.1},
+        supplemental_stats={"soccerdata": {
+            "tackles": 4, "interceptions": 9, "fouls": 10, "yellow_cards": 2,
+        }},
+    ))
+    db.flush()
+
+    out = player_index_payload(db, defender)
+
+    assert out["available"] is True
+    assert "FBref / SoccerData" in out["data_sources"]
+    tackle_kpi = next(kpi for kpi in out["kpis"] if kpi["key"] == "tackle_win_pct")
+    assert tackle_kpi["value"] == 4
+    assert tackle_kpi["unit"] == ""
+
+
 def test_team_goalkeeper_picks_most_minutes_and_exposes_factor(db, world):
     backup = _player(db, "gk2", "Backup", "GK", world["home"])
     starter = _player(db, "gk3", "Starter", "GK", world["home"])
