@@ -184,6 +184,40 @@ def test_team_defensive_stats_endpoint_marks_missing_values_unavailable(_setup):
     assert payload["goalkeepers"] == []
 
 
+def test_analysis_match_filter_includes_equivalent_team_ids(_setup):
+    db = _setup
+    competition = Competition(
+        name="Premier League", code="PL", data_source=DataSource.UNDERSTAT,
+    )
+    db.add(competition)
+    db.flush()
+    season = Season(
+        competition_id=competition.id, name="2026-27",
+        start_date=datetime(2026, 8, 1).date(),
+        data_source=DataSource.UNDERSTAT,
+    )
+    canonical = Team(name="Arsenal", data_source=DataSource.UNDERSTAT)
+    provider_alias = Team(name="Arsenal FC", data_source=DataSource.FOOTBALL_DATA)
+    opponent = Team(name="Brighton", data_source=DataSource.FOOTBALL_DATA)
+    db.add_all([season, canonical, provider_alias, opponent])
+    db.flush()
+    match = Match(
+        season_id=season.id, home_team_id=provider_alias.id, away_team_id=opponent.id,
+        kickoff_time=datetime.utcnow() + timedelta(days=2), status="scheduled",
+        data_source=DataSource.FOOTBALL_DATA,
+    )
+    db.add(match)
+    db.commit()
+
+    response = client.get(
+        "/api/matches",
+        params={"scope": "upcoming", "team_id": canonical.id, "analysis": "true"},
+    )
+
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()] == [match.id]
+
+
 def test_invalid_token_is_rejected():
     client2 = TestClient(fastapi_app)
     client2.headers["Authorization"] = "Bearer this.is.not.valid"

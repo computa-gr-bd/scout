@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   getMatch, getMatchInsights, getMatchStudio, listMatches,
@@ -53,14 +53,23 @@ function matchLabel(match: Match) {
 export default function AnalysisPage() {
   const { matchId } = useParams<{ matchId: string }>();
   const routeMatchId = matchId && Number.isFinite(Number(matchId)) ? Number(matchId) : null;
+  const [searchParams] = useSearchParams();
+  const teamParam = Number(searchParams.get("team"));
+  const requestedTeamId = Number.isSafeInteger(teamParam) && teamParam > 0 ? teamParam : null;
   const [selectedMatchId, setSelectedMatchId] = useState<number | null>(routeMatchId);
   const [scope, setScope] = useState<"upcoming" | "recent">("upcoming");
+  const [teamFallbackHandledFor, setTeamFallbackHandledFor] = useState<number | null>(null);
   const [predictionTarget, setPredictionTarget] = useState<PredictionTarget>("shot");
   const [zoneView, setZoneView] = useState<"2d" | "3d">("2d");
 
   const matchesQuery = useQuery({
-    queryKey: ["matches", "analysis", scope],
-    queryFn: () => listMatches({ scope, limit: 100, analysis: true }),
+    queryKey: ["matches", "analysis", scope, requestedTeamId],
+    queryFn: () => listMatches({
+      scope,
+      team_id: requestedTeamId ?? undefined,
+      limit: 100,
+      analysis: true,
+    }),
   });
   const matches = useMemo(
     () => (matchesQuery.data ?? []).filter((match) => !isDemoMatch(match)),
@@ -81,6 +90,32 @@ export default function AnalysisPage() {
       setScope("recent");
     }
   }, [routeMatchId, scope, selectedQuery.data?.status]);
+
+  useEffect(() => {
+    if (
+      routeMatchId != null
+      || requestedTeamId == null
+      || teamFallbackHandledFor === requestedTeamId
+      || !matchesQuery.isSuccess
+    ) return;
+    if (scope === "upcoming" && matches.length === 0) {
+      setScope("recent");
+    }
+    setTeamFallbackHandledFor(requestedTeamId);
+  }, [
+    matches.length,
+    matchesQuery.isSuccess,
+    requestedTeamId,
+    routeMatchId,
+    scope,
+    teamFallbackHandledFor,
+  ]);
+
+  useEffect(() => {
+    if (requestedTeamId == null) {
+      setTeamFallbackHandledFor(null);
+    }
+  }, [requestedTeamId]);
 
   const studioQuery = useQuery({
     queryKey: ["match-studio", selectedMatchId],
@@ -212,7 +247,11 @@ export default function AnalysisPage() {
               <div>
                 <h2 className="font-semibold">Partidas</h2>
                 <p className="text-xs text-sv-muted">
-                  {scope === "upcoming"
+                  {requestedTeamId != null
+                    ? scope === "upcoming"
+                      ? "Próximas partidas do time selecionado."
+                      : "Resultados recentes do time selecionado."
+                    : scope === "upcoming"
                     ? "Próximas partidas das competições sincronizadas."
                     : "Partidas encerradas da Understat."}
                 </p>

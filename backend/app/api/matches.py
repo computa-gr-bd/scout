@@ -12,7 +12,7 @@ from app.repositories.repositories import (
 )
 from app.services.crests import resolve_crest
 from app.services.scope import excluded_season_ids
-from app.services.studio import _same_team_name, norm_team
+from app.services.studio import _same_team_name, _team_ids_like, norm_team
 from app.schemas import (
     MatchOut, MatchDetailedOut, MatchAnalysisOut, PredictionGenerateRequest,
     PredictionGenerateResponse, MatchTeamPreview, LineupPlayer,
@@ -93,7 +93,10 @@ def _list_analysis_matches(db: Session, scope: str, skip: int, limit: int,
     if competition_id:
         base.append(Match.season_id.in_(select(Season.id).where(Season.competition_id == competition_id)))
     if team_id:
-        base.append(or_(Match.home_team_id == team_id, Match.away_team_id == team_id))
+        team_ids = _team_ids_like(db, db.get(Team, team_id))
+        if not team_ids:
+            team_ids = [team_id]
+        base.append(or_(Match.home_team_id.in_(team_ids), Match.away_team_id.in_(team_ids)))
     opts = (selectinload(Match.home_team), selectinload(Match.away_team),
             selectinload(Match.season).selectinload(Season.competition))
 
