@@ -116,6 +116,10 @@ SEASON_STAT_SPECS: Dict[str, List[ColumnSpec]] = {
         ("aerials_won", "Won", "aerial", "int"),
         ("aerials_lost", "Lost", "aerial", "int"),
     ],
+    "shooting": [
+        ("shots", "Sh", "standard", "int"),
+        ("shots_on_target", "SoT", "standard", "int"),
+    ],
 }
 
 # Chaves que também existem como COLUNAS de ``PlayerStatistics`` — são copiadas para a coluna

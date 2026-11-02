@@ -39,6 +39,13 @@ FBREF_LEAGUES = {
     "SA": "ITA-Serie A",
     "FL1": "FRA-Ligue 1",
 }
+UNDERSTAT_TO_FBREF_LEAGUE = {
+    "epl": "PL",
+    "la_liga": "PD",
+    "bundesliga": "BL1",
+    "serie_a": "SA",
+    "ligue_1": "FL1",
+}
 MATCH_DATE_TOLERANCE = timedelta(days=1)
 DATA_SOURCE_PRIORITY = {
     "understat": 0,
@@ -73,11 +80,12 @@ DEFENSIVE_SEASON_FIELDS = {
 }
 
 
-# SoccerData 2026.43.0 supports these season tables. Defensive actions are in
-# ``misc``; advanced defense and keeper tables are not exposed by this reader.
-EXTRA_SEASON_STAT_TYPES = ("keeper",)
+# FBref's season-level shooting table provides shot counts, not per-shot xG.
+EXTRA_SEASON_STAT_TYPES = ("keeper", "shooting")
 PROBE_STAT_TYPES = ("standard", "misc", "keeper", "shooting", "playing_time")
 PLAYER_STAT_COLUMNS = frozenset(PlayerStatistics.__table__.columns.keys())
+# Keep FBref shot totals separate from canonical per-provider shot statistics.
+SUPPLEMENTAL_ONLY_STAT_FIELDS = frozenset({"shots", "shots_on_target"})
 
 
 def _records(frame: Any) -> list[dict[Any, Any]]:
@@ -745,7 +753,10 @@ def _season_stats(
                 scope="overall",
             )
             db.add(existing)
-        column_fields = [field for field in source_values if field in PLAYER_STAT_COLUMNS]
+        column_fields = [
+            field for field in source_values
+            if field in PLAYER_STAT_COLUMNS and field not in SUPPLEMENTAL_ONLY_STAT_FIELDS
+        ]
         _merge_sourced_stats(existing, source_values, column_fields, preserve_existing=True)
         # Contagens do FBref com nome diferente da coluna (ex.: pass_cmp -> passes_completed).
         for field, column in COLUMN_BACKED_FIELDS.items():
@@ -941,11 +952,27 @@ def _probe_league(league_code: str, season: str) -> dict[str, Any]:
     return {"league": league_code, "season": season, "tables": report}
 
 
+def _fallback_fbref_leagues(understat_leagues: list[str]) -> list[str]:
+    requested = [league.lower() for league in understat_leagues]
+    if requested == ["all"]:
+        requested = list(UNDERSTAT_TO_FBREF_LEAGUE)
+    invalid = [league for league in requested if league not in UNDERSTAT_TO_FBREF_LEAGUE]
+    if invalid:
+        raise ValueError(f"Ligas Understat sem mapeamento FBref: {invalid}")
+    return list(dict.fromkeys(UNDERSTAT_TO_FBREF_LEAGUE[league] for league in requested))
+
+
+def _current_understat_season() -> int:
+    today = date.today()
+    return today.year if today.month >= 7 else today.year - 1
+
+
 def _sync_league(
     league_code: str,
     season: str,
     include_extra: bool = True,
     season_only: bool = False,
+    require_mapped_stats: bool = False,
 ) -> dict[str, Any]:
     import soccerdata
 
@@ -1023,15 +1050,30 @@ def _sync_league(
         )
         summary["extra_tables_failed"] = len(extra_failures)
         summary["extra_tables_failed_names"] = extra_failures
-        status = "partial" if extra_failures else "success"
+        no_player_stats = require_mapped_stats and summary["player_season_stats_updated"] == 0
+        if no_player_stats:
+            summary["error"] = "FBref não conseguiu mapear estatísticas para jogadores do banco."
+        status = "failed" if no_player_stats else "partial" if extra_failures else "success"
         _store_checkpoint(db, resource, summary, status=status)
     return {"league": league_code, "season": season, "status": status, **summary}
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Complementa dados existentes com FBref via SoccerData.")
-    parser.add_argument("--leagues", nargs="+", required=True, choices=sorted(FBREF_LEAGUES))
-    parser.add_argument("--season", required=True, help="Temporada FBref, por exemplo 2026-27.")
+    league_args = parser.add_mutually_exclusive_group(required=True)
+    league_args.add_argument("--leagues", nargs="+", choices=sorted(FBREF_LEAGUES))
+    league_args.add_argument(
+        "--fallback-understat-leagues",
+        nargs="+",
+        choices=[*sorted(UNDERSTAT_TO_FBREF_LEAGUE), "all"],
+        help="Ligas Understat para mapear ao FBref após falha do provedor primário.",
+    )
+    parser.add_argument("--season", help="Temporada FBref, por exemplo 2026-27.")
+    parser.add_argument(
+        "--understat-season",
+        type=int,
+        help="Ano inicial da temporada Understat usada no fallback (padrão: temporada atual).",
+    )
     parser.add_argument(
         "--basic-only", action="store_true",
         help="Não lê a tabela complementar de goleiros; só o conjunto básico.",
@@ -1045,20 +1087,41 @@ def main(argv: list[str] | None = None) -> int:
         help="Importa estatísticas sazonais e evita buscar relatórios individuais das partidas.",
     )
     args = parser.parse_args(argv)
+    if args.fallback_understat_leagues:
+        if args.season is not None:
+            parser.error("--season não pode ser usado com --fallback-understat-leagues.")
+        leagues = _fallback_fbref_leagues(args.fallback_understat_leagues)
+        understat_season = (
+            args.understat_season
+            if args.understat_season is not None
+            else _current_understat_season()
+        )
+        season = f"{understat_season}-{(understat_season + 1) % 100:02d}"
+        require_mapped_stats = True
+    else:
+        if args.season is None:
+            parser.error("--season é obrigatório com --leagues.")
+        if args.understat_season is not None:
+            parser.error("--understat-season só pode ser usado com --fallback-understat-leagues.")
+        leagues = args.leagues
+        season = args.season
+        require_mapped_stats = False
+
     if args.probe:
-        print(json.dumps([_probe_league(league, args.season) for league in args.leagues], ensure_ascii=False, indent=2))
+        print(json.dumps([_probe_league(league, season) for league in leagues], ensure_ascii=False, indent=2))
         return 0
     results = [
         _sync_league(
             league,
-            args.season,
+            season,
             include_extra=not args.basic_only,
             season_only=args.season_only,
+            require_mapped_stats=require_mapped_stats,
         )
-        for league in args.leagues
+        for league in leagues
     ]
     print(json.dumps(results, ensure_ascii=False, indent=2))
-    return 0
+    return int(any(result["status"] == "failed" for result in results))
 
 
 if __name__ == "__main__":

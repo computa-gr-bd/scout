@@ -17,8 +17,8 @@ from app.services import soccerdata_sync
 from app.services.aggregates import compute_match_aggregates, compute_player_season_aggregates
 from app.services.soccerdata_sync import (
     EXTRA_SEASON_STAT_TYPES, PROBE_STAT_TYPES, _attach_game_ids, _finished_game_ids,
-    _match_schedule, _probe_league, _records, _schedule_from_html_table, _source_date,
-    _store_checkpoint, sync_soccerdata_rows,
+    _fallback_fbref_leagues, _match_schedule, _probe_league, _records,
+    _schedule_from_html_table, _source_date, _store_checkpoint, sync_soccerdata_rows,
 )
 
 
@@ -329,6 +329,58 @@ def test_season_stats_resolve_fbref_surname_only_player_name(db_session, seeded)
     )) is None
 
 
+def test_fbref_shooting_is_kept_separate_from_existing_and_missing_stats(db_session, seeded):
+    seeded["season_stats"].shots = 11
+    seeded["season_stats"].shots_on_target = 4
+    db_session.commit()
+    schedule = [{
+        "game_id": "fbref-game-1", "date": "2026-09-12",
+        "home_team": "Arsenal", "away_team": "Brighton & Hove Albion", "score": "1–0",
+    }]
+    shooting = [
+        {
+            "team": "Arsenal", "player": "Bukayo Saka",
+            ("Standard", "Sh"): 16, ("Standard", "SoT"): 7,
+        },
+        {
+            "team": "Brighton & Hove Albion", "player": "Danny Welbeck",
+            ("Standard", "Sh"): 8, ("Standard", "SoT"): 3,
+        },
+    ]
+
+    for _ in range(2):
+        sync_soccerdata_rows(
+            db_session, "PL", schedule, [], [], [], [],
+            {"shooting": shooting},
+        )
+
+    saka = db_session.scalar(select(PlayerStatistics).where(
+        PlayerStatistics.player_id == seeded["home_player"].id,
+        PlayerStatistics.season_id == seeded["match"].season_id,
+    ))
+    welbeck = db_session.scalar(select(PlayerStatistics).where(
+        PlayerStatistics.player_id == seeded["away_player"].id,
+        PlayerStatistics.season_id == seeded["match"].season_id,
+    ))
+    assert (saka.shots, saka.shots_on_target) == (11, 4)
+    assert saka.supplemental_stats["soccerdata"]["shots"] == 16
+    assert saka.supplemental_stats["soccerdata"]["shots_on_target"] == 7
+    assert saka.supplemental_stats["soccerdata"].get("xg") is None
+    assert (welbeck.shots, welbeck.shots_on_target) == (0, 0)
+    assert welbeck.supplemental_stats["soccerdata"]["shots"] == 8
+    assert welbeck.supplemental_stats["soccerdata"]["shots_on_target"] == 3
+
+
+def test_fallback_leagues_map_to_fbref_once_in_requested_order():
+    assert _fallback_fbref_leagues(["serie_a", "epl", "serie_a"]) == ["SA", "PL"]
+    assert _fallback_fbref_leagues(["all"]) == ["PL", "PD", "BL1", "SA", "FL1"]
+
+
+def test_fallback_sync_rejects_league_without_fbref_mapping():
+    with pytest.raises(ValueError, match="sem mapeamento FBref"):
+        _fallback_fbref_leagues(["brasileirao"])
+
+
 def test_player_resolver_does_not_guess_ambiguous_surname(db_session, seeded):
     players = [
         Player(
@@ -536,7 +588,7 @@ def test_probe_requests_only_stat_types_supported_by_soccerdata(monkeypatch):
     report = _probe_league("PL", "2026-27")
 
     assert tuple(report["tables"]) == PROBE_STAT_TYPES
-    assert EXTRA_SEASON_STAT_TYPES == ("keeper",)
+    assert EXTRA_SEASON_STAT_TYPES == ("keeper", "shooting")
     assert [
         call.kwargs["stat_type"]
         for call in reader.read_player_season_stats.call_args_list
@@ -546,8 +598,10 @@ def test_probe_requests_only_stat_types_supported_by_soccerdata(monkeypatch):
 def test_season_only_cli_skips_match_report_collection(monkeypatch, capsys):
     calls = []
 
-    def sync_league(league, season, *, include_extra, season_only):
-        calls.append((league, season, include_extra, season_only))
+    def sync_league(
+        league, season, *, include_extra, season_only, require_mapped_stats=False,
+    ):
+        calls.append((league, season, include_extra, season_only, require_mapped_stats))
         return {"league": league, "season": season, "status": "success"}
 
     monkeypatch.setattr(soccerdata_sync, "_sync_league", sync_league)
@@ -555,8 +609,35 @@ def test_season_only_cli_skips_match_report_collection(monkeypatch, capsys):
     assert soccerdata_sync.main([
         "--leagues", "PL", "--season", "2026-27", "--season-only",
     ]) == 0
-    assert calls == [("PL", "2026-27", True, True)]
+    assert calls == [("PL", "2026-27", True, True, False)]
     assert '"status": "success"' in capsys.readouterr().out
+
+
+def test_fallback_cli_maps_season_and_fails_when_no_stats_are_mapped(monkeypatch, capsys):
+    calls = []
+
+    def sync_league(league, season, *, include_extra, season_only, require_mapped_stats):
+        calls.append((league, season, include_extra, season_only, require_mapped_stats))
+        return {
+            "league": league,
+            "season": season,
+            "status": "failed" if league == "PD" else "success",
+            "player_season_stats_updated": 0 if league == "PD" else 1,
+        }
+
+    monkeypatch.setattr(soccerdata_sync, "_sync_league", sync_league)
+    monkeypatch.setattr(soccerdata_sync, "_current_understat_season", lambda: 2026)
+
+    result = soccerdata_sync.main([
+        "--fallback-understat-leagues", "epl", "la_liga", "--season-only",
+    ])
+
+    assert result == 1
+    assert calls == [
+        ("PL", "2026-27", True, True, True),
+        ("PD", "2026-27", True, True, True),
+    ]
+    assert '"status": "failed"' in capsys.readouterr().out
 
 
 def test_soccerdata_optional_table_failure_is_recorded_as_partial(db_session):

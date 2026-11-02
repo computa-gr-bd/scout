@@ -230,9 +230,10 @@ The optional collector links FBref schedule entries to existing fixtures by
 competition, teams, date, and score, then links players by team and name. It
 fetches match reports only for finished fixtures. It does not create matches,
 teams, or players; ambiguous links are skipped. The collector adds official
-lineups, match-level assists and defensive actions, and season-level defensive
-and aerial-duel statistics without replacing non-empty values from existing
-sources.
+lineups, match-level assists and defensive actions, and season-level defensive,
+aerial-duel, and shooting-count statistics without replacing non-empty values
+from existing sources. FBref shooting counts are shown separately with their
+source; they do not include xG or per-shot locations.
 
 Apply database migrations first, then run from `backend/` for the desired
 FBref leagues and season:
@@ -245,11 +246,17 @@ python -m app.services.soccerdata_sync --leagues PL PD BL1 SA FL1 --season 2026-
 For a fast seasonal import that avoids downloading every finished match report,
 add `--season-only`. The FBref tables supported by the installed SoccerData
 reader are `standard`, `misc`, `keeper`, `shooting`, and `playing_time`; this
-collector uses `misc` for tackles/interceptions and `keeper` for goalkeeper
-season totals. Check live availability first with `--probe`.
+collector uses `misc` for tackles/interceptions, `keeper` for goalkeeper season
+totals, and `shooting` for supplemental shots and shots on target. FBref does
+not provide the per-shot xG used by Understat. Check live availability first
+with `--probe`.
 
-The collector is intentionally manual so scraping scope is explicit. SoccerData
+The standalone collector is manual so scraping scope is explicit. SoccerData
 scrapes FBref; use its cache and follow the website's terms and rate limits.
+The scheduled Understat workflow tries this season-only FBref fallback when the
+Understat command fails. It maps only existing fixtures and players; unmatched
+or ambiguous records are skipped. The fallback keeps FBref shot totals separate
+from existing provider totals and does not supply per-shot xG or locations.
 
 ### ESPN match-stat enrichment
 

@@ -49,7 +49,9 @@ const METRICS: MetricDef[] = [
 ];
 const RADAR_KEYS = ["shots", "xg", "xa", "kp", "chain", "goals"];
 const BAR_KEYS = ["goals", "assists", "xg", "xa", "shots", "kp"];
-const SUPPLEMENTAL_DEFENSE_METRICS = [
+const SUPPLEMENTAL_FBREF_METRICS = [
+  { key: "shots", label: "Chutes" },
+  { key: "shots_on_target", label: "Chutes no alvo" },
   { key: "tackles", label: "Desarmes ganhos" },
   { key: "interceptions", label: "Interceptações" },
   { key: "clearances", label: "Cortes" },
@@ -170,7 +172,7 @@ export default function PlayerPage() {
   const soccerdataStats = isRecord(stats?.supplemental_stats?.soccerdata)
     ? stats.supplemental_stats.soccerdata
     : null;
-  const supplementalDefenseMetrics = SUPPLEMENTAL_DEFENSE_METRICS.flatMap(({ key, label }) => {
+  const supplementalFbrefMetrics = SUPPLEMENTAL_FBREF_METRICS.flatMap(({ key, label }) => {
     const value = soccerdataStats?.[key];
     return typeof value === "number" && Number.isFinite(value) ? [{ key, label, value }] : [];
   });
@@ -350,10 +352,10 @@ export default function PlayerPage() {
           </div>
           )}
 
-          {supplementalDefenseMetrics.length > 0 ? (
-            <Panel title="Defesa e dados complementares" right={<Badge kind="accent">FBref · SoccerData</Badge>}>
+          {supplementalFbrefMetrics.length > 0 ? (
+            <Panel title="Estatísticas complementares" right={<Badge kind="accent">FBref · SoccerData</Badge>}>
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                {supplementalDefenseMetrics.map((metric) => (
+                {supplementalFbrefMetrics.map((metric) => (
                   <Kpi key={metric.key} label={metric.label} value={metric.value} sub="Total na temporada" />
                 ))}
               </div>

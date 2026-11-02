@@ -24,9 +24,10 @@ concurrency:
 jobs:
   understat:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      UNDERSTAT_LEAGUES: ${{ github.event.inputs.leagues || vars.UNDERSTAT_LEAGUES || 'all' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,10 +45,22 @@ jobs:
         working-directory: backend
         run: python -m alembic upgrade head
       - name: Sincronizar Understat (modo rápido)
+        id: understat
+        continue-on-error: true
         working-directory: backend
         run: >-
           python -m app.services.understat_sync --fast
-          --leagues ${{ github.event.inputs.leagues || vars.UNDERSTAT_LEAGUES || 'all' }}
+          --leagues $UNDERSTAT_LEAGUES
+      - name: Instalar SoccerData para fallback
+        if: steps.understat.outcome == 'failure'
+        run: pip install soccerdata==2026.43.0
+      - name: Tentar fallback FBref sem duplicar jogos ou estatísticas
+        if: steps.understat.outcome == 'failure'
+        working-directory: backend
+        run: >-
+          python -m app.services.soccerdata_sync
+          --fallback-understat-leagues $UNDERSTAT_LEAGUES
+          --season-only
       - name: Posições e estatísticas derivadas (goleiro / defesa)
         # Preenche Player.position e recalcula defesas/gols evitados a partir dos chutes + escalações.
         # Não derruba a coleta se falhar.
