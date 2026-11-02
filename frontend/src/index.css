@@ -23,6 +23,9 @@
   .sv-card {
     @apply bg-sv-panel border border-sv-border rounded-xl;
   }
+  .sv-card:focus-visible {
+    @apply outline-none ring-2 ring-sv-accent3 ring-offset-2 ring-offset-sv-bg;
+  }
   .sv-card-inner {
     @apply p-3 sm:p-5;
   }

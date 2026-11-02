@@ -156,8 +156,7 @@ function SquadCard({ squad, pending, season }: { squad: SquadEntry[]; pending: b
   const [view, setView] = useState<SquadView>("posicao");
   const withStats = squad.filter((p) => p.hasStats && (p.games ?? 0) > 0).length;
   const flat = useMemo(() => {
-    const list = squad.filter((p) => p.hasStats);
-    return [...list].sort(view === "xg"
+    return [...squad].sort(view === "xg"
       ? (a, b) => (b.xg ?? -1) - (a.xg ?? -1) || bySquadStats(a, b)
       : bySquadStats);
   }, [squad, view]);
@@ -168,7 +167,7 @@ function SquadCard({ squad, pending, season }: { squad: SquadEntry[]; pending: b
         <SectionTitle
           title="Elenco"
           hint={withStats > 0
-            ? `${squad.length} atletas · jogos, gols e xG da Understat${season ? ` (${season})` : ""}`
+            ? `${withStats} de ${squad.length} atletas com dados da temporada · jogos, gols e xG da Understat${season ? ` (${season})` : ""}`
             : `${squad.length} atletas cadastrados; estatísticas individuais podem não estar disponíveis`}
           right={withStats > 0 ? (
             <div className="flex gap-1" role="group" aria-label="Ordenar elenco">
@@ -529,7 +528,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
       </section>
 
       {/* Próximos confrontos e resultados recentes — filtrados por este time */}
-      <div className="grid lg:grid-cols-2 gap-5">
+      <div className="grid lg:grid-cols-2 items-start gap-5">
         <div className="sv-card">
           <div className="sv-card-inner">
             <SectionTitle title="Próximos confrontos" hint="Só jogos deste time" />
@@ -557,7 +556,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
       </div>
 
       {/* Classificação da competição + elenco */}
-      <div className="grid lg:grid-cols-2 gap-5">
+      <div className="grid lg:grid-cols-2 items-start gap-5">
         <div className="sv-card">
           <div className="sv-card-inner">
             <SectionTitle title="Classificação" hint={myStanding ? `Este time: ${myStanding.position}º com ${myStanding.points} pontos` : "Temporada atual"} />
@@ -574,7 +573,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
       </div>
 
       {/* Forma recente + ranking de fraquezas */}
-      <div className="grid lg:grid-cols-2 gap-5">
+      <div className="grid lg:grid-cols-2 items-start gap-5">
         <div className="sv-card">
           <div className="sv-card-inner">
             {profile?.matches?.length ? (
