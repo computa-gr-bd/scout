@@ -34,7 +34,8 @@ from app.db.models import (
     TeamMatchStatistics, TeamStatistics, User,
 )
 from app.services.understat_sync import (
-    DEFAULT_SEASON, UNDERSTAT_LEAGUES, UnderstatClient, sync_understat_fast, sync_understat_league,
+    DEFAULT_SEASON, UNDERSTAT_LEAGUES, UnderstatClient, _save_collection_state,
+    sync_understat_fast, sync_understat_league,
 )
 from app.db import SessionLocal
 from app.services.crests import resolve_crest
@@ -143,6 +144,7 @@ def sync_understat_now(
     max_seconds: float = Query(8.0, ge=2.0, le=25.0, description="Orçamento de tempo da fase de chutes."),
     calendar: bool = Query(True, description="Atualiza calendário/resultados. Use false nas chamadas seguintes."),
     max_matches: int = Query(40, ge=1, le=120, description="Máximo de partidas com chutes por chamada."),
+    db: Session = Depends(get_db),
 ):
     """Sincronização rápida e incremental, SÓ da Understat (botão da tela Understat).
 
@@ -174,7 +176,33 @@ def sync_understat_now(
         raise HTTPException(status_code=502, detail=f"Falha ao falar com a Understat: {exc}") from exc
     finally:
         _fast_sync_lock.release()
-    out["done"] = out["remaining"] == 0
+
+    failed_leagues = {
+        league: result["error"]
+        for league, result in out["leagues"].items()
+        if result.get("error")
+    }
+    if calendar and failed_leagues:
+        for league, error in failed_leagues.items():
+            message = str(error).strip()
+            if message.startswith("TimeoutError"):
+                message = "Tempo esgotado ao consultar a Understat."
+            _save_collection_state(
+                db,
+                league,
+                "failed",
+                {"season": season, "error": message or "Falha ao consultar o calendário da Understat."},
+            )
+        db.commit()
+
+        if len(failed_leagues) == len(league_list):
+            raise HTTPException(
+                status_code=502,
+                detail="A Understat não respondeu ao calendário de nenhuma liga. "
+                "Os dados existentes foram preservados; tente novamente mais tarde.",
+            )
+
+    out["done"] = out["remaining"] == 0 and not failed_leagues
     return out
 
 

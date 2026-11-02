@@ -19,7 +19,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
 from app.db.models import (
-    DataSource, Event, EventPosition, EventType, Match, Player, PlayerStatistics,
+    CollectionState, DataSource, Event, EventPosition, EventType, Match, Player, PlayerStatistics,
     Season, Shot, Team, TeamMatchStatistics, TeamStatistics, Competition,
 )
 from app.main import app as fastapi_app
@@ -366,6 +366,45 @@ def test_understat_endpoints_on_empty_db(client):
 def test_fast_sync_rejects_invalid_league(client):
     r = client.post("/api/understat/sync/fast", params={"leagues": "brasileirao"})
     assert r.status_code == 400
+
+
+def test_fast_sync_reports_all_calendar_timeouts_and_preserves_last_success(
+    client, db_session, monkeypatch,
+):
+    last_success = datetime(2026, 11, 1, 19, 44)
+    state = CollectionState(
+        provider=DataSource.UNDERSTAT.value,
+        resource="epl",
+        status="success",
+        last_success_at=last_success,
+        summary={"shots": 2441},
+    )
+    db_session.add(state)
+    db_session.commit()
+
+    async def timeout_calendar(*args, **kwargs):
+        return {
+            "leagues": {"epl": {"error": "TimeoutError: "}},
+            "progress": 0,
+            "attempted": 0,
+            "candidates": 0,
+            "remaining": 0,
+            "elapsed": 1.0,
+        }
+
+    monkeypatch.setattr("app.api.understat.sync_understat_fast", timeout_calendar)
+
+    response = client.post(
+        "/api/understat/sync/fast",
+        params={"leagues": "epl", "calendar": "true"},
+    )
+
+    assert response.status_code == 502
+    assert "não respondeu" in response.json()["detail"]
+    db_session.refresh(state)
+    assert state.status == "failed"
+    assert state.last_success_at == last_success
+    assert state.summary["error"] == "Tempo esgotado ao consultar a Understat."
 
 
 def test_understat_sync_requires_admin(client):
