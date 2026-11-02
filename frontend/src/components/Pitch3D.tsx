@@ -263,7 +263,7 @@ export function Pitch3D({
   const teamName = teamNames?.[side] || (side === "home" ? "Time da casa" : "Time visitante");
   const teamLabel = singleTeam ? teamName : `${teamName} · ${side === "home" ? "mandante" : "visitante"}`;
 
-  const entries = opportunityZones ?? [];
+  const entries = useMemo(() => opportunityZones ?? [], [opportunityZones]);
   const aggs = useMemo<ZoneAgg[]>(
     () => aggregateZoneEntries(entries, (e) => {
       if (e.side && e.side !== side) return null;

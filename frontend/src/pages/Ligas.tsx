@@ -22,6 +22,7 @@ function num(v: unknown): number | null {
 }
 
 type Logos = Record<string, string | null | undefined>;
+const EMPTY_UNDERSTAT_LEAGUES: UnderstatLeague[] = [];
 
 function LoadingCard({ lines = 4 }: { lines?: number }) {
   return (
@@ -368,16 +369,16 @@ function PerformancePanel({
   const [mode, setMode] = useState<PerfMode>("players");
 
   const { points, over, under, xLabel, yLabel, invert } = useMemo(() => {
-    let pts: ScatterPoint[] = [];
-    if (mode === "players") {
-      pts = (stats?.players ?? [])
+    const pts: ScatterPoint[] = mode === "players"
+      ? (stats?.players ?? [])
         .filter((p) => p.shots >= 8)
-        .map((p) => ({ id: p.player_id, label: p.player ?? "—", sub: p.team, x: p.xg, y: p.goals }));
-    } else if (mode === "attack") {
-      pts = (stats?.teams ?? []).map((t) => ({ id: t.team_id ?? t.team, label: t.team, x: t.xg ?? 0, y: t.goals_for ?? 0 }));
-    } else {
-      pts = (stats?.teams ?? []).map((t) => ({ id: t.team_id ?? t.team, label: t.team, x: t.xga ?? 0, y: t.goals_against ?? 0 }));
-    }
+        .map((p) => ({ id: p.player_id, label: p.player ?? "—", sub: p.team, x: p.xg, y: p.goals }))
+      : (stats?.teams ?? []).map((t) => ({
+        id: t.team_id ?? t.team,
+        label: t.team,
+        x: mode === "attack" ? t.xg ?? 0 : t.xga ?? 0,
+        y: mode === "attack" ? t.goals_for ?? 0 : t.goals_against ?? 0,
+      }));
     const diff = (p: ScatterPoint) => p.y - p.x;
     const sorted = pts.slice().sort((a, b) => diff(b) - diff(a));
     return {
@@ -728,7 +729,7 @@ export default function UnderstatPage() {
   const [formTeam, setFormTeam] = useState<{ id: number; name: string; logo_url: string | null } | null>(null);
   const [player, setPlayer] = useState<{ id: number; name: string } | null>(null);
 
-  const leagues = leaguesQ.data?.leagues ?? [];
+  const leagues = leaguesQ.data?.leagues ?? EMPTY_UNDERSTAT_LEAGUES;
   const current: UnderstatLeague | undefined = useMemo(
     () => leagues.find((l) => l.key === leagueKey) ?? leagues.find((l) => l.synced) ?? leagues[0],
     [leagues, leagueKey]
