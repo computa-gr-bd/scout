@@ -589,7 +589,7 @@ export default function PlayerPage() {
                       {goalProb.isLoading ? "Calculando probabilidade…" : "Probabilidade indisponível para este confronto."}
                     </div>
                   )}
-                  <Link to={`/matches/${nm.match_id}`} className="sv-btn !py-1.5 inline-flex">Ver partida</Link>
+                  <Link to={`/analysis/${nm.match_id}`} className="sv-btn !py-1.5 inline-flex">Ver partida</Link>
                 </div>
               ) : (
                 <div className="h-32"><Empty text="Nenhum jogo agendado encontrado para o time atual." /></div>
