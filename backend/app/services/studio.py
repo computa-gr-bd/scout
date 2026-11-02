@@ -59,11 +59,20 @@ def _ascii(text: Optional[str]) -> str:
 _TOKEN_ALIAS = {
     "munchen": "munich", "koln": "cologne", "internazionale": "inter",
     "saint": "st", "wanderers": "", "hotspur": "", "albion": "",
+    "rasenballsport": "rb", "monchengladbach": "gladbach", "m": "",
+    "lyonnais": "lyon", "rennais": "rennes", "brestois": "brest",
 }
+# Nomes que a normalização genérica confundiria: "Paris FC" perderia o "FC" (token de
+# parada) e viraria "paris", que casaria com "Paris Saint-Germain" → os jogadores do PSG
+# apareciam no Paris FC. Vira um token único e distinto.
+_NAME_FIXES = ((re.compile(r"\bparis\s+f\.?c\.?(?=\W|$)"), "parisfc"),)
 
 
 def norm_team(name: Optional[str]) -> str:
-    tokens = [_TOKEN_ALIAS.get(t, t) for t in re.split(r"[^a-z0-9]+", _ascii(name))]
+    text = _ascii(name)
+    for rx, repl in _NAME_FIXES:
+        text = rx.sub(repl, text)
+    tokens = [_TOKEN_ALIAS.get(t, t) for t in re.split(r"[^a-z0-9]+", text)]
     return " ".join(t for t in tokens if t and t not in _STOP_TOKENS)
 
 
@@ -76,8 +85,11 @@ def _same_team_name(a: str, b: str) -> bool:
         return False
     if a == b:
         return True
-    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
-    return len(short) >= 4 and short in long_
+    # Por tokens inteiros (não por pedaço de texto): "milan" não está em "inter milano",
+    # "villa" não está em "villarreal" e "paris" só casa com times que tenham o token "paris".
+    ta, tb = a.split(), b.split()
+    short, long_ = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    return sum(len(t) for t in short) >= 4 and set(short) <= set(long_)
 
 
 def _same_person(a: str, b: str) -> bool:

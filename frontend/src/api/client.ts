@@ -203,6 +203,8 @@ export interface PlayerMatchPrediction {
   minutes_known?: boolean;
   /** Multiplicador do goleiro adversário na chance de gol (1,0 = médio). */
   gk_factor?: number | null;
+  /** Só em partidas encerradas com chutes coletados: o que aconteceu de fato na partida. */
+  outcome?: { happened: boolean; count: number } | null;
 }
 
 export interface MatchupScore {
@@ -363,6 +365,8 @@ export interface MatchInsights {
   };
   goalkeepers?: { home: TeamGoalkeeper | null; away: TeamGoalkeeper | null };
   predictions?: PlayerMatchPrediction[];
+  /** true quando a partida já acabou e as estimativas foram conferidas com os chutes reais. */
+  results_checked?: boolean;
   matchups?: Array<MatchupScore & { attacker_name?: string; defender_name?: string | null }>;
 }
 export async function getMatchInsights(id: number) {

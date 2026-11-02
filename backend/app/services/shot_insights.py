@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Event, EventType, Match, ZONE_ORDER
 from app.services.index_service import recent_minutes, team_goalkeeper
 from app.services.studio import (
-    _load_shot_events, _player_name, _recent_match_ids, _same_person, _team_ids_like, norm_person,
+    _is_own_goal, _load_shot_events, _player_name, _recent_match_ids, _same_person, _team_ids_like, norm_person,
 )
 
 log = logging.getLogger(__name__)
@@ -507,6 +507,45 @@ _OWN_LABEL = {
 }
 
 
+def _actual_side(events: List[Event], team_ids: set) -> Dict[str, Any]:
+    """O que cada jogador do time FEZ de fato na partida: chutes, no alvo, gols e assistências."""
+    real = [e for e in events if not _is_own_goal(e)]
+    rows = _player_rows(real, team_ids, 1)
+    assists: Dict[str, int] = defaultdict(int)  # só assistência que virou gol
+    for e in real:
+        if e.team_id in team_ids and _is_goal(e):
+            who = norm_person((e.details or {}).get("assisted_by"))
+            if who:
+                assists[who] += 1
+    return {"rows": rows, "assists": dict(assists)}
+
+
+def _find_actual(rows: Dict[int, Dict[str, Any]], player_id: int, name: str) -> Optional[Dict[str, Any]]:
+    row = rows.get(player_id)
+    if row is not None:
+        return row
+    key = norm_person(name)
+    for other in rows.values():  # mesmo jogador cadastrado com outro id (outra fonte)
+        if _same_person(key, norm_person(other["name"])):
+            return other
+    return None
+
+
+def attach_outcomes(preds: List[Dict[str, Any]], actual: Dict[str, Dict[str, Any]]) -> None:
+    """Marca cada estimativa com o que aconteceu: ``outcome = {happened, count}``."""
+    for pr in preds:
+        side = actual.get(pr.get("venue") or "") or {"rows": {}, "assists": {}}
+        row = _find_actual(side["rows"], pr["player_id"], pr["player_name"])
+        shots = row["shots"] if row else 0
+        on_target = row["on_target"] if row else 0
+        goals = row["goals"] if row else 0
+        key = norm_person(pr["player_name"])
+        assists = sum(c for who, c in side["assists"].items() if _same_person(who, key))
+        count = {"shot": shots, "shot_on_target": on_target, "goal": goals,
+                 "goal_involvement": goals + assists}[pr["target"]]
+        pr["outcome"] = {"happened": count > 0, "count": int(count)}
+
+
 def _own_zone_label(zone: str) -> str:
     return _OWN_LABEL.get(zone, zone.replace("_", " "))
 
@@ -563,6 +602,17 @@ def match_insights(db: Session, m: Match) -> Dict[str, Any]:
                                    minutes=away_minutes, opp_gk=home_gk)
     matchups = sorted(m1 + m2, key=lambda x: abs(x["score"] - 0.5), reverse=True)
 
+    # Partida encerrada: a estimativa continua sendo a feita só com jogos anteriores, e cada
+    # linha ganha o que de fato aconteceu (os chutes chegam ao fim do jogo). Sem chutes da
+    # partida coletados, não marca nada (evita mostrar "não" por falta de dado).
+    results_checked = False
+    if (m.status or "").lower() == "finished":
+        actual_events = _safe(db, lambda: _load_shot_events(db, [m.id]), "chutes da partida") or []
+        if actual_events:
+            attach_outcomes(p1, {"home": _actual_side(actual_events, hset)})
+            attach_outcomes(p2, {"away": _actual_side(actual_events, aset)})
+            results_checked = True
+
     notes = [
         f"Baseado nos últimos {len(home_recent)} jogos do mandante e {len(away_recent)} do visitante com chutes reais (Understat), "
         f"comparados à média de {league_n} jogos da liga.",
@@ -585,6 +635,7 @@ def match_insights(db: Session, m: Match) -> Dict[str, Any]:
         },
         "goalkeepers": {"home": home_gk, "away": away_gk},
         "predictions": p1 + p2,
+        "results_checked": results_checked,
         "matchups": matchups,
         "notes": notes,
         "generated_at": datetime.utcnow().isoformat(),

@@ -421,6 +421,9 @@ export default function AnalysisPage() {
                           </button>
                         ))}
                       </div>
+                      {insightsQuery.data.results_checked && predictions.some((p) => p.outcome) && (
+                        <OutcomeSummary predictions={predictions} target={predictionTarget} />
+                      )}
                       {predictions.length === 0 ? (
                         <EmptyState
                           title="Ainda sem estimativas para este critério"
@@ -606,6 +609,48 @@ export default function AnalysisPage() {
   );
 }
 
+/** Texto do que de fato aconteceu, por tipo de estimativa. */
+function outcomeText(target: string, outcome: { happened: boolean; count: number }) {
+  const n = outcome.count;
+  const plural = (one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  switch (target) {
+    case "shot":
+      return outcome.happened ? `${plural("chute", "chutes")} na partida` : "não finalizou";
+    case "shot_on_target":
+      return outcome.happened ? `${plural("chute no alvo", "chutes no alvo")}` : "nenhum chute no alvo";
+    case "goal":
+      return outcome.happened ? `${plural("gol", "gols")}` : "não marcou";
+    default:
+      return outcome.happened ? `${plural("participação em gol", "participações em gol")}` : "sem gol nem assistência";
+  }
+}
+
+/** Resumo de acertos da lista exibida (só partidas encerradas). */
+function OutcomeSummary({ predictions, target }: { predictions: PlayerMatchPrediction[]; target: string }) {
+  const checked = predictions.filter((p) => p.outcome);
+  const hit = (list: PlayerMatchPrediction[]) => list.filter((p) => p.outcome?.happened).length;
+  const top = checked.slice(0, 5);
+  const label: Record<string, string> = {
+    shot: "finalizou", shot_on_target: "chutou no alvo", goal: "marcou", goal_involvement: "participou de gol",
+  };
+  const total = hit(checked);
+  const pct = checked.length ? Math.round((100 * total) / checked.length) : 0;
+  return (
+    <div className="sv-card !border-emerald-400/25">
+      <div className="sv-card-inner flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
+        <span className="font-semibold">Conferência com o jogo real</span>
+        <span>
+          <strong className="text-emerald-300">{total}</strong> de {checked.length} jogadores listados {label[target] ?? "fizeram o evento"}
+          <span className="text-sv-muted"> ({pct}%)</span>
+        </span>
+        <span className="text-sv-muted">
+          Top 5 mais prováveis: <strong className="text-sv-text">{hit(top)}</strong> de {top.length}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function PlayerEstimateCard({
   prediction, rank, homeName, awayName,
 }: {
@@ -618,9 +663,14 @@ function PlayerEstimateCard({
     ...(prediction.positive_factors ?? []).map((item) => ({ item, negative: false })),
     ...(prediction.negative_factors ?? []).map((item) => ({ item, negative: true })),
   ];
+  const outcome = prediction.outcome;
+  // Partida encerrada: borda/fundo verde se aconteceu, vermelho discreto se não.
+  const tone = !outcome ? "" : outcome.happened
+    ? "!border-emerald-400/60 !bg-emerald-500/[0.07]"
+    : "!border-rose-400/35 !bg-rose-500/[0.05]";
 
   return (
-    <article className="sv-card">
+    <article className={`sv-card ${tone}`}>
       <div className="sv-card-inner space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="sv-chip">#{rank}</span>
@@ -628,6 +678,20 @@ function PlayerEstimateCard({
           <Badge kind="default">{prediction.venue === "home" ? homeName : awayName}</Badge>
           <ConfidenceBadge c={prediction.confidence} />
         </div>
+        {outcome && (
+          <div
+            role="status"
+            className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+              outcome.happened
+                ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
+                : "border-rose-400/40 bg-rose-500/10 text-rose-300"
+            }`}
+          >
+            <span aria-hidden>{outcome.happened ? "✓" : "✕"}</span>
+            <span>Aconteceu: {outcome.happened ? "Sim" : "Não"}</span>
+            <span className="font-normal text-[12px] opacity-90">· {outcomeText(prediction.target, outcome)}</span>
+          </div>
+        )}
         <ProbabilityBar p={prediction.probability} baseline={prediction.baseline_probability} />
         {(prediction.expected_minutes != null || prediction.gk_factor != null) && (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-sv-muted">

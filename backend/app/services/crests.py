@@ -130,7 +130,6 @@ def crest_for_name(name: Optional[str]) -> Optional[str]:
 # Escudos vindos do banco (football-data), usados também para times de outras fontes
 # (Understat não traz escudo). O mesmo clube é achado pelo nome normalizado.
 # --------------------------------------------------------------------------
-_EXTRA_TOKEN_ALIAS = {"rasenballsport": "rb", "monchengladbach": "gladbach", "m": ""}
 _INDEX_TTL = 600.0       # segundos
 _INDEX_RETRY = 60.0      # se o banco falhou, tenta de novo mais cedo
 _index_lock = threading.Lock()
@@ -141,12 +140,7 @@ def _tokens(name: Optional[str]) -> frozenset:
     """Tokens normalizados do nome (mesma normalização usada para ligar as fontes)."""
     from app.services.studio import norm_team  # import tardio: studio importa este módulo
 
-    out = []
-    for t in norm_team(name).split():
-        t = _EXTRA_TOKEN_ALIAS.get(t, t)
-        if t:
-            out.append(t)
-    return frozenset(out)
+    return frozenset(norm_team(name).split())
 
 
 def _load_index() -> tuple[list, dict]:

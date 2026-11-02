@@ -18,6 +18,7 @@ const ALIAS: Record<string, string> = {
   wanderers: "", hotspur: "", albion: "",
   // grafias extras entre football-data e Understat
   rasenballsport: "rb", monchengladbach: "gladbach", m: "",
+  lyonnais: "lyon", rennais: "rennes", brestois: "brest",
 };
 
 function ascii(text: string): string {
@@ -28,7 +29,9 @@ function ascii(text: string): string {
 export function crestTokens(name?: string | null): string[] {
   if (!name) return [];
   const out: string[] = [];
-  for (const raw of ascii(name).split(/[^a-z0-9]+/)) {
+  // "Paris FC" não pode virar "paris" (casaria com o Paris Saint-Germain): token único.
+  const text = ascii(name).replace(/\bparis\s+f\.?c\.?(?=\W|$)/g, "parisfc");
+  for (const raw of text.split(/[^a-z0-9]+/)) {
     const t = ALIAS[raw] ?? raw;
     if (t && !STOP.has(t)) out.push(t);
   }
