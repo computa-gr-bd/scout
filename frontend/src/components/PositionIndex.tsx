@@ -155,6 +155,7 @@ export function PositionIndexSection({ data }: { data: PlayerIndex }) {
           )}
           <div className="text-[11px] text-sv-muted mt-2 space-y-0.5">
             {(data.notes ?? []).map((n, i) => <div key={i}>{n}</div>)}
+            {(data.data_sources ?? []).length > 0 && <div>Fontes: {(data.data_sources ?? []).join(" · ")}.</div>}
             {data.available && data.reliability != null && data.reliability < 1 && (
               <div>Poucos minutos: a nota é puxada para 50 (confiabilidade {Math.round(data.reliability * 100)}%; bruta {data.raw_index}).</div>
             )}

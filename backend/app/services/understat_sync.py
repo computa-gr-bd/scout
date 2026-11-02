@@ -627,6 +627,11 @@ async def _ingest_league_structure(
             team = mapper.get_or_create_team(f"name:{team_title}", team_title)
         player = mapper.get_or_create_player(pid, p.get("player_name"), team)
         mapper.register_player_name(player, p.get("player_name"))
+        # A posição do Understat ("D S", "F M S", "GK") só ia para PlayerStatistics.recent_form;
+        # Player.position ficava vazio e a lista/os índices não sabiam o "tipo" do jogador.
+        raw_position = (p.get("position") or "").strip()
+        if raw_position and not player.position:
+            player.position = raw_position[:32]
         counts["players"] += 1
         player_rows.append(_player_row(player, season_id, p))
 

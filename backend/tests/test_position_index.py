@@ -6,7 +6,7 @@ from app.services.fbref_stats import (
 )
 from app.services.position_index import (
     MIN_PEERS, anchor_score, classify_role, compute_metrics, flatten_stat, gk_goal_factor,
-    percentile_score, reliability, score_index,
+    infer_role, percentile_score, reliability, score_index,
 )
 
 
@@ -123,7 +123,7 @@ def test_defender_index_and_missing_data():
     )
     res = score_index("DEF", compute_metrics("DEF", flat), minutes=1800)
     assert res["available"] and 0 <= res["index"] <= 100
-    assert res["coverage"] == 1.0
+    assert 0.7 < res["coverage"] < 1.0          # sem dados "em campo" (derivados), o resto está completo
 
     # só colunas básicas da tabela (sem FBref avançado): cobertura parcial, mas ainda calcula
     thin = flatten_stat({"minutes_played": 1800, "matches_played": 20, "tackles": 30, "interceptions": 25,
@@ -150,3 +150,60 @@ def test_gk_goal_factor_bounds_and_direction():
     assert 0.85 <= great["factor"] and poor["factor"] <= 1.15
     assert gk_goal_factor({"gk_saves": 1, "gk_sota": 2}) is None
     assert gk_goal_factor({}) is None
+
+
+def test_infer_role_uses_understat_position_and_goalkeeper_evidence():
+    assert infer_role(None, "D S") == "DEF"                      # Player.position vazio, Understat tem
+    assert infer_role("", None, flat={"d_gk_matches": 12}) == "GK"
+    assert infer_role(None, None, flat={"gk_sota": 40}) == "GK"
+    assert infer_role(None, None, flat={}) is None
+    assert infer_role("GK", "F") == "GK"                         # primeira posição reconhecível vence
+
+
+def test_zero_columns_from_sources_without_the_stat_are_unknown_not_bad():
+    flat = flatten_stat({"minutes_played": 1800, "matches_played": 20, "clearances": 0, "aerials_won": 0,
+                         "aerials_lost": 0, "tackles": 0, "interceptions": 0, "fouls_committed": 0}, None)
+    assert not {"clearances", "aerials_won", "tackles", "fouls_committed"} & set(flat)
+    metrics = compute_metrics("DEF", flat)
+    assert metrics["clearances_p90"] is None and metrics["aerials_won_p90"] is None
+    assert metrics["tkl_int_p90"] is None
+
+
+def test_defender_index_works_with_understat_and_derived_only():
+    flat = flatten_stat(
+        {"minutes_played": 1800, "matches_played": 20, "key_passes": 14},
+        {"derived": {"onp_90s": 20.0, "onp_xga": 20.0, "onp_ga": 18.0, "onp_shots_against": 220.0}},
+        {"xg_buildup": 9.0, "xg_chain": 14.0, "yellow_cards": 3, "red_cards": 0, "position": "D S"},
+    )
+    metrics = compute_metrics("DEF", flat)
+    assert abs(metrics["onpitch_xga_p90"] - 1.0) < 1e-9 and abs(metrics["onpitch_shots_p90"] - 11.0) < 1e-9
+    assert abs(metrics["xg_buildup_p90"] - 0.45) < 1e-9 and abs(metrics["cards_p90"] - 0.15) < 1e-9
+    res = score_index("DEF", metrics, minutes=1800)
+    assert res["available"]
+    keys = {c["key"] for c in res["components"] if c["score"] is not None}
+    assert {"onpitch", "buildup", "discipline", "availability"} <= keys
+    assert "duels" not in keys and "aerial" not in keys       # sem FBref: componentes ficam fora, não zerados
+
+
+def test_goalkeeper_index_from_derived_shots_without_fbref():
+    flat = flatten_stat(
+        {"minutes_played": 1800, "matches_played": 20},
+        {"derived": {"gk_matches": 20, "gk_minutes": 1800, "gk_sota": 80, "gk_saves": 56,
+                     "gk_ga": 24, "gk_xgot": 27.0, "gk_clean_sheets": 7}},
+    )
+    metrics = compute_metrics("GK", flat)
+    assert abs(metrics["psxg_diff_p90"] - 0.15) < 1e-9
+    assert abs(metrics["ga_p90"] - 1.2) < 1e-9 and metrics["clean_sheet_pct"] == 35.0
+    res = score_index("GK", metrics, minutes=1800)
+    assert res["available"] and res["index"] > 50
+    assert gk_goal_factor(flat)["source"] == "derived"
+
+
+def test_fbref_totals_win_over_derived_for_goalkeepers():
+    flat = flatten_stat(
+        {"minutes_played": 1800, "matches_played": 20},
+        {"derived": {"gk_matches": 20, "gk_minutes": 1800, "gk_sota": 80, "gk_saves": 56, "gk_ga": 24, "gk_xgot": 27.0},
+         "soccerdata": {"gk_saves": 70, "gk_sota": 100, "gk_ga": 30, "gk_psxg": 33.0}},
+    )
+    from app.services.position_index import gk_totals
+    assert gk_totals(flat)["source"] == "fbref" and gk_totals(flat)["sota"] == 100

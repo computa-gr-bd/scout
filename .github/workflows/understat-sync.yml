@@ -48,3 +48,11 @@ jobs:
         run: >-
           python -m app.services.understat_sync --fast
           --leagues ${{ github.event.inputs.leagues || vars.UNDERSTAT_LEAGUES || 'all' }}
+      - name: Posições e estatísticas derivadas (goleiro / defesa)
+        # Preenche Player.position e recalcula defesas/gols evitados a partir dos chutes + escalações.
+        # Não derruba a coleta se falhar.
+        continue-on-error: true
+        working-directory: backend
+        run: |
+          python -m app.services.backfill_positions
+          python -m app.services.derived_stats

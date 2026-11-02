@@ -118,3 +118,32 @@ def test_recent_minutes_counts_missing_matches_as_zero(db, world):
     window = [world["match"].id, other.id, third.id]       # mais recente primeiro
     assert recent_minutes(db, [p.id], window) == {p.id: [90, 60, 0]}
     assert recent_minutes(db, [p.id], [world["match"].id]) == {}   # <2 jogos com minutos conhecidos
+
+
+def test_player_without_position_gets_role_from_understat_recent_form(db, world):
+    defender = _player(db, "d9", "Sem Posicao", None, world["home"])
+    db.add(PlayerStatistics(
+        player_id=defender.id, season_id=world["season"].id, scope="overall",
+        matches_played=20, minutes_played=1800, key_passes=12,
+        recent_form={"position": "D S", "xg_buildup": 8.0, "xg_chain": 12.0, "yellow_cards": 3, "red_cards": 0},
+        supplemental_stats={"derived": {"onp_90s": 20.0, "onp_xga": 21.0, "onp_ga": 19.0, "onp_shots_against": 230.0}},
+    ))
+    db.flush()
+    out = player_index_payload(db, defender)
+    assert out["role"] == "DEF" and out["available"] is True
+    assert any("Understat" in src for src in out["data_sources"])
+
+
+def test_goalkeeper_from_derived_shots_only(db, world):
+    keeper = _player(db, "gk9", "Derivado", "GK", world["home"])
+    db.add(PlayerStatistics(
+        player_id=keeper.id, season_id=world["season"].id, scope="overall",
+        matches_played=20, minutes_played=1800,
+        supplemental_stats={"derived": {"gk_matches": 20, "gk_minutes": 1800, "gk_sota": 90, "gk_saves": 66,
+                                         "gk_ga": 24, "gk_xgot": 29.0, "gk_clean_sheets": 8}},
+    ))
+    db.flush()
+    gk = team_goalkeeper(db, [world["home"].id])
+    assert gk["has_data"] is True and gk["data_source"] == "derived" and gk["has_fbref"] is False
+    assert gk["goal_factor"] is not None and gk["psxg_diff_p90"] > 0
+    assert player_index_payload(db, keeper)["available"] is True

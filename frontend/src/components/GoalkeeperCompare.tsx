@@ -38,11 +38,11 @@ function GoalkeeperBox({ team, gk }: { team: string; gk: TeamGoalkeeper | null }
           </div>
         )}
       </div>
-      {gk.has_fbref ? (
+      {(gk.has_data ?? gk.has_fbref) ? (
         <>
           <div className="grid grid-cols-3 gap-2">
             <Stat label="Defesas" value={fmt(gk.save_pct, 1, "%")} hint="Defesas ÷ chutes no alvo (suavizado)" />
-            <Stat label="Gols evitados/90" value={gk.psxg_diff_p90 == null ? "—" : `${gk.psxg_diff_p90 > 0 ? "+" : ""}${gk.psxg_diff_p90.toFixed(2)}`} hint="PSxG − gols sofridos, por 90 min" />
+            <Stat label="Gols evitados/90" value={gk.psxg_diff_p90 == null ? "—" : `${gk.psxg_diff_p90 > 0 ? "+" : ""}${gk.psxg_diff_p90.toFixed(2)}`} hint={gk.data_source === "derived" ? "xG dos chutes no alvo − gols sofridos, por 90 min" : "PSxG − gols sofridos, por 90 min"} />
             <Stat label="Sem sofrer gol" value={fmt(gk.clean_sheet_pct, 0, "%")} />
             <Stat label="Gols sofridos/90" value={fmt(gk.ga_p90, 2)} />
             <Stat label="Cruzamentos" value={fmt(gk.cross_stop_pct, 1, "%")} hint="Cruzamentos interceptados" />
@@ -59,7 +59,7 @@ function GoalkeeperBox({ team, gk }: { team: string; gk: TeamGoalkeeper | null }
           )}
         </>
       ) : (
-        <p className="text-[11px] text-sv-muted">Sem defesas/PSxG do FBref para este goleiro — rode o sync do SoccerData.</p>
+        <p className="text-[11px] text-sv-muted">Sem defesas registradas para este goleiro — rode o cálculo derivado (derived_stats) ou o sync do SoccerData.</p>
       )}
     </div>
   );

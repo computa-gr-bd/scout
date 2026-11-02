@@ -27,7 +27,7 @@ from app.db.models import (
     PlayerStatistics, Season, Team,
 )
 from app.services.fbref_stats import (
-    COLUMN_BACKED_FIELDS, extract_keeper_match, extract_season_stats, finalize_totals, merge_totals,
+    COLUMN_BACKED_FIELDS, extract_keeper_match, extract_season_stats, finalize_totals, merge_totals, summarize_table,
 )
 from app.services.studio import _player_name, _same_person, _same_team_name, norm_person, norm_team
 
@@ -663,6 +663,16 @@ def _season_stats(
             return None
         return player.id, team_context_value[1]
 
+    # Posição do FBref ("GK", "DF", "DF,MF", "FW") quando o jogador ainda não tem posição.
+    for source in standard_rows:
+        position = _row_text(source, "pos")
+        if not position:
+            continue
+        context = _team_for_row(source, team_context)
+        player = player_resolver.resolve(context[0], _row_text(source, "player")) if context else None
+        if player is not None and not player.position:
+            player.position = position[:32]
+
     for rows, field_map in (
         (standard_rows, SEASON_STAT_FIELDS),
         (misc_rows, DEFENSIVE_SEASON_FIELDS),
@@ -890,6 +900,23 @@ def _read_optional(label: str, reader_call: Any, failures: list[str]) -> list[di
         return []
 
 
+PROBE_STAT_TYPES = ("standard", "misc", "keeper", "keeper_adv", "defense", "passing", "possession")
+
+
+def _probe_league(league_code: str, season: str) -> dict[str, Any]:
+    """Diagnóstico: quais tabelas de jogador o FBref ainda entrega COM dados (sem gravar nada)."""
+    import soccerdata
+
+    reader = soccerdata.FBref(leagues=FBREF_LEAGUES[league_code], seasons=season)
+    report: dict[str, Any] = {}
+    for stat_type in PROBE_STAT_TYPES:
+        try:
+            report[stat_type] = summarize_table(_records(reader.read_player_season_stats(stat_type=stat_type)))
+        except Exception as error:  # noqa: BLE001
+            report[stat_type] = {"error": f"{type(error).__name__}: {error}"}
+    return {"league": league_code, "season": season, "tables": report}
+
+
 def _sync_league(league_code: str, season: str, include_extra: bool = True) -> dict[str, Any]:
     import soccerdata
 
@@ -979,7 +1006,14 @@ def main(argv: list[str] | None = None) -> int:
         "--basic-only", action="store_true",
         help="Não lê as tabelas extras (goleiro, defesa, passes, posse); só o conjunto antigo.",
     )
+    parser.add_argument(
+        "--probe", action="store_true",
+        help="Só diagnostica: mostra quais tabelas do FBref vêm com dados (não grava nada).",
+    )
     args = parser.parse_args(argv)
+    if args.probe:
+        print(json.dumps([_probe_league(league, args.season) for league in args.leagues], ensure_ascii=False, indent=2))
+        return 0
     results = [_sync_league(league, args.season, include_extra=not args.basic_only) for league in args.leagues]
     print(json.dumps(results, ensure_ascii=False, indent=2))
     return 0

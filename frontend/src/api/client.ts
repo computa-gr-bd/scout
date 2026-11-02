@@ -298,6 +298,8 @@ export interface PlayerIndex {
   kpis?: IndexKpi[];
   sample?: { minutes: number | null; matches: number | null; season_id: number | null; league: string | null; peers: number };
   notes?: string[];
+  /** De onde vieram os números (Understat, derivado dos chutes, FBref). */
+  data_sources?: string[];
 }
 export async function getPlayerIndex(id: number) { return api.get<PlayerIndex>(`/players/${id}/index`).then((r) => r.data); }
 
@@ -340,6 +342,9 @@ export async function getMatchPredictions(id: number) { return api.get(`/matches
 /** Análise tática calculada dos chutes reais (Understat): zonas fracas, previsões por jogador e confrontos. */
 export interface TeamGoalkeeper {
   player_id: number; name: string; minutes: number | null; matches?: number | null;
+  /** true quando há defesas/chutes sofridos de qualquer fonte (FBref ou derivados dos chutes do Understat). */
+  has_data?: boolean;
+  data_source?: "fbref" | "derived";
   has_fbref: boolean; index: number | null; reliability?: number;
   components?: Array<{ key: string; label: string; score: number | null }>;
   save_pct?: number | null; psxg_diff_p90?: number | null; ga_p90?: number | null;

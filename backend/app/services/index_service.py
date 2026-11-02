@@ -18,8 +18,8 @@ from sqlalchemy.orm import Session
 from app.db.models import Lineup, Player, PlayerMatchStatistics, PlayerStatistics
 from app.services.player_profile import LEAGUE_LABELS, team_league_map
 from app.services.position_index import (
-    COMPONENTS, LEAGUE_SAVE_PCT, ROLE_LABELS, classify_role, compute_metrics, flatten_stat,
-    gk_goal_factor, reduce_peer_metrics, score_index,
+    COMPONENTS, LEAGUE_SAVE_PCT, ROLE_LABELS, compute_metrics, flatten_stat,
+    gk_goal_factor, gk_totals, infer_role, reduce_peer_metrics, score_index,
 )
 
 PEER_MIN_MINUTES = 450
@@ -42,7 +42,21 @@ def stat_columns(stat: PlayerStatistics) -> Dict[str, Any]:
 def stat_flat(stat: Optional[PlayerStatistics]) -> Dict[str, Any]:
     if stat is None:
         return {}
-    return flatten_stat(stat_columns(stat), stat.supplemental_stats if isinstance(stat.supplemental_stats, dict) else None)
+    return flatten_stat(
+        stat_columns(stat),
+        stat.supplemental_stats if isinstance(stat.supplemental_stats, dict) else None,
+        stat.recent_form if isinstance(stat.recent_form, dict) else None,
+    )
+
+
+def role_of(position: Optional[str], stat: Optional[PlayerStatistics], flat: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Função do jogador: ``Player.position`` → posição do Understat (``recent_form``) → estatísticas.
+
+    O Understat guarda a posição em ``PlayerStatistics.recent_form["position"]``; muitos jogadores
+    têm ``Player.position`` vazio, então só olhar a coluna deixava o jogador sem "tipo".
+    """
+    rf = stat.recent_form if stat is not None and isinstance(stat.recent_form, dict) else {}
+    return infer_role(position, rf.get("position"), flat=flat if flat is not None else stat_flat(stat))
 
 
 def latest_overall(db: Session, player_id: int) -> Optional[PlayerStatistics]:
@@ -80,10 +94,13 @@ def league_peers(db: Session, role: str, season_id: Optional[int], league_code: 
             stmt = stmt.where(PlayerStatistics.season_id == season_id)
         seen: set[int] = set()
         for stat, position, player_id in db.execute(stmt).all():
-            if classify_role(position) != role or player_id in seen:
+            if player_id in seen:
+                continue
+            flat = stat_flat(stat)
+            if role_of(position, stat, flat) != role:
                 continue
             seen.add(player_id)
-            peers.append({"player_id": player_id, **stat_flat(stat)})
+            peers.append({"player_id": player_id, **flat})
     _PEER_CACHE[key] = (time.time(), peers)
     return peers
 
@@ -159,16 +176,27 @@ def build_kpis(role: str, flat: Dict[str, Any], m: Dict[str, Optional[float]],
     return []
 
 
+def _data_sources(flat: Dict[str, Any]) -> List[str]:
+    out: List[str] = []
+    if any(k.startswith("us_") for k in flat) or flat.get("key_passes"):
+        out.append("Understat (xGBuildup, xGChain, passes-chave, cartões)")
+    if any(k.startswith("d_") for k in flat):
+        out.append("Derivado dos chutes do Understat + escalações (defesas, gols evitados, defesa em campo)")
+    if any(k in flat for k in ("gk_sota", "tkl", "tkl_plus_int", "progressive_passes", "pass_att")):
+        out.append("FBref / SoccerData")
+    return out
+
+
 # --------------------------------------------------------------------------- payload do jogador
 def player_index_payload(db: Session, player: Player) -> Dict[str, Any]:
     """Índice da função do jogador. MID/ATT continuam usando o índice ofensivo da tela (``role`` indica)."""
-    role = classify_role(player.position)
+    stat = latest_overall(db, player.id)
+    role = role_of(player.position, stat)
     base = {"player_id": player.id, "role": role, "role_label": ROLE_LABELS.get(role) if role else None}
     if role not in COMPONENTS:
         return {**base, "available": False, "index": None,
                 "reason": "Atacantes e meias usam o índice ofensivo." if role else "Posição do jogador desconhecida."}
 
-    stat = latest_overall(db, player.id)
     if stat is None or not (stat.minutes_played or 0):
         return {**base, "available": False, "index": None,
                 "reason": "Sem minutos registrados para calcular o índice."}
@@ -188,8 +216,9 @@ def player_index_payload(db: Session, player: Player) -> Dict[str, Any]:
             "league": LEAGUE_LABELS.get(league_code, league_code) if league_code else None,
             "peers": len(peer_metrics),
         },
+        "data_sources": _data_sources(flat),
         "notes": [
-            "Índice 0–100 calculado com estatísticas do FBref (SoccerData) e Understat; não é um modelo treinado.",
+            "Índice 0–100 calculado com Understat, escalações e FBref (quando disponível); não é um modelo treinado.",
             (f"Notas por percentil entre {len(peer_metrics)} {ROLE_LABELS[role].lower()}s da liga com ≥ {PEER_MIN_MINUTES} min."
              if result.get("method") == "percentile"
              else "Poucos pares na liga: notas calculadas contra faixas típicas do futebol europeu."),
@@ -208,16 +237,21 @@ def team_goalkeeper(db: Session, team_ids: Sequence[int]) -> Optional[Dict[str, 
         .where(Player.team_id.in_(list(team_ids)), PlayerStatistics.scope == "overall",
                PlayerStatistics.minutes_played > 0)
     ).all()
-    candidates = [(stat, player) for stat, player in rows if classify_role(player.position) == "GK"]
+    candidates = []
+    for stat, player in rows:
+        flat = stat_flat(stat)
+        if role_of(player.position, stat, flat) == "GK":
+            candidates.append((stat, player, flat))
     if not candidates:
         return None
     candidates.sort(key=lambda sp: (sp[0].season_id or 0, sp[0].minutes_played or 0), reverse=True)
-    stat, player = candidates[0]
-    flat = stat_flat(stat)
-    if not any(k.startswith("gk_") for k in flat):
-        # Só Understat/football-data: sem defesas/PSxG não há o que comparar.
+    stat, player, flat = candidates[0]
+    totals = gk_totals(flat)
+    if totals is None:
+        # Sem defesas nem chutes derivados (ainda não rodou derived_stats / FBref): nada a comparar.
         return {"player_id": player.id, "name": player.display_name or player.last_name,
-                "minutes": stat.minutes_played, "has_fbref": False, "index": None, "goal_factor": None}
+                "minutes": stat.minutes_played, "has_data": False, "has_fbref": False,
+                "index": None, "goal_factor": None}
 
     league_map = team_league_map(db)
     league_code = next((league_map[t]["code"] for t in team_ids if t in league_map), None)
@@ -231,7 +265,9 @@ def team_goalkeeper(db: Session, team_ids: Sequence[int]) -> Optional[Dict[str, 
         "name": player.display_name or player.last_name,
         "minutes": stat.minutes_played,
         "matches": stat.matches_played,
-        "has_fbref": True,
+        "has_data": True,
+        "data_source": totals["source"],
+        "has_fbref": totals["source"] == "fbref",
         "index": result.get("index"),
         "reliability": result.get("reliability"),
         "components": [{"key": c["key"], "label": c["label"], "score": c["score"]} for c in result.get("components", [])],

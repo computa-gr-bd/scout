@@ -30,10 +30,11 @@ _ORDERS = {"goals": "goals", "assists": "assists", "xg": "xg", "minutes": "minut
 # Grupos de posição: o Understat usa siglas ("GK", "D", "M", "F", "S", combinadas por espaço,
 # ex.: "F M S") e o football-data usa palavras ("Goalkeeper", "Defence", "Midfield", "Offence").
 _POSITION_GROUPS = {
+    # Understat: "D M S" (S = reserva, NÃO é atacante); FBref: "DF,MF"; football-data: palavras.
     "GK": (["GK"], ["goalkeeper"]),
-    "DEF": (["D"], ["defen", "back"]),
-    "MID": (["M"], ["midfield"]),
-    "ATT": (["F", "S"], ["offence", "forward", "winger", "striker"]),
+    "DEF": (["D", "DF"], ["defen", "back"]),
+    "MID": (["M", "MF"], ["midfield"]),
+    "ATT": (["F", "FW"], ["offence", "forward", "winger", "striker"]),
 }
 
 
@@ -45,7 +46,9 @@ def _position_clause(position: str):
     clauses = []
     for t in tokens:
         clauses += [Player.position == t, Player.position.ilike(f"{t} %"),
-                    Player.position.ilike(f"% {t}"), Player.position.ilike(f"% {t} %")]
+                    Player.position.ilike(f"% {t}"), Player.position.ilike(f"% {t} %"),
+                    Player.position.ilike(f"{t},%"), Player.position.ilike(f"%,{t}"),
+                    Player.position.ilike(f"%,{t},%")]
     clauses += [Player.position.ilike(f"%{w}%") for w in words]
     return or_(*clauses)
 

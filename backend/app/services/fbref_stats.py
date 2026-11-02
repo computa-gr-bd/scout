@@ -257,11 +257,37 @@ def extract_keeper_match(row: Mapping[Any, Any]) -> Dict[str, Any]:
     return out
 
 
+def summarize_table(rows: List[Mapping[Any, Any]]) -> Dict[str, Any]:
+    """Resumo de uma tabela do FBref para diagnóstico: quais colunas numéricas têm dado de verdade.
+
+    Serve para descobrir tabelas que o FBref deixou vazias (ex.: avançadas, após a saída da Opta).
+    """
+    if not rows:
+        return {"rows": 0, "numeric_columns_with_data": 0, "numeric_columns_empty": 0, "sample_with_data": [], "sample_empty": []}
+    filled: Dict[str, int] = {}
+    seen: Dict[str, int] = {}
+    for row in rows:
+        for key, value in row.items():
+            parts = _parts(key)
+            if not parts or parts[-1] in {"player", "team", "league", "season", "nation", "pos", "age", "born", "game_id", "date"}:
+                continue
+            name = " / ".join(parts)
+            seen[name] = seen.get(name, 0) + 1
+            if to_float(value) is not None:
+                filled[name] = filled.get(name, 0) + 1
+    with_data = sorted(k for k in seen if filled.get(k))
+    empty = sorted(k for k in seen if not filled.get(k))
+    return {
+        "rows": len(rows), "numeric_columns_with_data": len(with_data), "numeric_columns_empty": len(empty),
+        "sample_with_data": with_data[:14], "sample_empty": empty[:14],
+    }
+
+
 def sum_field(rows: Iterable[Mapping[str, Any]], key: str) -> float:
     return sum(float(r.get(key) or 0) for r in rows)
 
 
 __all__ = [
     "SEASON_STAT_SPECS", "COLUMN_BACKED_FIELDS", "GK_FIELDS", "to_float", "cell",
-    "extract_season_stats", "merge_totals", "finalize_totals", "extract_keeper_match",
+    "extract_season_stats", "merge_totals", "finalize_totals", "extract_keeper_match", "summarize_table",
 ]
