@@ -335,6 +335,17 @@ async def test_fast_sync_collects_shots_and_is_idempotent(db_session):
     assert _count(db, Shot) == 3  # nada duplicado
 
 
+def test_fast_sync_error_log_includes_provider_reason():
+    errors = {
+        "epl": {"error": "ClientResponseError: HTTP 403"},
+        "la_liga": {"matches": 2},
+    }
+
+    assert us._fast_sync_error_messages(errors) == [
+        "Erro na liga epl: ClientResponseError: HTTP 403",
+    ]
+
+
 # ---------------------------------------------------------------------------
 # API
 # ---------------------------------------------------------------------------

@@ -1,20 +1,24 @@
 from datetime import datetime
+from unittest.mock import Mock
 
 import pandas as pd
 import pytest
+import soccerdata
 from lxml import html
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.db.models import (
-    Competition, DataSource, Lineup, Match, Player, PlayerMatchStatistics,
+    CollectionState, Competition, DataSource, Lineup, Match, Player, PlayerMatchStatistics,
     PlayerStatistics, Season, Team,
 )
+from app.services import soccerdata_sync
 from app.services.aggregates import compute_match_aggregates, compute_player_season_aggregates
 from app.services.soccerdata_sync import (
-    _attach_game_ids, _finished_game_ids, _match_schedule, _records, _schedule_from_html_table,
-    _source_date, sync_soccerdata_rows,
+    EXTRA_SEASON_STAT_TYPES, PROBE_STAT_TYPES, _attach_game_ids, _finished_game_ids,
+    _match_schedule, _probe_league, _records, _schedule_from_html_table, _source_date,
+    _store_checkpoint, sync_soccerdata_rows,
 )
 
 
@@ -144,7 +148,7 @@ def _import(db_session, seeded):
     misc = [{
         "team": "Arsenal", "player": "Bukayo Saka",
         ("Performance", "TklW"): 4, ("Performance", "Int"): 3,
-        ("Performance", "Clr"): 2, ("Aerial Duels", "Won"): 5,
+        ("Aerial Duels", "Won"): 5,
         ("Aerial Duels", "Lost"): 1,
     }]
     return sync_soccerdata_rows(
@@ -259,7 +263,7 @@ def test_sync_enriches_existing_rows_idempotently_without_duplicate_entities(db_
     season_stats = seeded["season_stats"]
     assert season_stats.assists == 3
     assert season_stats.xg_total == 0.8
-    assert (season_stats.tackles, season_stats.interceptions, season_stats.clearances) == (4, 3, 2)
+    assert (season_stats.tackles, season_stats.interceptions) == (4, 3)
     assert (season_stats.aerials_won, season_stats.aerials_lost) == (5, 1)
     assert season_stats.supplemental_stats["soccerdata"]["assists"] == 5
 
@@ -389,7 +393,7 @@ def test_event_reaggregation_preserves_soccerdata_values(db_session, seeded):
     )
     assert (match_stats.assists, match_stats.tackles, match_stats.interceptions) == (1, 2, 1)
     assert season_stats.assists == 3
-    assert (season_stats.tackles, season_stats.clearances) == (4, 2)
+    assert (season_stats.tackles, season_stats.clearances) == (4, 0)
     assert (season_stats.aerials_won, season_stats.aerials_lost) == (5, 1)
     assert season_stats.supplemental_stats["soccerdata"]["assists"] == 5
 
@@ -412,25 +416,15 @@ def test_extra_tables_feed_defender_and_goalkeeper_stats(db_session, seeded):
         {"team": "Arsenal", "player": "Bukayo Saka", ("Playing Time", "MP"): 2,
          ("Playing Time", "Min"): 180, ("Playing Time", "Starts"): 2},
     ]
+    misc = [{
+        "team": "Arsenal", "player": "Bukayo Saka",
+        ("Performance", "TklW"): 4, ("Performance", "Int"): 2,
+    }]
     extra = {
         "keeper": [{
             "team": "Arsenal", "player": "David Raya",
             ("Performance", "GA"): 1, ("Performance", "SoTA"): 6, ("Performance", "Saves"): 5,
             ("Performance", "CS"): 1,
-        }],
-        "keeper_adv": [{
-            "team": "Arsenal", "player": "David Raya",
-            ("Expected", "PSxG"): 1.4, ("Crosses", "Opp"): 8, ("Crosses", "Stp"): 1,
-            ("Launched", "Cmp"): 10, ("Launched", "Att"): 20,
-        }],
-        "defense": [{
-            "team": "Arsenal", "player": "Bukayo Saka",
-            ("Tackles", "Tkl"): 6, ("Tackles", "TklW"): 4, ("Blocks", "Blocks"): 3,
-            "Int": 2, "Clr": 7, "Tkl+Int": 8,
-        }],
-        "passing": [{
-            "team": "Arsenal", "player": "Bukayo Saka",
-            ("Total", "Cmp"): 80, ("Total", "Att"): 100, "KP": 5, "PrgP": 9,
         }],
     }
     keeper_match = [{
@@ -440,7 +434,7 @@ def test_extra_tables_feed_defender_and_goalkeeper_stats(db_session, seeded):
     }]
 
     result = sync_soccerdata_rows(
-        db_session, "PL", schedule, [], [], standard, [], extra, keeper_match,
+        db_session, "PL", schedule, [], [], standard, misc, extra, keeper_match,
     )
 
     assert result["keeper_match_stats_inserted"] == 1
@@ -452,13 +446,61 @@ def test_extra_tables_feed_defender_and_goalkeeper_stats(db_session, seeded):
         PlayerStatistics.player_id == keeper.id))
     provider = gk_stats.supplemental_stats["soccerdata"]
     assert (provider["gk_saves"], provider["gk_sota"], provider["gk_ga"]) == (5, 6, 1)
-    assert provider["gk_psxg"] == 1.4 and provider["gk_crosses_opp"] == 8
 
     saka = db_session.scalar(select(PlayerStatistics).where(
         PlayerStatistics.player_id == seeded["home_player"].id,
         PlayerStatistics.season_id == seeded["match"].season_id,
     ))
-    assert saka.clearances == 7            # só a tabela "defense" traz Cortes
-    assert saka.interceptions == 2 and saka.key_passes == 5
-    assert (saka.passes, saka.passes_completed) == (100, 80)
-    assert saka.supplemental_stats["soccerdata"]["progressive_passes"] == 9
+    assert (saka.tackles, saka.interceptions) == (4, 2)
+
+
+def test_probe_requests_only_stat_types_supported_by_soccerdata(monkeypatch):
+    reader = Mock()
+    reader.read_player_season_stats.return_value = pd.DataFrame()
+    monkeypatch.setattr(soccerdata, "FBref", lambda **kwargs: reader)
+
+    report = _probe_league("PL", "2026-27")
+
+    assert tuple(report["tables"]) == PROBE_STAT_TYPES
+    assert EXTRA_SEASON_STAT_TYPES == ("keeper",)
+    assert [
+        call.kwargs["stat_type"]
+        for call in reader.read_player_season_stats.call_args_list
+    ] == list(PROBE_STAT_TYPES)
+
+
+def test_season_only_cli_skips_match_report_collection(monkeypatch, capsys):
+    calls = []
+
+    def sync_league(league, season, *, include_extra, season_only):
+        calls.append((league, season, include_extra, season_only))
+        return {"league": league, "season": season, "status": "success"}
+
+    monkeypatch.setattr(soccerdata_sync, "_sync_league", sync_league)
+
+    assert soccerdata_sync.main([
+        "--leagues", "PL", "--season", "2026-27", "--season-only",
+    ]) == 0
+    assert calls == [("PL", "2026-27", True, True)]
+    assert '"status": "success"' in capsys.readouterr().out
+
+
+def test_soccerdata_optional_table_failure_is_recorded_as_partial(db_session):
+    _store_checkpoint(
+        db_session,
+        "PL:2026-27",
+        {"extra_tables_failed": 1},
+        status="partial",
+    )
+    db_session.flush()
+
+    checkpoint = db_session.scalar(
+        select(CollectionState).where(
+            CollectionState.provider == "soccerdata",
+            CollectionState.resource == "PL:2026-27",
+        )
+    )
+
+    assert checkpoint.status == "partial"
+    assert checkpoint.summary == {"extra_tables_failed": 1}
+    assert checkpoint.last_success_at is None

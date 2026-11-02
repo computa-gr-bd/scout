@@ -49,6 +49,27 @@ const METRICS: MetricDef[] = [
 ];
 const RADAR_KEYS = ["shots", "xg", "xa", "kp", "chain", "goals"];
 const BAR_KEYS = ["goals", "assists", "xg", "xa", "shots", "kp"];
+const SUPPLEMENTAL_DEFENSE_METRICS = [
+  { key: "tackles", label: "Desarmes ganhos" },
+  { key: "interceptions", label: "Interceptações" },
+  { key: "clearances", label: "Cortes" },
+  { key: "aerials_won", label: "Aéreos ganhos" },
+  { key: "aerials_lost", label: "Aéreos perdidos" },
+  { key: "recoveries", label: "Recuperações" },
+  { key: "fouls", label: "Faltas cometidas" },
+  { key: "fouled", label: "Faltas sofridas" },
+  { key: "yellow_cards", label: "Cartões amarelos" },
+  { key: "red_cards", label: "Cartões vermelhos" },
+  { key: "offsides", label: "Impedimentos" },
+  { key: "crosses", label: "Cruzamentos" },
+  { key: "pens_won", label: "Pênaltis sofridos" },
+  { key: "pens_conceded", label: "Pênaltis cometidos" },
+  { key: "own_goals", label: "Gols contra" },
+] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /* ------------------------------------------------------------------ índice ScoutVision */
 const RATING_PARTS = [
@@ -146,6 +167,13 @@ export default function PlayerPage() {
     // temporada mais recente primeiro
     return [...all].sort((a, b) => (b.season_id ?? 0) - (a.season_id ?? 0))[0];
   }, [p]);
+  const soccerdataStats = isRecord(stats?.supplemental_stats?.soccerdata)
+    ? stats.supplemental_stats.soccerdata
+    : null;
+  const supplementalDefenseMetrics = SUPPLEMENTAL_DEFENSE_METRICS.flatMap(({ key, label }) => {
+    const value = soccerdataStats?.[key];
+    return typeof value === "number" && Number.isFinite(value) ? [{ key, label, value }] : [];
+  });
 
   const avg = ov?.league_average ?? null;
   const role = indexQ.data?.role ?? ov?.role ?? null;
@@ -322,14 +350,12 @@ export default function PlayerPage() {
           </div>
           )}
 
-          {!specialRole && stats?.supplemental_stats?.soccerdata ? (
-            <Panel title="Defesa e duelos" right={<Badge kind="accent">FBref · SoccerData</Badge>}>
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-                <Kpi label="Desarmes ganhos" value={stats.tackles} />
-                <Kpi label="Interceptações" value={stats.interceptions} />
-                <Kpi label="Cortes" value={stats.clearances} />
-                <Kpi label="Aéreos ganhos" value={stats.aerials_won} />
-                <Kpi label="Aéreos perdidos" value={stats.aerials_lost} />
+          {supplementalDefenseMetrics.length > 0 ? (
+            <Panel title="Defesa e dados complementares" right={<Badge kind="accent">FBref · SoccerData</Badge>}>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {supplementalDefenseMetrics.map((metric) => (
+                  <Kpi key={metric.key} label={metric.label} value={metric.value} sub="Total na temporada" />
+                ))}
               </div>
             </Panel>
           ) : null}

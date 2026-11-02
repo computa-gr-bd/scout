@@ -27,7 +27,7 @@ import json
 import sys
 import time
 from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 try:
     import aiohttp
@@ -1187,6 +1187,16 @@ async def sync_understat_fast(
     }
 
 
+def _fast_sync_error_messages(
+    leagues: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    return [
+        f"Erro na liga {league}: {str(result['error'])[:240]}"
+        for league, result in leagues.items()
+        if result.get("error")
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Ponto de entrada
 # ---------------------------------------------------------------------------
@@ -1233,9 +1243,9 @@ async def _async_fast(leagues: list[str], season: int, max_seconds: float, max_m
             )
             print(f"Rodada {round_no}: +{out['progress']} partidas com chutes, "
                   f"{out['attempted']} consultadas, faltam {out['remaining']} ({out['elapsed']}s)")
-            errors = [k for k, v in out["leagues"].items() if v.get("error")]
-            if errors:
-                print(f"Ligas com erro: {errors}")
+            errors = _fast_sync_error_messages(out["leagues"])
+            for error in errors:
+                print(error)
             if out["remaining"] == 0 or out["candidates"] == 0:
                 return 1 if errors else 0
     return 0

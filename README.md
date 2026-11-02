@@ -242,6 +242,12 @@ python -m alembic upgrade head
 python -m app.services.soccerdata_sync --leagues PL PD BL1 SA FL1 --season 2026-27
 ```
 
+For a fast seasonal import that avoids downloading every finished match report,
+add `--season-only`. The FBref tables supported by the installed SoccerData
+reader are `standard`, `misc`, `keeper`, `shooting`, and `playing_time`; this
+collector uses `misc` for tackles/interceptions and `keeper` for goalkeeper
+season totals. Check live availability first with `--probe`.
+
 The collector is intentionally manual so scraping scope is explicit. SoccerData
 scrapes FBref; use its cache and follow the website's terms and rate limits.
 

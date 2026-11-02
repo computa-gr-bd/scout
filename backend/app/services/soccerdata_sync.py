@@ -2,6 +2,7 @@
 
 Run manually from ``backend``:
     python -m app.services.soccerdata_sync --leagues PL PD BL1 SA FL1 --season 2026-27
+    python -m app.services.soccerdata_sync --leagues PL PD BL1 SA FL1 --season 2026-27 --season-only
 
 Only fixtures and players already present in the database are linked. Ambiguous
 matches or player names are skipped rather than creating duplicate entities.
@@ -72,9 +73,10 @@ DEFENSIVE_SEASON_FIELDS = {
 }
 
 
-# Tabelas sazonais extras do FBref (SoccerData): goleiro, defesa, passes e posse.
-# ``misc`` já é lida acima e também alimenta cartões/faltas/bola aérea.
-EXTRA_SEASON_STAT_TYPES = ("keeper", "keeper_adv", "defense", "passing", "possession")
+# SoccerData 2026.43.0 supports these season tables. Defensive actions are in
+# ``misc``; advanced defense and keeper tables are not exposed by this reader.
+EXTRA_SEASON_STAT_TYPES = ("keeper",)
+PROBE_STAT_TYPES = ("standard", "misc", "keeper", "shooting", "playing_time")
 PLAYER_STAT_COLUMNS = frozenset(PlayerStatistics.__table__.columns.keys())
 
 
@@ -787,7 +789,7 @@ def sync_soccerdata_rows(
     player_season_misc_rows: list[dict[Any, Any]],
     player_season_extra_rows: Mapping[str, list[dict[Any, Any]]] | None = None,
     keeper_match_rows: list[dict[Any, Any]] | None = None,
-) -> dict[str, int]:
+) -> dict[str, Any]:
     if league_code not in FBREF_LEAGUES:
         raise ValueError(f"Liga sem mapeamento FBref: {league_code}")
 
@@ -866,7 +868,9 @@ def sync_soccerdata_rows(
 def _store_checkpoint(
     db: Session,
     resource: str,
-    summary: dict[str, int],
+    summary: dict[str, Any],
+    *,
+    status: str = "success",
 ) -> None:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     checkpoint = db.scalar(
@@ -879,28 +883,26 @@ def _store_checkpoint(
         checkpoint = CollectionState(
             provider="soccerdata",
             resource=resource,
-            status="success",
+            status=status,
             summary=summary,
-            last_success_at=now,
+            last_success_at=now if status == "success" else None,
         )
         db.add(checkpoint)
     else:
-        checkpoint.status = "success"
+        checkpoint.status = status
         checkpoint.summary = summary
-        checkpoint.last_success_at = now
+        if status == "success":
+            checkpoint.last_success_at = now
 
 
 def _read_optional(label: str, reader_call: Any, failures: list[str]) -> list[dict[Any, Any]]:
-    """Lê uma tabela opcional do FBref; falha em uma não derruba a sincronização inteira."""
+    """Lê uma tabela complementar; deixa a falha explícita sem abortar as demais tabelas."""
     try:
         return _records(reader_call())
     except Exception as error:  # noqa: BLE001 - tabelas extras são "best effort"
         failures.append(label)
         print(f"[soccerdata] aviso: tabela '{label}' indisponível ({type(error).__name__}: {error})", file=sys.stderr)
         return []
-
-
-PROBE_STAT_TYPES = ("standard", "misc", "keeper", "keeper_adv", "defense", "passing", "possession")
 
 
 def _probe_league(league_code: str, season: str) -> dict[str, Any]:
@@ -917,7 +919,12 @@ def _probe_league(league_code: str, season: str) -> dict[str, Any]:
     return {"league": league_code, "season": season, "tables": report}
 
 
-def _sync_league(league_code: str, season: str, include_extra: bool = True) -> dict[str, Any]:
+def _sync_league(
+    league_code: str,
+    season: str,
+    include_extra: bool = True,
+    season_only: bool = False,
+) -> dict[str, Any]:
     import soccerdata
 
     reader = soccerdata.FBref(leagues=FBREF_LEAGUES[league_code], seasons=season)
@@ -934,9 +941,11 @@ def _sync_league(league_code: str, season: str, include_extra: bool = True) -> d
 
     setattr(reader, "read_schedule", cached_schedule)
     schedule = _records(schedule_frame)
-    with SessionLocal() as db:
-        game_matches = _match_schedule(db, league_code, schedule)[0]
-        matched_game_ids = _finished_game_ids(game_matches)
+    matched_game_ids: list[str] = []
+    if not season_only:
+        with SessionLocal() as db:
+            game_matches = _match_schedule(db, league_code, schedule)[0]
+            matched_game_ids = _finished_game_ids(game_matches)
     lineups = []
     player_match_stats = []
     if matched_game_ids:
@@ -991,11 +1000,10 @@ def _sync_league(league_code: str, season: str, include_extra: bool = True) -> d
             keeper_match_rows,
         )
         summary["extra_tables_failed"] = len(extra_failures)
-        _store_checkpoint(db, resource, summary)
-    return {
-        "league": league_code, "season": season, **summary,
-        **({"extra_tables_failed_names": extra_failures} if extra_failures else {}),
-    }
+        summary["extra_tables_failed_names"] = extra_failures
+        status = "partial" if extra_failures else "success"
+        _store_checkpoint(db, resource, summary, status=status)
+    return {"league": league_code, "season": season, "status": status, **summary}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1004,17 +1012,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--season", required=True, help="Temporada FBref, por exemplo 2026-27.")
     parser.add_argument(
         "--basic-only", action="store_true",
-        help="Não lê as tabelas extras (goleiro, defesa, passes, posse); só o conjunto antigo.",
+        help="Não lê a tabela complementar de goleiros; só o conjunto básico.",
     )
     parser.add_argument(
         "--probe", action="store_true",
         help="Só diagnostica: mostra quais tabelas do FBref vêm com dados (não grava nada).",
     )
+    parser.add_argument(
+        "--season-only", action="store_true",
+        help="Importa estatísticas sazonais e evita buscar relatórios individuais das partidas.",
+    )
     args = parser.parse_args(argv)
     if args.probe:
         print(json.dumps([_probe_league(league, args.season) for league in args.leagues], ensure_ascii=False, indent=2))
         return 0
-    results = [_sync_league(league, args.season, include_extra=not args.basic_only) for league in args.leagues]
+    results = [
+        _sync_league(
+            league,
+            args.season,
+            include_extra=not args.basic_only,
+            season_only=args.season_only,
+        )
+        for league in args.leagues
+    ]
     print(json.dumps(results, ensure_ascii=False, indent=2))
     return 0
 
