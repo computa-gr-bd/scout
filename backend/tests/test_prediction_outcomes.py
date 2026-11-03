@@ -21,7 +21,7 @@ def test_outcomes_by_target():
 def test_player_without_shots_is_no():
     preds = [_pred(9, "Fulano Reserva", "shot"), _pred(9, "Fulano Reserva", "goal")]
     attach_outcomes(preds, {"home": _side({})})
-    assert all(p["outcome"] == {"happened": False, "count": 0} for p in preds)
+    assert all(p["outcome"]["happened"] is False and p["outcome"]["count"] == 0 for p in preds)
 
 
 def test_assist_counts_for_goal_involvement_without_shots():
@@ -35,4 +35,25 @@ def test_same_player_other_id_matches_by_name():
     rows = {77: {"name": "Désiré Doué", "shots": 2, "on_target": 1, "goals": 0, "assists": 0}}
     preds = [_pred(1, "Desire Doue", "shot")]
     attach_outcomes(preds, {"home": _side(rows)})
-    assert preds[0]["outcome"] == {"happened": True, "count": 2}
+    assert preds[0]["outcome"]["happened"] is True and preds[0]["outcome"]["count"] == 2
+
+
+def test_did_not_play_when_lineup_is_known():
+    roster = {"home": [["matthis", "abline"]] + [[f"jogador{i}", "x"] for i in range(11)]}
+    preds = [_pred(9, "Fulano Reserva", "shot"), _pred(1, "Matthis Abline", "shot")]
+    attach_outcomes(preds, {"home": _side({})}, roster)
+    assert preds[0]["outcome"] == {"happened": False, "count": 0, "played": False}
+    assert preds[1]["outcome"]["played"] is True and preds[1]["outcome"]["happened"] is False
+
+
+def test_unknown_when_no_lineup_data():
+    preds = [_pred(9, "Fulano Reserva", "shot")]
+    attach_outcomes(preds, {"home": _side({})}, {"home": None})
+    assert preds[0]["outcome"]["played"] is None
+
+
+def test_player_who_shot_counts_as_played():
+    rows = {1: {"name": "Matthis Abline", "shots": 1, "on_target": 0, "goals": 0, "assists": 0}}
+    preds = [_pred(1, "Matthis Abline", "goal")]
+    attach_outcomes(preds, {"home": _side(rows)}, {"home": [["outro", "jogador"]] * 12})
+    assert preds[0]["outcome"] == {"happened": False, "count": 0, "played": True}

@@ -237,7 +237,8 @@ export interface PlayerMatchPrediction {
   /** Multiplicador do goleiro adversário na chance de gol (1,0 = médio). */
   gk_factor?: number | null;
   /** Só em partidas encerradas com chutes coletados: o que aconteceu de fato na partida. */
-  outcome?: { happened: boolean; count: number } | null;
+  /** played: false = nem entrou em campo; null = sem escalação para afirmar. */
+  outcome?: { happened: boolean; count: number; played?: boolean | null } | null;
 }
 
 export interface MatchupScore {

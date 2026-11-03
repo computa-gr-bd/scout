@@ -20,10 +20,11 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Event, EventType, Match, ZONE_ORDER
+from app.db.models import Event, EventType, Lineup, Match, Player, PlayerMatchStatistics, ZONE_ORDER
+from app.services.player_dedupe import _name_match
 from app.services.index_service import recent_minutes, team_goalkeeper
 from app.services.studio import (
     _is_own_goal, _load_shot_events, _player_name, _recent_match_ids, _same_person, _team_ids_like, norm_person,
@@ -531,8 +532,55 @@ def _find_actual(rows: Dict[int, Dict[str, Any]], player_id: int, name: str) -> 
     return None
 
 
-def attach_outcomes(preds: List[Dict[str, Any]], actual: Dict[str, Dict[str, Any]]) -> None:
-    """Marca cada estimativa com o que aconteceu: ``outcome = {happened, count}``."""
+# Lado da partida com escalação/minutos só é confiável se trouxer o elenco completo de quem jogou.
+_MIN_PLAYED_FOR_TRUST = 11
+
+
+def _appearances(db: Session, m: Match, side_ids: Dict[str, set]) -> Dict[str, Optional[List[List[str]]]]:
+    """Quem entrou em campo na partida, por lado (nomes normalizados em tokens).
+
+    Junta as linhas da mesma partida vindas de outras fontes (ESPN, FBref, StatsBomb), que são as
+    que trazem escalação/minutos. ``None`` no lado = sem dado confiável (não dá para afirmar
+    "não jogou")."""
+    root = m.canonical_match_id or m.id
+    sibling_ids = list(db.scalars(
+        select(Match.id).where(or_(Match.id == root, Match.canonical_match_id == root, Match.id == m.id))
+    ).all())
+    played: Dict[int, int] = {}  # player_id -> team_id
+    for team_id, pid, starter, minutes in db.execute(
+        select(Lineup.team_id, Lineup.player_id, Lineup.is_starter, Lineup.minutes_played)
+        .where(Lineup.match_id.in_(sibling_ids))
+    ).all():
+        if starter or (minutes or 0) > 0:
+            played[pid] = team_id
+    for team_id, pid, minutes in db.execute(
+        select(PlayerMatchStatistics.team_id, PlayerMatchStatistics.player_id, PlayerMatchStatistics.minutes_played)
+        .where(PlayerMatchStatistics.match_id.in_(sibling_ids))
+    ).all():
+        if (minutes or 0) > 0:
+            played[pid] = team_id
+    names: Dict[str, List[List[str]]] = {"home": [], "away": []}
+    if played:
+        for p in db.scalars(select(Player).where(Player.id.in_(list(played)))).all():
+            side = next((k for k, ids in side_ids.items() if played[p.id] in ids), None)
+            if side:
+                names[side].append(norm_person(_player_name(p)).split())
+    return {k: (v if len(v) >= _MIN_PLAYED_FOR_TRUST else None) for k, v in names.items()}
+
+
+def _did_play(name: str, roster: List[List[str]]) -> bool:
+    """Generoso de propósito: na dúvida considera que jogou (nunca acusa "não jogou" sem certeza)."""
+    tokens = norm_person(name).split()
+    return any(_name_match(tokens, other) >= 1 or _same_person(" ".join(tokens), " ".join(other))
+               for other in roster)
+
+
+def attach_outcomes(preds: List[Dict[str, Any]], actual: Dict[str, Dict[str, Any]],
+                    appearances: Optional[Dict[str, Optional[List[List[str]]]]] = None) -> None:
+    """Marca cada estimativa com o que aconteceu: ``outcome = {happened, count, played}``.
+
+    ``played``: True/False quando a escalação da partida é conhecida (False = nem entrou em
+    campo), ``None`` quando não há dado de escalação."""
     for pr in preds:
         side = actual.get(pr.get("venue") or "") or {"rows": {}, "assists": {}}
         row = _find_actual(side["rows"], pr["player_id"], pr["player_name"])
@@ -543,7 +591,15 @@ def attach_outcomes(preds: List[Dict[str, Any]], actual: Dict[str, Dict[str, Any
         assists = sum(c for who, c in side["assists"].items() if _same_person(who, key))
         count = {"shot": shots, "shot_on_target": on_target, "goal": goals,
                  "goal_involvement": goals + assists}[pr["target"]]
-        pr["outcome"] = {"happened": count > 0, "count": int(count)}
+        happened = count > 0
+        roster = (appearances or {}).get(pr.get("venue") or "")
+        if happened or row is not None or assists:
+            played: Optional[bool] = True          # fez algo na partida, então jogou
+        elif roster is None:
+            played = None
+        else:
+            played = _did_play(pr["player_name"], roster)
+        pr["outcome"] = {"happened": happened, "count": int(count), "played": played}
 
 
 def _own_zone_label(zone: str) -> str:
@@ -609,8 +665,9 @@ def match_insights(db: Session, m: Match) -> Dict[str, Any]:
     if (m.status or "").lower() == "finished":
         actual_events = _safe(db, lambda: _load_shot_events(db, [m.id]), "chutes da partida") or []
         if actual_events:
-            attach_outcomes(p1, {"home": _actual_side(actual_events, hset)})
-            attach_outcomes(p2, {"away": _actual_side(actual_events, aset)})
+            roster = _safe(db, lambda: _appearances(db, m, {"home": hset, "away": aset}), "escalação da partida")
+            attach_outcomes(p1, {"home": _actual_side(actual_events, hset)}, roster)
+            attach_outcomes(p2, {"away": _actual_side(actual_events, aset)}, roster)
             results_checked = True
 
     notes = [

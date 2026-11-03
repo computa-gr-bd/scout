@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { type StudioDataset, type StudioRealInfo } from "../api/studioData";
 import { crestFor } from "../api/footballDataOrg";
 import { JerseyGlyph, JerseyDefs, JerseyBadge, BallGlyph } from "./Jersey";
 import { TeamLogo } from "./ui";
 import { GoalReplay3D } from "./GoalReplay3D";
+// Replay realista (animação estilo transmissão/FIFA): carregado sob demanda, só quando o modo é usado.
+const RealisticReplay3D = lazy(() => import("./RealisticReplay3D").then((m) => ({ default: m.RealisticReplay3D })));
 import { MaterialIcon } from "./MaterialIcon";
 
 type ViewMode = "heatmap" | "shots" | "onTarget" | "goals" | "positions";
-type ReplayMode = "2d" | "3d";
+type ReplayMode = "2d" | "3d" | "real";
 type Coord = { x: number; y: number };
 
 type Action = {
@@ -53,6 +55,10 @@ type PlayerDetail = {
 
 /** O replay 3D tem corrida, chute, mergulho do goleiro e desfecho: dura mais que o 2D. */
 const REPLAY_3D_FACTOR = 2.4;
+/** O replay realista tem corrida, câmera lenta no contato, voo, desfecho e comemoração: é o mais longo. */
+const REPLAY_REAL_FACTOR = 3.8;
+const REPLAY_LABEL: Record<ReplayMode, string> = { "2d": "2D", "3d": "3D", real: "Realismo" };
+const replayFactor = (mode: ReplayMode) => (mode === "real" ? REPLAY_REAL_FACTOR : mode === "3d" ? REPLAY_3D_FACTOR : 1);
 
 const HOME_COLOR = "#3b82f6";
 const AWAY_COLOR = "#e1534e";
@@ -624,9 +630,9 @@ export function PitchStudio({
     return () => window.removeEventListener("keydown", onKey);
   }, [popupOpen]);
 
-  // Esc fecha o replay 3D
+  // Esc fecha o replay 3D / realista
   useEffect(() => {
-    if (!(started && replayMode === "3d")) return;
+    if (!(started && replayMode !== "2d")) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeReplay(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -638,7 +644,7 @@ export function PitchStudio({
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       return;
     }
-    const dur = (current.duration || 1.8) * 1000 * (replayMode === "3d" ? REPLAY_3D_FACTOR : 1);
+    const dur = (current.duration || 1.8) * 1000 * replayFactor(replayMode);
     let last = performance.now();
     const step = (now: number) => {
       const dt = now - last; last = now; progressRef.current += dt;
@@ -696,7 +702,7 @@ export function PitchStudio({
     setPlaying(false);
   };
   const togglePlayback = () => {
-    if (!started || progressRef.current >= (current?.duration ?? 1.8) * 1000 * (replayMode === "3d" ? REPLAY_3D_FACTOR : 1)) startPlayback();
+    if (!started || progressRef.current >= (current?.duration ?? 1.8) * 1000 * replayFactor(replayMode)) startPlayback();
     else setPlaying((wasPlaying) => !wasPlaying);
   };
   const goPrev = () => { if (idx > 0) selectShot(idx - 1); };
@@ -840,7 +846,7 @@ export function PitchStudio({
               {started ? `${idx + 1} / ${filtered.length || 0}` : `${filtered.length} finalizações`}
             </span>
             <span className="text-xs text-sv-muted">
-              {started && current ? `${current.player} · ${current.teamName}${current.matchLabel ? ` · ${current.matchLabel}` : ""}` : `Modo ${replayMode.toUpperCase()} · selecione Reproduzir lance`}
+              {started && current ? `${current.player} · ${current.teamName}${current.matchLabel ? ` · ${current.matchLabel}` : ""}` : `Modo ${REPLAY_LABEL[replayMode]} · selecione Reproduzir lance`}
             </span>
             {/* Legenda dos marcadores */}
             <span className="flex items-center gap-3 ml-1 pl-3 border-l border-sv-border/60 text-[11px] text-sv-muted">
@@ -873,15 +879,16 @@ export function PitchStudio({
             <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-sv-muted">Replay</span>
             <button onClick={goPrev} disabled={idx === 0} className="sv-btn !py-1 !px-2.5 text-[12px]" title="Anterior"><MaterialIcon name="skip_previous" /></button>
             <div className="flex items-center gap-0.5 rounded-lg border border-sv-border bg-sv-panel/70 p-0.5" role="group" aria-label="Visualização do replay">
-              {(["2d", "3d"] as ReplayMode[]).map((mode) => (
+              {(["2d", "3d", "real"] as ReplayMode[]).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   aria-pressed={replayMode === mode}
                   onClick={() => selectReplayMode(mode)}
                   className={`rounded-md px-2.5 py-1 text-[11px] font-bold uppercase transition ${replayMode === mode ? "bg-sv-accent text-white" : "text-sv-muted hover:text-white"}`}
+                  title={mode === "real" ? "Replay realista com animação de jogadores, câmera de transmissão e câmera lenta" : undefined}
                 >
-                  {mode}
+                  {REPLAY_LABEL[mode]}
                 </button>
               ))}
             </div>
@@ -906,7 +913,33 @@ export function PitchStudio({
       <div className="flex flex-col lg:flex-row">
         {/* Pitch canvas */}
         <div className={`flex-1 p-3 md:p-5 transition-all ${selectedPlayer ? "lg:mr-0" : ""}`}>
-          {started && replayMode === "3d" && current ? (
+          {started && replayMode === "real" && current ? (
+            <div className="goal-replay-stage">
+              <Suspense fallback={<div className="goal-replay-3d goal-replay-real flex items-center justify-center text-xs text-sv-muted">Carregando replay realista…</div>}>
+                <RealisticReplay3D
+                  key={`${current.id}-${replayMode}`}
+                  goalLoc={current.goalLoc}
+                  shotOrigin={current.from}
+                  team={current.team}
+                  result={current.ownGoal ? "own_goal" : current.result}
+                  teamColor={current.team === "home" ? HOME_COLOR : AWAY_COLOR}
+                  foeColor={current.team === "home" ? AWAY_COLOR : HOME_COLOR}
+                  penalty={/p[eê]nalti|penalty/i.test(current.situation)}
+                  header={/cabe[cç]|head/i.test(current.shotType)}
+                  leftFooted={/esquerd|left/i.test(current.shotType)}
+                  shirtNumber={current.number > 0 ? current.number : undefined}
+                  seed={current.id}
+                  info={{
+                    player: current.player,
+                    subtitle: `${current.teamName} · ${current.minute || "—"}'${current.matchLabel ? ` · ${current.matchLabel}` : ""}`,
+                    xg: current.xg,
+                  }}
+                  progress={progress}
+                  onClose={closeReplay}
+                />
+              </Suspense>
+            </div>
+          ) : started && replayMode === "3d" && current ? (
             <div className="goal-replay-stage">
               <GoalReplay3D
                 key={`${current.id}-${replayMode}`}

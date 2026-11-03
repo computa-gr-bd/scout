@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   getMatch, getMatchInsights, getMatchStudio, listMatches,
@@ -53,23 +53,14 @@ function matchLabel(match: Match) {
 export default function AnalysisPage() {
   const { matchId } = useParams<{ matchId: string }>();
   const routeMatchId = matchId && Number.isFinite(Number(matchId)) ? Number(matchId) : null;
-  const [searchParams] = useSearchParams();
-  const teamParam = Number(searchParams.get("team"));
-  const requestedTeamId = Number.isSafeInteger(teamParam) && teamParam > 0 ? teamParam : null;
   const [selectedMatchId, setSelectedMatchId] = useState<number | null>(routeMatchId);
   const [scope, setScope] = useState<"upcoming" | "recent">("upcoming");
-  const [teamFallbackHandledFor, setTeamFallbackHandledFor] = useState<number | null>(null);
   const [predictionTarget, setPredictionTarget] = useState<PredictionTarget>("shot");
   const [zoneView, setZoneView] = useState<"2d" | "3d">("2d");
 
   const matchesQuery = useQuery({
-    queryKey: ["matches", "analysis", scope, requestedTeamId],
-    queryFn: () => listMatches({
-      scope,
-      team_id: requestedTeamId ?? undefined,
-      limit: 100,
-      analysis: true,
-    }),
+    queryKey: ["matches", "analysis", scope],
+    queryFn: () => listMatches({ scope, limit: 100, analysis: true }),
   });
   const matches = useMemo(
     () => (matchesQuery.data ?? []).filter((match) => !isDemoMatch(match)),
@@ -90,32 +81,6 @@ export default function AnalysisPage() {
       setScope("recent");
     }
   }, [routeMatchId, scope, selectedQuery.data?.status]);
-
-  useEffect(() => {
-    if (
-      routeMatchId != null
-      || requestedTeamId == null
-      || teamFallbackHandledFor === requestedTeamId
-      || !matchesQuery.isSuccess
-    ) return;
-    if (scope === "upcoming" && matches.length === 0) {
-      setScope("recent");
-    }
-    setTeamFallbackHandledFor(requestedTeamId);
-  }, [
-    matches.length,
-    matchesQuery.isSuccess,
-    requestedTeamId,
-    routeMatchId,
-    scope,
-    teamFallbackHandledFor,
-  ]);
-
-  useEffect(() => {
-    if (requestedTeamId == null) {
-      setTeamFallbackHandledFor(null);
-    }
-  }, [requestedTeamId]);
 
   const studioQuery = useQuery({
     queryKey: ["match-studio", selectedMatchId],
@@ -247,11 +212,7 @@ export default function AnalysisPage() {
               <div>
                 <h2 className="font-semibold">Partidas</h2>
                 <p className="text-xs text-sv-muted">
-                  {requestedTeamId != null
-                    ? scope === "upcoming"
-                      ? "Próximas partidas do time selecionado."
-                      : "Resultados recentes do time selecionado."
-                    : scope === "upcoming"
+                  {scope === "upcoming"
                     ? "Próximas partidas das competições sincronizadas."
                     : "Partidas encerradas da Understat."}
                 </p>
@@ -666,7 +627,10 @@ function outcomeText(target: string, outcome: { happened: boolean; count: number
 
 /** Resumo de acertos da lista exibida (só partidas encerradas). */
 function OutcomeSummary({ predictions, target }: { predictions: PlayerMatchPrediction[]; target: string }) {
-  const checked = predictions.filter((p) => p.outcome);
+  // Quem nem entrou em campo não conta contra a estimativa: fica fora da conta.
+  const all = predictions.filter((p) => p.outcome);
+  const absent = all.filter((p) => p.outcome?.played === false && !p.outcome.happened).length;
+  const checked = all.filter((p) => !(p.outcome?.played === false && !p.outcome.happened));
   const hit = (list: PlayerMatchPrediction[]) => list.filter((p) => p.outcome?.happened).length;
   const top = checked.slice(0, 5);
   const label: Record<string, string> = {
@@ -679,9 +643,12 @@ function OutcomeSummary({ predictions, target }: { predictions: PlayerMatchPredi
       <div className="sv-card-inner flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
         <span className="font-semibold">Conferência com o jogo real</span>
         <span>
-          <strong className="text-emerald-300">{total}</strong> de {checked.length} jogadores listados {label[target] ?? "fizeram o evento"}
+          <strong className="text-emerald-300">{total}</strong> de {checked.length} que jogaram {label[target] ?? "fizeram o evento"}
           <span className="text-sv-muted"> ({pct}%)</span>
         </span>
+        {absent > 0 && (
+          <span className="text-amber-300">{absent} {absent === 1 ? "não jogou" : "não jogaram"}</span>
+        )}
         <span className="text-sv-muted">
           Top 5 mais prováveis: <strong className="text-sv-text">{hit(top)}</strong> de {top.length}
         </span>
@@ -703,10 +670,13 @@ function PlayerEstimateCard({
     ...(prediction.negative_factors ?? []).map((item) => ({ item, negative: true })),
   ];
   const outcome = prediction.outcome;
-  // Partida encerrada: borda/fundo verde se aconteceu, vermelho discreto se não.
+  const didNotPlay = !!outcome && !outcome.happened && outcome.played === false;
+  // Partida encerrada: verde se aconteceu, amarelo se nem jogou, vermelho discreto se jogou e não aconteceu.
   const tone = !outcome ? "" : outcome.happened
     ? "!border-emerald-400/60 !bg-emerald-500/[0.07]"
-    : "!border-rose-400/35 !bg-rose-500/[0.05]";
+    : didNotPlay
+      ? "!border-amber-400/45 !bg-amber-500/[0.06]"
+      : "!border-rose-400/35 !bg-rose-500/[0.05]";
 
   return (
     <article className={`sv-card ${tone}`}>
@@ -723,12 +693,16 @@ function PlayerEstimateCard({
             className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold ${
               outcome.happened
                 ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
-                : "border-rose-400/40 bg-rose-500/10 text-rose-300"
+                : didNotPlay
+                  ? "border-amber-400/50 bg-amber-500/15 text-amber-300"
+                  : "border-rose-400/40 bg-rose-500/10 text-rose-300"
             }`}
           >
-            <span aria-hidden>{outcome.happened ? "✓" : "✕"}</span>
-            <span>Aconteceu: {outcome.happened ? "Sim" : "Não"}</span>
-            <span className="font-normal text-[12px] opacity-90">· {outcomeText(prediction.target, outcome)}</span>
+            <span aria-hidden>{outcome.happened ? "✓" : didNotPlay ? "⚠" : "✕"}</span>
+            <span>{didNotPlay ? "Não jogou" : `Aconteceu: ${outcome.happened ? "Sim" : "Não"}`}</span>
+            <span className="font-normal text-[12px] opacity-90">
+              · {didNotPlay ? "não entrou em campo nesta partida" : outcomeText(prediction.target, outcome)}
+            </span>
           </div>
         )}
         <ProbabilityBar p={prediction.probability} baseline={prediction.baseline_probability} />
