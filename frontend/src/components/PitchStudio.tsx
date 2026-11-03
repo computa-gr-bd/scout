@@ -630,6 +630,11 @@ export function PitchStudio({
     return () => window.removeEventListener("keydown", onKey);
   }, [popupOpen]);
 
+  // Ao escolher "Realismo", já começa a baixar os modelos 3D (jogador e animações).
+  useEffect(() => {
+    if (replayMode === "real") void import("./RealisticReplay3D").then((m) => m.preloadRealisticModels());
+  }, [replayMode]);
+
   // Esc fecha o replay 3D / realista
   useEffect(() => {
     if (!(started && replayMode !== "2d")) return;

@@ -23,8 +23,10 @@ export type Plan = {
   catches: boolean;
   run: { A: THREE.Vector3; P: THREE.Vector3; bend: number; start: number; end: number; cycles: number; yawRun: number; yawShot: number };
   celebTo: THREE.Vector3;
-  keeper: { mode: "dive" | "track"; side: number; hipX: number; hipY: number; tilt: number; qStart: number; qReach: number };
-  defender?: { pos: THREE.Vector3; touch: THREE.Vector3 };
+  keeper: { mode: "dive" | "track"; side: number; hipX: number; hipY: number; tilt: number; qStart: number; qReach: number;
+    /** Ponto (lateral x, altura y) que as mãos devem alcançar no mergulho. */
+    target: { x: number; y: number } };
+  defender?: { pos: THREE.Vector3; touch: THREE.Vector3; /** instante em que ele toca na bola */ contactQ: number };
   extras: Extra[];
   crossFrom?: THREE.Vector3;
   /** Pra fora: para onde a bola vai (alto/lado). */
@@ -74,6 +76,10 @@ function reachTo(ax: number, ay: number, fallbackSide: number) {
   const hipX = side * Math.max(0, absX - REACH * Math.sin(tilt));
   const hipY = Math.max(0.45 + 0.45 * Math.cos(tilt), Math.min(1.6, ay - REACH * Math.cos(tilt)));
   return { side, tilt, hipX, hipY };
+}
+
+function dive(ax: number, ay: number, fallbackSide: number, qStart: number, qReach: number): Plan["keeper"] {
+  return { mode: "dive", ...reachTo(ax, ay, fallbackSide), target: { x: ax, y: ay }, qStart, qReach };
 }
 
 /** Segmentos da bola entrando na rede: toca, quica na rede e escorrega até o chão. */
@@ -145,13 +151,13 @@ export function buildPlan(o: PlanInput): Plan {
     net = { x: N.x, y: N.y, q: TE };
     const wrongWay = kind === "penalty" && h3 < 0.35;
     if (wrongWay) {
-      keeper = { mode: "dive", ...reachTo(-tx * 0.8, Math.max(0.6, ty * 0.7), -dirDefault), qStart: stdStart, qReach: TE };
+      keeper = dive(-tx * 0.8, Math.max(0.6, ty * 0.7), -dirDefault, stdStart, TE);
     } else {
-      keeper = { mode: "dive", ...reachTo(tx - dirDefault * 0.75, Math.max(0.5, ty - 0.35), dirDefault), qStart: stdStart, qReach: TE };
+      keeper = dive(tx - dirDefault * 0.75, Math.max(0.5, ty - 0.35), dirDefault, stdStart, TE);
     }
   } else if (result === "own_goal") {
     const Dp = v3(S.x * 0.45, 0, GL + 2.3);
-    const T = v3(Dp.x, 0.75, Dp.z + 0.32);
+    const T = v3(Dp.x, 0.22, Dp.z + 0.32);
     const side = Math.abs(T.x) < 0.3 ? (S.x > 0 ? 1 : -1) : -Math.sign(T.x);
     aim = v3(side * (1.5 + h1 * 1.3), 0.6 + h2 * 0.6, GL);
     const tTouch = TC + (TE - TC) * 0.6;
@@ -159,15 +165,17 @@ export function buildPlan(o: PlanInput): Plan {
     segs.push(seg(tTouch, TE, T, aim, 0.12, "out"));
     const N = netSegs(segs, aim, TE, T);
     net = { x: N.x, y: N.y, q: TE };
-    defender = { pos: Dp, touch: T };
-    keeper = { mode: "dive", ...reachTo(-side * 2.1, 1.0, -side), qStart: TC + 0.02, qReach: TE };
+    defender = { pos: Dp, touch: T, contactQ: tTouch };
+    keeper = dive(-side * 2.1, 1.0, -side, TC + 0.02, TE);
   } else if (result === "saved") {
-    const K = v3(tx, ty, GL + 0.5);
+    // bola alta e perto do centro: o goleiro sobe e agarra; senão mergulha e espalma
+    const wantsCatch = Math.abs(tx) < 1.1 && ty > 1.45 && h3 < 0.6 && kind !== "penalty";
+    const K = v3(tx, wantsCatch ? 2.05 : ty, GL + (wantsCatch ? 0.4 : 0.55));
     aim = K.clone();
     segs.push(seg(TC, TE, S, K, apexBase, "out", curl));
-    const high = ty > 1.95;
-    catches = !high && h3 < 0.42 && kind !== "penalty";
-    keeper = { mode: "dive", ...reachTo(tx, ty, dirDefault), qStart: stdStart, qReach: TE };
+    const high = ty > 1.95 && !wantsCatch;
+    catches = wantsCatch;
+    keeper = dive(tx, K.y, dirDefault, stdStart, TE);
     if (!catches) {
       if (high) {
         // espalmada por cima da trave
@@ -188,7 +196,7 @@ export function buildPlan(o: PlanInput): Plan {
     TE = TC + FL;
     const dd = clamp(dist * 0.28, 1.6, 3.2);
     const Dp = v3(S.x + centerDir.x * dd, 0, S.z + centerDir.z * dd);
-    const B = v3(Dp.x, 0.55, Dp.z + 0.3);
+    const B = v3(Dp.x, 0.22, Dp.z + 0.3);
     const side = h1 < 0.5 ? -1 : 1;
     const D = v3(B.x + side * (2.6 + h1 * 1.6), BALL_R, B.z + 1.8 + h1);
     const D2 = v3(D.x + side * 1.0, BALL_R, D.z + 1.1);
@@ -196,8 +204,8 @@ export function buildPlan(o: PlanInput): Plan {
     segs.push(seg(TC, TE, S, B, 0.2, "out"));
     segs.push(seg(TE, TE + 0.18, B, D, 1.0, "outq"));
     segs.push(seg(TE + 0.18, TE + 0.3, D, D2, 0.2, "out"));
-    defender = { pos: Dp, touch: B };
-    keeper = { mode: "track", side: sideSgn, tilt: 0, hipX: clamp(Dp.x * 0.25, -1.2, 1.2), hipY: 0.9, qStart: TC, qReach: TE };
+    defender = { pos: Dp, touch: B, contactQ: TE };
+    keeper = { mode: "track", side: sideSgn, tilt: 0, hipX: clamp(Dp.x * 0.25, -1.2, 1.2), hipY: 0.9, qStart: TC, qReach: TE, target: { x: clamp(Dp.x * 0.25, -1.2, 1.2), y: 0 } };
   } else {
     // pra fora
     offHigh = h2 > 0.62;
@@ -214,7 +222,7 @@ export function buildPlan(o: PlanInput): Plan {
     segs.push(seg(TC, TE, S, cross, apexBase + (offHigh ? 0.5 : 0), "out", curl));
     segs.push(seg(TE, TE + 0.17, cross, out, 0, "quad"));
     segs.push(seg(TE + 0.17, TE + 0.3, out, rest, 0.12, "out"));
-    keeper = { mode: "track", side, tilt: 0, hipX: clamp(cross.x * 0.3, -1.3, 1.3), hipY: 0.9, qStart: TC, qReach: TE };
+    keeper = { mode: "track", side, tilt: 0, hipX: clamp(cross.x * 0.3, -1.3, 1.3), hipY: 0.9, qStart: TC, qReach: TE, target: { x: clamp(cross.x * 0.3, -1.3, 1.3), y: 0 } };
   }
 
   // Cabeceio: a bola chega por cruzamento e é cabeceada no alto.

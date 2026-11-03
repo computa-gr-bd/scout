@@ -121,7 +121,7 @@ export function makeKit(shirt: string, seed: number, extra: Partial<Kit> = {}): 
   };
 }
 
-function makeBackTexture(name: string | undefined, num: number | undefined, shirt: string) {
+export function makeBackTexture(name: string | undefined, num: number | undefined, shirt: string) {
   const c = document.createElement("canvas");
   c.width = 256; c.height = 256;
   const g = c.getContext("2d");
