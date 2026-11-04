@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { BALL_R, GL, GOAL_H, GOAL_W, clamp, clamp01, hash, netZ, v3, type ShotResult } from "./common";
+import { BALL_R, GL, GOAL_H, GOAL_W, PENALTY_DIST, clamp, clamp01, hash, netZ, v3, type ShotResult } from "./common";
 
 export type Kind = "open" | "penalty" | "header";
 type Ease = "out" | "lin" | "quad" | "outq";
@@ -108,7 +108,7 @@ export function buildPlan(o: PlanInput): Plan {
   const sgnHome = o.team === "home" ? 1 : -1;
 
   const metersToGoal = (o.team === "home" ? 100 - o.originX : o.originX) * 1.05;
-  let dist = 11;
+  let dist = PENALTY_DIST;
   let lateral = 0;
   if (kind === "open") {
     dist = clamp(metersToGoal * 0.6 + 2.5, 6, 22);

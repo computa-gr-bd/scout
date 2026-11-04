@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from "react";
+import { Component, Suspense, useEffect, useMemo, useRef, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { BALL_R, GL, lerp, smooth, v3 } from "./common";
 import { ballAt, type Plan } from "./plan";
 import { AdBoards, Crowd, Flashes, Floodlights, GoalFrame, GoalNet, Pitch, StandsStructure, type NetImpact } from "./Stadium";
+import { StadiumModel } from "./StadiumModel";
 
 export type CamMode = "auto" | "back" | "side" | "goal" | "air";
 
@@ -159,7 +160,7 @@ export function Env({ impactRef, exciteRef }: { impactRef: MutableRefObject<NetI
   return (
     <>
       <color attach="background" args={["#060f1f"]} />
-      <fog attach="fog" args={["#08142b", 70, 190]} />
+      <fog attach="fog" args={["#08142b", 120, 520]} />
       <ambientLight intensity={0.55} />
       <hemisphereLight args={["#bcd7ff", "#1c3b27", 0.8]} />
       <directionalLight
@@ -168,6 +169,22 @@ export function Env({ impactRef, exciteRef }: { impactRef: MutableRefObject<NetI
         shadow-camera-near={1} shadow-camera-far={80} shadow-bias={-0.0005}
       />
       <primitive object={target} />
+      <StadiumSwitch impactRef={impactRef} exciteRef={exciteRef} />
+    </>
+  );
+}
+
+/** Se o estádio 3D falhar ao carregar, usa o cenário simples (e ele também aparece enquanto baixa). */
+class SoftBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch() { console.warn("[realismo] estádio 3D indisponível; usando o cenário simples"); }
+  render() { return this.state.failed ? this.props.fallback : this.props.children; }
+}
+
+function SimpleStadium({ impactRef, exciteRef }: { impactRef: MutableRefObject<NetImpact>; exciteRef: MutableRefObject<number> }) {
+  return (
+    <>
       <Pitch />
       <GoalFrame />
       <GoalNet impactRef={impactRef} />
@@ -177,6 +194,17 @@ export function Env({ impactRef, exciteRef }: { impactRef: MutableRefObject<NetI
       <Flashes />
       <Floodlights />
     </>
+  );
+}
+
+function StadiumSwitch({ impactRef, exciteRef }: { impactRef: MutableRefObject<NetImpact>; exciteRef: MutableRefObject<number> }) {
+  const simple = <SimpleStadium impactRef={impactRef} exciteRef={exciteRef} />;
+  return (
+    <SoftBoundary fallback={simple}>
+      <Suspense fallback={simple}>
+        <StadiumModel impactRef={impactRef} exciteRef={exciteRef} />
+      </Suspense>
+    </SoftBoundary>
   );
 }
 

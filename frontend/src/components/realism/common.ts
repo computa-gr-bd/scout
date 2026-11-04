@@ -6,6 +6,8 @@ export const GOAL_H = 2.44;
 export const GL = -1.35;
 export const BALL_R = 0.13;
 export const STAND_HIPS = 0.93;
+/** Distância da marca do pênalti até a linha do gol (a do estádio 3D fica a ~11,9 m). */
+export const PENALTY_DIST = 11.9;
 
 export type ShotResult = "goal" | "saved" | "off_target" | "blocked" | "own_goal";
 

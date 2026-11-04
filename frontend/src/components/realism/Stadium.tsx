@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { GL, GOAL_H, GOAL_W, netZ, clamp01 } from "./common";
+import { GL, GOAL_H, GOAL_W, PENALTY_DIST, netZ, clamp01 } from "./common";
 
 /* ------------------------------ Texturas ---------------------------------- */
 function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void) {
@@ -87,11 +87,11 @@ export const Pitch = memo(function Pitch() {
         </mesh>
       ))}
       {/* marca do pênalti (11 m) e meia-lua da área */}
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.007, GL + 11]}>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.007, GL + PENALTY_DIST]}>
         <circleGeometry args={[0.13, 20]} />
         <meshBasicMaterial color="#f1f5f1" />
       </mesh>
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.007, GL + 11]} rotation-z={Math.PI / 2 - 0.93}>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.007, GL + PENALTY_DIST]} rotation-z={Math.PI / 2 - 0.93}>
         <ringGeometry args={[9.15 - LINE_W / 2, 9.15 + LINE_W / 2, 64, 1, 0, 1.86]} />
         <meshBasicMaterial color="#f1f5f1" side={THREE.DoubleSide} />
       </mesh>
@@ -247,10 +247,22 @@ function buildSeats(): Seat[] {
 }
 
 /** Excitação da torcida: 0 = calma, 1 = festa (gol). Lida via ref para não re-renderizar. */
-export const Crowd = memo(function Crowd({ exciteRef }: { exciteRef: MutableRefObject<number> }) {
+export const Crowd = memo(function Crowd({ exciteRef, positions }: { exciteRef: MutableRefObject<number>; positions?: Float32Array }) {
   const bodies = useRef<THREE.InstancedMesh>(null);
   const heads = useRef<THREE.InstancedMesh>(null);
-  const seats = useMemo(buildSeats, []);
+  const seats = useMemo<Seat[]>(() => {
+    if (!positions) return buildSeats();
+    // posições vindas do estádio 3D (x, y, z de cada assento)
+    let s = 7;
+    const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+    const out: Seat[] = [];
+    for (let i = 0; i + 2 < positions.length; i += 3) {
+      out.push({ x: positions[i], y: positions[i + 1], z: positions[i + 2], ph: rnd() * Math.PI * 2, c: new THREE.Color(CROWD_COLORS[Math.floor(rnd() * CROWD_COLORS.length)]) });
+    }
+    return out;
+  }, [positions]);
+  const big = !!positions;                      // torcedores um pouco maiores no estádio 3D (poucos, em primeiro plano)
+  const k = big ? 1.3 : 1;
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const frame = useRef(0);
 
@@ -265,26 +277,29 @@ export const Crowd = memo(function Crowd({ exciteRef }: { exciteRef: MutableRefO
     seats.forEach((s, i) => {
       b.setColorAt(i, s.c);
       h.setColorAt(i, heads_c[i]);
-      dummy.position.set(s.x, s.y + 0.22, s.z); dummy.updateMatrix(); b.setMatrixAt(i, dummy.matrix);
-      dummy.position.set(s.x, s.y + 0.6, s.z); dummy.updateMatrix(); h.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(s.x, s.y + 0.22 * k, s.z); dummy.scale.setScalar(k); dummy.updateMatrix(); b.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(s.x, s.y + 0.6 * k, s.z); dummy.updateMatrix(); h.setMatrixAt(i, dummy.matrix);
     });
     if (b.instanceColor) b.instanceColor.needsUpdate = true;
     if (h.instanceColor) h.instanceColor.needsUpdate = true;
     b.instanceMatrix.needsUpdate = true; h.instanceMatrix.needsUpdate = true;
-  }, [seats, heads_c, dummy]);
+  }, [seats, heads_c, dummy, k]);
 
   useFrame((state) => {
     frame.current++;
-    if (frame.current % 2) return;
     const b = bodies.current, h = heads.current;
     if (!b || !h) return;
+    // com muitos torcedores, atualiza só uma fatia por frame (rodízio) para poupar o celular
+    const stride = seats.length > 3000 ? 4 : 2;
+    const phase = frame.current % stride;
     const t = state.clock.elapsedTime;
     const ex = exciteRef.current;
-    for (let i = 0; i < seats.length; i++) {
+    dummy.scale.setScalar(k);
+    for (let i = phase; i < seats.length; i += stride) {
       const s = seats[i];
       const jump = Math.max(0, Math.sin(t * (4 + ex * 5) + s.ph)) * (0.012 + 0.2 * ex);
-      dummy.position.set(s.x, s.y + 0.22 + jump, s.z); dummy.updateMatrix(); b.setMatrixAt(i, dummy.matrix);
-      dummy.position.set(s.x, s.y + 0.6 + jump, s.z); dummy.updateMatrix(); h.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(s.x, s.y + 0.22 * k + jump, s.z); dummy.updateMatrix(); b.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(s.x, s.y + 0.6 * k + jump, s.z); dummy.updateMatrix(); h.setMatrixAt(i, dummy.matrix);
     }
     b.instanceMatrix.needsUpdate = true; h.instanceMatrix.needsUpdate = true;
   });
@@ -328,23 +343,29 @@ export const StandsStructure = memo(function StandsStructure() {
 });
 
 /** Flashes de câmeras do público (piscam em fases diferentes). */
-export const Flashes = memo(function Flashes() {
+export const Flashes = memo(function Flashes({ anchors }: { anchors?: Float32Array }) {
   const a = useRef<THREE.Points>(null);
   const b = useRef<THREE.Points>(null);
   const geo = useMemo(() => {
     const make = (seed: number) => {
       const pos: number[] = [];
+      const n = anchors ? Math.floor(anchors.length / 3) : 0;
       for (let i = 0; i < 70; i++) {
         const r = Math.abs(Math.sin(seed * 31.7 + i * 12.9)), r2 = Math.abs(Math.sin(seed * 7.3 + i * 78.2)), r3 = Math.abs(Math.sin(i * 3.1 + seed));
-        const row = Math.floor(r * 13);
-        pos.push((r2 - 0.5) * 56, 1.5 + row * 0.62, GL - 8.4 - row * 0.85 + (r3 - 0.5) * 0.2);
+        if (n > 0) {
+          const k = Math.floor(r * n) % n;          // um assento qualquer, um pouco acima da cabeça
+          pos.push(anchors![k * 3], anchors![k * 3 + 1] + 1.1, anchors![k * 3 + 2]);
+        } else {
+          const row = Math.floor(r * 13);
+          pos.push((r2 - 0.5) * 56, 1.5 + row * 0.62, GL - 8.4 - row * 0.85 + (r3 - 0.5) * 0.2);
+        }
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       return g;
     };
     return [make(1), make(2)];
-  }, []);
+  }, [anchors]);
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     const ma = a.current?.material as THREE.PointsMaterial | undefined;

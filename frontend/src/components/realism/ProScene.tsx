@@ -7,6 +7,7 @@ import { choreoDefender, choreoExtra, choreoKeeper, choreoKicker, newChoreo, typ
 import { CLIP_KEYS, MODEL_URLS } from "./modelMeta";
 import type { Plan } from "./plan";
 import { BallWithTrail, Env, useBallAndCamera, type CamMode } from "./shared";
+import { preloadStadium } from "./StadiumModel";
 
 const clipUrls = CLIP_KEYS.map((k) => MODEL_URLS.clips[k]);
 
@@ -14,6 +15,7 @@ const clipUrls = CLIP_KEYS.map((k) => MODEL_URLS.clips[k]);
 export function preloadRealisticModels() {
   useGLTF.preload(MODEL_URLS.player);
   useGLTF.preload(clipUrls);
+  preloadStadium();
 }
 
 function useModelAssets(): Assets {

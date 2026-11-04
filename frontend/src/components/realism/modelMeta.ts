@@ -8,6 +8,8 @@ const base = (import.meta.env.BASE_URL ?? "/").replace(/\/?$/, "/");
 export const MODEL_URLS = {
   player: `${base}models/jogador.glb`,
   mask: `${base}models/kit_mask.png`,
+  stadium: `${base}models/stadium.glb`,
+  crowd: `${base}models/crowd_seats.json`,
   clips: {
     idle: `${base}models/anim/anim_idle.glb`,
     run: `${base}models/anim/anim_run.glb`,
