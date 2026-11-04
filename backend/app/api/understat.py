@@ -26,12 +26,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, func, desc
 
-from app.core.auth import require_admin
 from app.db import get_db
 from app.db.models import (
     CollectionState, Competition, DataSource, Event, EventPosition, EventType,
     Match, Player, Season, PlayerMatchStatistics, PlayerStatistics, Shot, Team,
-    TeamMatchStatistics, TeamStatistics, User,
+    TeamMatchStatistics, TeamStatistics,
 )
 from app.services.understat_sync import (
     DEFAULT_SEASON, UNDERSTAT_LEAGUES, UnderstatClient, _save_collection_state,
@@ -215,9 +214,8 @@ def sync_understat(
     season: int = Query(DEFAULT_SEASON, description="Temporada (ano de início)."),
     shots_only: bool = Query(False, description="Apenas atualiza chutes de partidas já cadastradas."),
     max_matches: Optional[int] = Query(None, description="Limita o nº de partidas com chutes."),
-    _admin: User = Depends(require_admin),
 ):
-    """Dispara a sincronização da Understat em background (requer admin)."""
+    """Dispara a sincronização da Understat em background."""
     if aiohttp is None:
         raise HTTPException(status_code=503, detail="aiohttp indisponível no servidor")
 
@@ -385,9 +383,8 @@ def force_match_shots(
     match_id: int,
     understat_match_id: str = Query(..., description="ID da partida na Understat"),
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_admin),
 ):
-    """Força a coleta de chutes de uma partida específica da Understat (requer admin)."""
+    """Força a coleta de chutes de uma partida específica da Understat."""
     m = db.get(Match, match_id)
     if not m:
         raise HTTPException(status_code=404, detail="Match not found")

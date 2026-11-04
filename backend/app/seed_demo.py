@@ -12,10 +12,9 @@ from app.db.models import (
     Competition, Season, Stadium, Team, Player, Match, Lineup,
     TeamStatistics, PlayerStatistics, PlayerZoneStatistics,
     TeamMatchStatistics, PlayerMatchStatistics, DefensiveWeakness,
-    DataSource, DataSourceRecord, User, UserRole, PitchZone, ZONE_ORDER,
+    DataSource, DataSourceRecord, PitchZone, ZONE_ORDER,
     Event, EventType,
 )
-from app.core.auth import hash_password
 from app.services.analytics import compute_team_statistics, compute_player_statistics
 from app.services.weakness import compute_team_defensive_weaknesses
 from app.services.matchups import _player_offensive_attributes, _player_defensive_attributes
@@ -106,40 +105,6 @@ POSITION_POOL_DEFAULT = POSITIONS * 2
 
 def _hash_name_to_rand(name: str, salt: str = "sv") -> int:
     return int(hashlib.sha256((name + salt).encode()).hexdigest(), 16)
-
-
-def create_user_admin(db: Session) -> User:
-    existing = db.query(User).filter(User.email == "admin@scoutvision.local").first()
-    if existing:
-        return existing
-    u = User(
-        email="admin@scoutvision.local",
-        full_name="ScoutVision Admin",
-        hashed_password=hash_password("admin123"),
-        role=UserRole.ADMIN,
-        is_active=True,
-    )
-    db.add(u)
-    db.commit()
-    db.refresh(u)
-    return u
-
-
-def create_user_basic(db: Session) -> User:
-    existing = db.query(User).filter(User.email == "user@scoutvision.local").first()
-    if existing:
-        return existing
-    u = User(
-        email="user@scoutvision.local",
-        full_name="Demo User",
-        hashed_password=hash_password("user123"),
-        role=UserRole.USER,
-        is_active=True,
-    )
-    db.add(u)
-    db.commit()
-    db.refresh(u)
-    return u
 
 
 def create_data_sources(db: Session):
@@ -674,8 +639,6 @@ def run_seed(db: Optional[Session] = None, force: bool = False) -> Dict[str, int
             counts["skipped"] = 1
             return counts
 
-        admin = create_user_admin(db); counts["users"] = 1
-        _ = create_user_basic(db); counts["users"] += 1
         create_data_sources(db)
         seasons_by_code = create_competitions_and_seasons(db)
         counts["competitions"] = 2; counts["seasons"] = 6

@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.core.logging import get_logger
-from app.api.auth import router as auth_router
 from app.api.competitions import router as comp_router
 from app.api.teams import router as teams_router
 from app.api.players import router as players_router
@@ -165,7 +164,6 @@ def api_data_status(db: Session = Depends(get_db)):
 
 
 api_prefix = "/api"
-app.include_router(auth_router, prefix=api_prefix)
 app.include_router(comp_router, prefix=api_prefix)
 app.include_router(teams_router, prefix=api_prefix)
 app.include_router(players_router, prefix=api_prefix)

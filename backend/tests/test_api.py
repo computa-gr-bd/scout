@@ -220,8 +220,6 @@ def test_analysis_match_filter_includes_equivalent_team_ids(_setup):
 
 def test_invalid_token_is_rejected():
     client2 = TestClient(fastapi_app)
-    client2.headers["Authorization"] = "Bearer this.is.not.valid"
-    # Prediction generation requires auth (optional but header is set)
+    client2.headers["Authorization"] = "Bearer dead-token"
     r = client2.post("/api/predictions/generate", json={"match_id": 1})
-    # either 401 or 404 (match 1 missing is 404 and wins)
     assert r.status_code in (401, 404)

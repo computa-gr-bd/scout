@@ -5,7 +5,6 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db import get_db
-from app.core.auth import get_current_user
 from app.db.models import DataSource, Match, Season, Team
 from app.repositories.repositories import (
     MatchRepository, TeamRepository, TeamStatisticsRepository, PlayerRepository
@@ -436,8 +435,7 @@ def get_tactical_analysis(match_id: int, db: Session = Depends(get_db)):
 
 @router.post("/predictions/generate", response_model=PredictionGenerateResponse)
 def generate_predictions(payload: PredictionGenerateRequest,
-                         db: Session = Depends(get_db),
-                         current_user=Depends(get_current_user)):
+                         db: Session = Depends(get_db)):
     m = match_repo.get(db, payload.match_id)
     if not m:
         raise HTTPException(404, "Match not found")

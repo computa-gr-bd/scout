@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.repositories.repositories import ModelVersionRepository, UserRepository
-from app.core.auth import require_admin
 from app.schemas import ModelVersionOut, DataImportRequest, DataImportResponse, SuccessResponse
 from app.ml.models import model_store
 
@@ -52,8 +51,7 @@ def get_model(model_id: int, db: Session = Depends(get_db)):
 
 @router.post("/data/import", response_model=DataImportResponse)
 def import_data(payload: DataImportRequest,
-                db: Session = Depends(get_db),
-                _admin=Depends(require_admin)):
+                db: Session = Depends(get_db)):
     if payload.provider == "demo":
         from app.seed_demo import run_seed
         counts = run_seed(db, force=False)

@@ -446,25 +446,10 @@ def test_fast_sync_reports_all_calendar_timeouts_and_preserves_last_success(
     assert state.summary["error"] == "Tempo esgotado ao consultar a Understat."
 
 
-def test_understat_sync_requires_admin(client):
-    r = client.post("/api/understat/sync", params={"leagues": "epl"})
-    assert r.status_code == 401
-
-
 def test_understat_sync_rejects_invalid_league(client, db_session):
-    from app.core.auth import create_access_token
-    from app.db.models import User, UserRole
-
-    admin = User(email="admin@example.com", hashed_password="x",
-                 role=UserRole.ADMIN, is_active=True, full_name="admin")
-    db_session.add(admin)
-    db_session.commit()
-    token = create_access_token(admin.id, UserRole.ADMIN)
-
     r = client.post(
         "/api/understat/sync",
         params={"leagues": "not_a_league"},
-        headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 400
 

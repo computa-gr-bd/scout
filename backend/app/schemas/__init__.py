@@ -4,7 +4,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, ConfigDict
 
-from app.db.models import UserRole, DataSource, EventType, PitchZone
+from app.db.models import DataSource, EventType, PitchZone
 
 
 class PaginationParams(BaseModel):
@@ -50,42 +50,6 @@ class ZoneOpportunity(BaseModel):
     offensive_strength: float
     defensive_weakness: float
     player_frequency: float
-
-
-# ========== Auth ==========
-class Token(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    role: UserRole
-    user_id: int
-
-
-class TokenPayload(BaseModel):
-    sub: Optional[int] = None
-    role: Optional[UserRole] = None
-    exp: Optional[datetime] = None
-
-
-class UserLogin(BaseModel):
-    email: str
-    password: str
-
-
-class UserBase(BaseModel):
-    email: str
-    full_name: Optional[str] = None
-    role: UserRole = UserRole.USER
-    is_active: bool = True
-
-
-class UserCreate(UserBase):
-    password: str
-
-
-class UserOut(UserBase):
-    id: int
-    created_at: datetime
-    model_config = ConfigDict(from_attributes=True)
 
 
 # ========== Competition / Season ==========
