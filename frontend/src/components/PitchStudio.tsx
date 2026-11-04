@@ -4,13 +4,13 @@ import { type StudioDataset, type StudioRealInfo } from "../api/studioData";
 import { crestFor } from "../api/footballDataOrg";
 import { JerseyGlyph, JerseyDefs, JerseyBadge, BallGlyph } from "./Jersey";
 import { TeamLogo } from "./ui";
-import { GoalReplay3D } from "./GoalReplay3D";
-// Replay realista (animação estilo transmissão/FIFA): carregado sob demanda, só quando o modo é usado.
-const RealisticReplay3D = lazy(() => import("./RealisticReplay3D").then((m) => ({ default: m.RealisticReplay3D })));
 import { MaterialIcon } from "./MaterialIcon";
 
+// Replay 3D realista (animação estilo transmissão): carregado sob demanda, só quando o modo é usado.
+const RealisticReplay3D = lazy(() => import("./RealisticReplay3D").then((m) => ({ default: m.RealisticReplay3D })));
+
 type ViewMode = "heatmap" | "shots" | "onTarget" | "goals" | "positions";
-type ReplayMode = "2d" | "3d" | "real";
+type ReplayMode = "2d" | "real";
 type Coord = { x: number; y: number };
 
 type Action = {
@@ -53,12 +53,10 @@ type PlayerDetail = {
   };
 };
 
-/** O replay 3D tem corrida, chute, mergulho do goleiro e desfecho: dura mais que o 2D. */
-const REPLAY_3D_FACTOR = 2.4;
-/** O replay realista tem corrida, câmera lenta no contato, voo, desfecho e comemoração: é o mais longo. */
-const REPLAY_REAL_FACTOR = 3.8;
-const REPLAY_LABEL: Record<ReplayMode, string> = { "2d": "2D", "3d": "3D", real: "Realismo" };
-const replayFactor = (mode: ReplayMode) => (mode === "real" ? REPLAY_REAL_FACTOR : mode === "3d" ? REPLAY_3D_FACTOR : 1);
+/** O replay 3D realista tem corrida, câmera lenta no contato, voo, desfecho e comemoração: é o mais longo. */
+const REPLAY_3D_FACTOR = 3.8;
+const REPLAY_LABEL: Record<ReplayMode, string> = { "2d": "2D", "real": "3D" };
+const replayFactor = (mode: ReplayMode) => (mode === "real" ? REPLAY_3D_FACTOR : 1);
 
 const HOME_COLOR = "#3b82f6";
 const AWAY_COLOR = "#e1534e";
@@ -630,12 +628,12 @@ export function PitchStudio({
     return () => window.removeEventListener("keydown", onKey);
   }, [popupOpen]);
 
-  // Ao escolher "Realismo", já começa a baixar os modelos 3D (jogador e animações).
+  // Ao escolher o modo 3D, já começa a baixar os modelos realistas (jogador e animações).
   useEffect(() => {
     if (replayMode === "real") void import("./RealisticReplay3D").then((m) => m.preloadRealisticModels());
   }, [replayMode]);
 
-  // Esc fecha o replay 3D / realista
+  // Esc fecha o replay 3D
   useEffect(() => {
     if (!(started && replayMode !== "2d")) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeReplay(); };
@@ -884,14 +882,13 @@ export function PitchStudio({
             <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-sv-muted">Replay</span>
             <button onClick={goPrev} disabled={idx === 0} className="sv-btn !py-1 !px-2.5 text-[12px]" title="Anterior"><MaterialIcon name="skip_previous" /></button>
             <div className="flex items-center gap-0.5 rounded-lg border border-sv-border bg-sv-panel/70 p-0.5" role="group" aria-label="Visualização do replay">
-              {(["2d", "3d", "real"] as ReplayMode[]).map((mode) => (
+              {(["2d", "real"] as ReplayMode[]).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   aria-pressed={replayMode === mode}
                   onClick={() => selectReplayMode(mode)}
                   className={`rounded-md px-2.5 py-1 text-[11px] font-bold uppercase transition ${replayMode === mode ? "bg-sv-accent text-white" : "text-sv-muted hover:text-white"}`}
-                  title={mode === "real" ? "Replay realista com animação de jogadores, câmera de transmissão e câmera lenta" : undefined}
                 >
                   {REPLAY_LABEL[mode]}
                 </button>
@@ -920,7 +917,7 @@ export function PitchStudio({
         <div className={`flex-1 p-3 md:p-5 transition-all ${selectedPlayer ? "lg:mr-0" : ""}`}>
           {started && replayMode === "real" && current ? (
             <div className="goal-replay-stage">
-              <Suspense fallback={<div className="goal-replay-3d goal-replay-real flex items-center justify-center text-xs text-sv-muted">Carregando replay realista…</div>}>
+              <Suspense fallback={<div className="goal-replay-3d goal-replay-real flex items-center justify-center text-xs text-sv-muted">Carregando replay 3D…</div>}>
                 <RealisticReplay3D
                   key={`${current.id}-${replayMode}`}
                   goalLoc={current.goalLoc}
@@ -943,20 +940,6 @@ export function PitchStudio({
                   onClose={closeReplay}
                 />
               </Suspense>
-            </div>
-          ) : started && replayMode === "3d" && current ? (
-            <div className="goal-replay-stage">
-              <GoalReplay3D
-                key={`${current.id}-${replayMode}`}
-                goalLoc={current.goalLoc}
-                shotOrigin={current.from}
-                team={current.team}
-                result={current.ownGoal ? "own_goal" : current.result}
-                teamColor={current.team === "home" ? HOME_COLOR : AWAY_COLOR}
-                foeColor={current.team === "home" ? AWAY_COLOR : HOME_COLOR}
-                progress={progress}
-                onClose={closeReplay}
-              />
               {current.result === "goal" && goalPulse > 0.15 && (
                 <div className="goal-replay-goal-label" style={{ opacity: Math.min(1, goalPulse * 2.4) }}>
                   {current.ownGoal ? `GOL CONTRA · ${current.player}` : `GOL · ${current.player}`}

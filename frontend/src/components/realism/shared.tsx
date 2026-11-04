@@ -178,7 +178,7 @@ export function Env({ impactRef, exciteRef }: { impactRef: MutableRefObject<NetI
 class SoftBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
-  componentDidCatch() { console.warn("[realismo] estádio 3D indisponível; usando o cenário simples"); }
+  componentDidCatch() { console.warn("[3d] estádio 3D indisponível; usando o cenário simples"); }
   render() { return this.state.failed ? this.props.fallback : this.props.children; }
 }
 

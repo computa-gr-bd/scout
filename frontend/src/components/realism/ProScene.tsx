@@ -11,7 +11,7 @@ import { preloadStadium } from "./StadiumModel";
 
 const clipUrls = CLIP_KEYS.map((k) => MODEL_URLS.clips[k]);
 
-/** Começa a baixar os modelos antes do replay (chamado quando o modo Realismo é escolhido). */
+/** Começa a baixar os modelos antes do replay (chamado quando o modo 3D é escolhido). */
 export function preloadRealisticModels() {
   useGLTF.preload(MODEL_URLS.player);
   useGLTF.preload(clipUrls);

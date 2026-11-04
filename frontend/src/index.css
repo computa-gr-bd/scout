@@ -189,7 +189,7 @@
     letter-spacing: 0.08em;
     pointer-events: none;
   }
-  /* Replay "Realismo": palco noturno de estádio, mais alto que o 3D simples */
+  /* Replay 3D: palco noturno de estádio, mais alto que o 3D simples */
   .goal-replay-real {
     height: clamp(340px, 52vw, 580px);
     background: #060f1f;

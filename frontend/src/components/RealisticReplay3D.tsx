@@ -157,7 +157,7 @@ export function RealisticReplay3D({
         {(() => {
           const fallback = <Scene plan={plan} qRef={qRef} teamColor={teamColor} foeColor={foeColor} camMode={camMode} number={shirtNumber} name={info?.player} seed={seed} />;
           return (
-            <ModelBoundary fallback={fallback} onError={() => console.warn("[realismo] modelos 3D indisponíveis; usando jogadores simples")}>
+            <ModelBoundary fallback={fallback} onError={() => console.warn("[3d] modelos 3D indisponíveis; usando jogadores simples")}>
               <Suspense fallback={fallback}>
                 <ProScene plan={plan} qRef={qRef} teamColor={teamColor} foeColor={foeColor} camMode={camMode} number={shirtNumber} name={info?.player} />
               </Suspense>
@@ -171,7 +171,7 @@ export function RealisticReplay3D({
       <div className="pointer-events-none absolute inset-x-0 top-0 bg-black transition-all duration-300" style={{ height: inSlow ? "7%" : "0%" }} aria-hidden="true" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-black transition-all duration-300" style={{ height: inSlow ? "7%" : "0%" }} aria-hidden="true" />
 
-      <div className="goal-replay-tag" aria-hidden="true">REPLAY · REALISMO{inSlow ? " · CÂMERA LENTA" : ""}</div>
+      <div className="goal-replay-tag" aria-hidden="true">REPLAY · 3D{inSlow ? " · CÂMERA LENTA" : ""}</div>
 
       {/* seleção de câmera */}
       <div className="absolute left-2.5 top-2.5 z-[5] flex max-w-[calc(100%-110px)] flex-wrap items-center gap-1">

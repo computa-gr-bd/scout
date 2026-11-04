@@ -130,17 +130,13 @@ const BAYERN_SQUAD: SquadPlayer[] = [
 /** Próximos jogos (inventados). Adversários da Bundesliga usam os nomes de `MOCK_TEAMS`. */
 const BAYERN_FIXTURES: ClubFixture[] = [
   { date: "17/10/2026", time: "15:30", competition: "Bundesliga", home: "Bayern Munich", away: "Hoffenheim" },
-  { date: "22/10/2026", time: "16:00", competition: "UEFA Champions League", home: "Bayern Munich", away: "PSV" },
   { date: "25/10/2026", time: "18:30", competition: "Bundesliga", home: "Union Berlin", away: "Bayern Munich" },
-  { date: "29/10/2026", time: "16:00", competition: "UEFA Champions League", home: "Real Madrid", away: "Bayern Munich" },
   { date: "01/11/2026", time: "18:30", competition: "Bundesliga", home: "Bayern Munich", away: "VfB Stuttgart" },
   { date: "07/11/2026", time: "18:30", competition: "Bundesliga", home: "Borussia Dortmund", away: "Bayern Munich" },
   { date: "21/11/2026", time: "15:30", competition: "Bundesliga", home: "Bayern Munich", away: "Mainz 05" },
-  { date: "25/11/2026", time: "16:00", competition: "UEFA Champions League", home: "Bayern Munich", away: "Barcelona" },
   { date: "28/11/2026", time: "11:30", competition: "Bundesliga", home: "Hamburg", away: "Bayern Munich" },
   { date: "02/12/2026", time: "19:45", competition: "DFB-Pokal", home: "Bayern Munich", away: "Köln" },
   { date: "05/12/2026", time: "15:30", competition: "Bundesliga", home: "Bayern Munich", away: "Paderborn" },
-  { date: "08/12/2026", time: "17:00", competition: "UEFA Champions League", home: "Bayern Munich", away: "Slavia Praha" },
   { date: "12/12/2026", time: "15:30", competition: "Bundesliga", home: "Hoffenheim", away: "Bayern Munich" },
 ];
 
@@ -172,9 +168,9 @@ const BUNDESLIGA_STANDINGS: StandingRow[] = [
 
 /** Faixas de classificação (1-based, inclusivas) com cor da barra lateral. */
 export const STANDING_ZONES: { from: number; to: number; label: string; color: string }[] = [
-  { from: 1, to: 4, label: "Liga dos Campeões", color: "#37b486" },
-  { from: 5, to: 5, label: "Liga Europa UEFA", color: "#3f76eb" },
-  { from: 6, to: 6, label: "Qualificação para a Conference League", color: "#22d3ee" },
+  { from: 1, to: 4, label: "Zona de topo", color: "#37b486" },
+  { from: 5, to: 5, label: "Zona de classificação", color: "#3f76eb" },
+  { from: 6, to: 6, label: "Zona intermediária", color: "#22d3ee" },
   { from: 16, to: 16, label: "Playoff de rebaixamento", color: "#f5a524" },
   { from: 17, to: 18, label: "Rebaixamento direto", color: "#f0435f" },
 ];
@@ -214,7 +210,6 @@ const BAYERN_DETAIL: Omit<TeamDetail, "teamId"> = {
     founded: "27/02/1900",
     stadium: { name: "Allianz Arena", capacity: 75024, city: "Munique" },
     competitions: [
-      "UEFA Champions League",
       "Bundesliga",
       "DFB-Pokal",
       "Franz Beckenbauer Supercup",
@@ -223,12 +218,9 @@ const BAYERN_DETAIL: Omit<TeamDetail, "teamId"> = {
     titles: [
       { name: "Bundesliga", count: 35 },
       { name: "DFB-Pokal", count: 21 },
-      { name: "UEFA Champions League", count: 6 },
-      { name: "FIFA Club World Cup", count: 2 },
-      { name: "UEFA Europa League", count: 1 },
-      { name: "UEFA Super Cup", count: 2 },
-      { name: "Cup Winners Cup", count: 1 },
-      { name: "Intercontinental Cup", count: 2 },
+      { name: "Supercopa alemã", count: 2 },
+      { name: "Copa dos Campeões", count: 1 },
+      { name: "Copa Intercontinental", count: 2 },
     ],
   },
 };
