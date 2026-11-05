@@ -585,6 +585,11 @@ export function PitchStudio({
   const progressRef = useRef(0);
   /** Progresso 0..1 a cada frame para o 3D (não passa pelo React); `progress` (state) é atualizado devagar nesse modo. */
   const liveProgressRef = useRef(0);
+  /** Tela cheia do replay 3D: nativa (Fullscreen API) ou, sem suporte (ex.: iPhone), uma sobreposição fixa. */
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [nativeFs, setNativeFs] = useState(false);
+  const [fsFallback, setFsFallback] = useState(false);
+  const inFs = nativeFs || fsFallback;
   /** No modo 3D, o relógio do replay espera os modelos (estádio, jogadores, animações) carregarem. */
   const realReadyRef = useRef(true);
   const rafRef = useRef<number | null>(null);
@@ -645,11 +650,23 @@ export function PitchStudio({
   // Esc fecha o replay 3D
   useEffect(() => {
     if (!(started && replayMode !== "2d")) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeReplay(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (document.fullscreenElement) return;           // o navegador já sai da tela cheia; o replay continua
+      if (fsFallback) setFsFallback(false); else closeReplay();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, replayMode]);
+  }, [started, replayMode, fsFallback]);
+
+  // acompanha a tela cheia nativa (inclusive quando o usuário sai com Esc) e limpa o fallback ao fechar o replay
+  useEffect(() => {
+    const onChange = () => setNativeFs(!!document.fullscreenElement && document.fullscreenElement === stageRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  useEffect(() => { if (!(started && replayMode === "real")) setFsFallback(false); }, [started, replayMode]);
 
   useEffect(() => {
     if (!started || !playing || !current || view === "heatmap" || view === "positions") {
@@ -705,6 +722,7 @@ export function PitchStudio({
   const openShot = (i: number) => { selectShot(i); setPopupOpen(true); };
   /** Fecha o replay 3D e volta ao mapa. */
   const closeReplay = () => {
+    exitFullscreen();
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     progressRef.current = 0; liveProgressRef.current = 0;
     setProgress(0);
@@ -723,6 +741,24 @@ export function PitchStudio({
   const togglePlayback = () => {
     if (!started || progressRef.current >= (current?.duration ?? 1.8) * 1000 * replayFactor(replayMode, current)) startPlayback();
     else setPlaying((wasPlaying) => !wasPlaying);
+  };
+  const exitFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    setFsFallback(false);
+  };
+  const toggleFullscreen = () => {
+    if (inFs) { exitFullscreen(); return; }
+    const el = stageRef.current;
+    if (el?.requestFullscreen) el.requestFullscreen().catch(() => setFsFallback(true));
+    else setFsFallback(true);
+  };
+  /** Reproduz o próximo lance direto (sem voltar à visão geral), mantendo a tela cheia. */
+  const playNextShot = () => {
+    if (idx >= filtered.length - 1) return;
+    realReadyRef.current = replayMode !== "real";      // o 3D do próximo lance remonta e avisa quando estiver pronto
+    progressRef.current = 0; liveProgressRef.current = 0; setProgress(0);
+    clearGoalPulse(); setPopupOpen(false);
+    setIdx(idx + 1); setStarted(true); setPlaying(true);
   };
   const goPrev = () => { if (idx > 0) selectShot(idx - 1); };
   const goNext = () => { if (idx < filtered.length - 1) selectShot(idx + 1); };
@@ -932,7 +968,7 @@ export function PitchStudio({
         {/* Pitch canvas */}
         <div className={`flex-1 p-3 md:p-5 transition-all ${selectedPlayer ? "lg:mr-0" : ""}`}>
           {started && replayMode === "real" && current ? (
-            <div className="goal-replay-stage">
+            <div ref={stageRef} className={`goal-replay-stage${inFs ? " is-fs" : ""}${fsFallback ? " is-fs-fallback" : ""}`}>
               <Suspense fallback={<div className="goal-replay-3d goal-replay-real flex items-center justify-center text-xs text-sv-muted">Carregando replay 3D…</div>}>
                 <RealisticReplay3D
                   key={`${current.id}-${replayMode}`}
@@ -950,6 +986,8 @@ export function PitchStudio({
                   corner={isCornerShot(current)}
                   freeKick={isFreeKickShot(current)}
                   progressRef={liveProgressRef}
+                  fullscreen={inFs}
+                  onToggleFullscreen={toggleFullscreen}
                   onReady={() => { realReadyRef.current = true; }}
                   info={{
                     player: current.player,
@@ -960,6 +998,17 @@ export function PitchStudio({
                   onClose={closeReplay}
                 />
               </Suspense>
+              {inFs && (
+                <div className="goal-replay-fs-controls">
+                  <button onClick={togglePlayback} className="sv-btn-primary !py-1.5 !px-4 text-[13px]">
+                    <MaterialIcon name={playing ? "pause" : progress >= 1 ? "replay" : "play_arrow"} className="mr-1 align-middle" />
+                    {playing ? "Pausar" : progress >= 1 ? "Repetir lance" : "Continuar"}
+                  </button>
+                  <button onClick={playNextShot} disabled={idx >= filtered.length - 1} className="sv-btn !py-1.5 !px-3 text-[13px]" title="Próximo lance" aria-label="Reproduzir próximo lance">
+                    <MaterialIcon name="skip_next" />
+                  </button>
+                </div>
+              )}
               {current.result === "goal" && goalPulse > 0.15 && (
                 <div className="goal-replay-goal-label" style={{ opacity: Math.min(1, goalPulse * 2.4) }}>
                   {current.ownGoal ? `GOL CONTRA · ${current.player}` : `GOL · ${current.player}`}

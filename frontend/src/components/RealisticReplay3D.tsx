@@ -68,7 +68,7 @@ const RESULT_LABEL: Record<ShotResult, { text: string; tone: string }> = {
 
 export function RealisticReplay3D({
   goalLoc, shotOrigin, team = "home", result = "goal", teamColor, foeColor = "#e2e8f0", progress, penalty = false, header = false,
-  leftFooted = false, shirtNumber, info, seed = 1, corner = false, freeKick = false, progressRef, onReady, onClose,
+  leftFooted = false, shirtNumber, info, seed = 1, corner = false, freeKick = false, progressRef, fullscreen = false, onToggleFullscreen, onReady, onClose,
 }: {
   goalLoc?: { x: number; y: number };
   shotOrigin: { x: number; y: number };
@@ -89,6 +89,9 @@ export function RealisticReplay3D({
   freeKick?: boolean;
   /** Progresso (0..1) atualizado a cada frame pelo player. Se informado, `progress` só alimenta os textos (pode ser lento). */
   progressRef?: MutableRefObject<number>;
+  /** Tela cheia ativa e o alternador (o palco que entra em tela cheia é do componente pai). */
+  fullscreen?: boolean;
+  onToggleFullscreen?: () => void;
   /** Chamado quando os modelos terminaram de carregar (o replay só começa a andar depois disso). */
   onReady?: () => void;
   onClose?: () => void;
@@ -174,7 +177,7 @@ export function RealisticReplay3D({
       <div className="goal-replay-tag" aria-hidden="true">REPLAY · 3D{inSlow ? " · CÂMERA LENTA" : ""}</div>
 
       {/* seleção de câmera */}
-      <div className="absolute left-2.5 top-2.5 z-[5] flex max-w-[calc(100%-110px)] flex-wrap items-center gap-1">
+      <div className="absolute left-2.5 top-2.5 z-[5] flex max-w-[calc(100%-200px)] flex-wrap items-center gap-1">
         {(Object.keys(CAM_LABEL) as CamMode[]).map((m) => (
           <button
             key={m}
@@ -227,10 +230,22 @@ export function RealisticReplay3D({
         </div>
       )}
 
-      {onClose && (
-        <button type="button" className="goal-replay-close" onClick={onClose} title="Fechar (Esc)" aria-label="Fechar replay 3D">
-          <MaterialIcon name="close" className="mr-1 align-middle" />Fechar
-        </button>
+      {(onClose || onToggleFullscreen) && (
+        <div className="goal-replay-topright">
+          {onToggleFullscreen && (
+            <button
+              type="button" className="goal-replay-close goal-replay-fs-btn" onClick={onToggleFullscreen}
+              title={fullscreen ? "Sair da tela cheia (Esc)" : "Tela cheia"} aria-label={fullscreen ? "Sair da tela cheia" : "Tela cheia"} aria-pressed={fullscreen}
+            >
+              <MaterialIcon name={fullscreen ? "fullscreen_exit" : "fullscreen"} className="align-middle" />
+            </button>
+          )}
+          {onClose && (
+            <button type="button" className="goal-replay-close" onClick={onClose} title="Fechar (Esc)" aria-label="Fechar replay 3D">
+              <MaterialIcon name="close" className="mr-1 align-middle" />Fechar
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

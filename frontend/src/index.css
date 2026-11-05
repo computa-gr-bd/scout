@@ -205,6 +205,44 @@
       height: 380px;
     }
   }
+  /* Botões do canto superior direito (tela cheia + fechar) */
+  .goal-replay-topright {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 5;
+    display: flex;
+    gap: 8px;
+  }
+  .goal-replay-topright .goal-replay-close {
+    position: static;
+  }
+  .goal-replay-fs-btn:hover {
+    background: rgba(16, 185, 129, 0.85);
+  }
+  /* Modo tela cheia (API nativa ou, sem suporte, sobreposição fixa) */
+  .goal-replay-stage.is-fs {
+    background: #000;
+  }
+  .goal-replay-stage.is-fs-fallback {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+  }
+  .goal-replay-stage.is-fs .goal-replay-3d {
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+  .goal-replay-fs-controls {
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
+    z-index: 9;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
 }
 .material-symbols-rounded {
   font-family: "Material Symbols Rounded";
