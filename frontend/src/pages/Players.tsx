@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { EmptyState, SectionTitle, TeamLogo } from "../components/ui";
 import { listPlayers, type Player, type PlayerOrder } from "../api/client";
+import { positionLabel } from "../lib/positionLabel";
 
 /** As 5 ligas do projeto (mesmos códigos da tela de Times / Understat). */
 const LEAGUES: { code: string; label: string }[] = [
@@ -42,7 +43,7 @@ function PlayerRow({ p }: { p: Player }) {
           </div>
           <div className="min-w-0">
             <div className="font-medium truncate">{p.display_name || `${p.first_name || ""} ${p.last_name}`.trim()}</div>
-            <div className="text-[11px] text-sv-muted truncate">{p.country || "—"} · {p.position || "—"}</div>
+            <div className="text-[11px] text-sv-muted truncate">{p.country || "—"} · {positionLabel(p.position)}</div>
           </div>
         </div>
         <div className="col-span-2 sm:col-span-1 flex items-center gap-2 min-w-0">

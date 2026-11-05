@@ -12,6 +12,7 @@ import {
 import { Badge, EmptyState, TeamLogo } from "../components/ui";
 import { Pitch2D, type PitchShot } from "../components/Pitch";
 import { IndexKpiGrid, PositionIndexSection } from "../components/PositionIndex";
+import { positionLabel } from "../lib/positionLabel";
 
 /* ------------------------------------------------------------------ paleta (print de referência) */
 const C = {
@@ -296,7 +297,7 @@ export default function PlayerPage() {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight">{displayName}</h1>
-              {p.position && <Badge kind="accent">{p.position}</Badge>}
+              {p.position && <Badge kind="accent">{positionLabel(p.position)}</Badge>}
               {p.country && <Badge kind="warn">{p.country}</Badge>}
             </div>
             {/* time atual */}

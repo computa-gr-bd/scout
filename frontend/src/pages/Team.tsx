@@ -10,6 +10,7 @@ import {
 import { Badge, EmptyState, SectionTitle, StatCard, TeamLogo } from "../components/ui";
 import { TeamZoneMaps, WeaknessRanking, useTeamZoneData } from "../components/TeamZones";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
+import { positionLabel } from "../lib/positionLabel";
 
 function fmtDate(s: string) {
   return new Date(s).toLocaleDateString(undefined, { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -137,7 +138,7 @@ function SquadRow({ p }: { p: SquadEntry }) {
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium truncate">{p.name}</div>
         <div className="text-[11px] text-sv-muted">
-          {p.position || dash}{p.born ? ` · ${p.born}` : ""}
+          {positionLabel(p.position, dash)}{p.born ? ` · ${p.born}` : ""}
         </div>
       </div>
       <div className="grid grid-cols-3 gap-3 text-xs font-mono text-right shrink-0 w-[132px]">
