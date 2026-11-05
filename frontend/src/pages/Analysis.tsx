@@ -35,6 +35,24 @@ const opportunityZones: PitchZone[] = [
   "opp_left_channel", "opp_right_channel", "opp_central_midfield", "opp_left_flank", "opp_right_flank",
 ];
 
+
+/** Rótulo em português do status da partida (a API devolve scheduled/in_progress/finished). */
+function matchStatusLabel(status?: string | null): string {
+  switch ((status ?? "").toLowerCase()) {
+    case "finished": return "Encerrada";
+    case "in_progress":
+    case "in_play":
+    case "live": return "Em andamento";
+    case "scheduled":
+    case "upcoming":
+    case "timed": return "Agendada";
+    case "postponed": return "Adiada";
+    case "cancelled":
+    case "canceled": return "Cancelada";
+    default: return status || "—";
+  }
+}
+
 function isDemoMatch(match: Match) {
   return match.data_source.toLowerCase() === "demo";
 }
@@ -236,7 +254,7 @@ export default function AnalysisPage() {
                           {match.competition_name || "Competição"}
                         </span>
                         <Badge kind={match.status === "finished" ? "good" : "default"}>
-                          {match.status === "finished" ? "Encerrada" : match.status}
+                          {matchStatusLabel(match.status)}
                         </Badge>
                       </div>
                       <div className="flex items-center gap-2 text-sm font-medium">

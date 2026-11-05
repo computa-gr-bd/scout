@@ -410,10 +410,6 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
                 </div>
                 <div className="text-sm text-sv-muted mt-1">Fundado em {t.data.founded || "—"} · Estádio: {(t.data as any).stadium?.name || "—"} ({(t.data as any).stadium?.capacity || "—"})</div>
               </div>
-              <div className="flex gap-2 flex-wrap">
-                <Link to="/matches" className="sv-btn">Jogos</Link>
-                <Link to={`/analysis?team=${teamId}`} className="sv-btn-primary">Analisar</Link>
-              </div>
             </div>
           </div>
         </>
@@ -518,7 +514,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
                       </table>
                     </div>
                     <p className="mt-2 text-[11px] text-sv-muted">
-                      Valores somados por temporada; percentual de defesas não é estimado quando faltam chutes enfrentados.
+                      Valores somados por temporada. Chutes enfrentados = chutes no alvo (defesas + gols sofridos) quando a fonte não informa o número.
                     </p>
                   </>
                 )}

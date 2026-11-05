@@ -86,7 +86,8 @@ def infer_role(*positions: Optional[str], flat: Optional[Mapping[str, Any]] = No
         role = classify_role(position)
         if role:
             return role
-    if flat and ((_num(flat, "gk_sota") or 0) > 0 or (_num(flat, "d_gk_matches") or 0) > 0):
+    if flat and ((_num(flat, "gk_sota") or 0) > 0 or (_num(flat, "d_gk_matches") or 0) > 0
+                 or (_num(flat, "m_gk_matches") or 0) > 0):
         return "GK"
     return None
 
@@ -210,21 +211,40 @@ def _p90(value: Optional[float], n90: float) -> Optional[float]:
 
 
 def gk_totals(flat: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
-    """Totais de goleiro: FBref (``gk_*``) se existirem; senão os derivados dos chutes (``d_gk_*``).
+    """Totais de goleiro, por ordem de preferência:
 
-    No derivado, ``xgot`` (xG dos chutes no alvo sofridos) faz o papel do PSxG e os minutos são os
-    dos jogos completos em que atuou (cada jogo = 90').
+    1. FBref (``gk_*``). Se o FBref veio sem PSxG (a Opta cortou as estatísticas avançadas),
+       o par "xG no alvo − gols" é completado com o derivado dos chutes (``d_gk_xgot`` / ``d_gk_ga``);
+    2. derivados dos chutes do Understat (``d_gk_*``): ``xgot`` faz o papel do PSxG;
+    3. somas das estatísticas por partida gravadas no banco (``m_gk_*``, ESPN): sem PSxG, mas
+       dá defesas, gols sofridos, chutes enfrentados e jogos sem sofrer gol.
+
+    ``xg_ga`` / ``xg_minutes`` são os gols e os minutos que acompanham o ``psxg`` no cálculo dos gols evitados.
     """
     sota = _num(flat, "gk_sota")
+    d_matches = _num(flat, "d_gk_matches")
     if sota:
+        psxg, xg_ga = _num(flat, "gk_psxg"), _num(flat, "gk_ga")
+        minutes = _num(flat, "minutes_played") or 0.0
+        xg_minutes = minutes
+        if psxg is None and d_matches and _num(flat, "d_gk_xgot") is not None and _num(flat, "d_gk_ga") is not None:
+            psxg, xg_ga = _num(flat, "d_gk_xgot"), _num(flat, "d_gk_ga")
+            xg_minutes = _num(flat, "d_gk_minutes") or d_matches * 90.0
         return {"source": "fbref", "saves": _num(flat, "gk_saves"), "sota": sota, "ga": _num(flat, "gk_ga"),
-                "psxg": _num(flat, "gk_psxg"), "cs": _num(flat, "gk_clean_sheets"),
-                "minutes": _num(flat, "minutes_played") or 0.0, "matches": _num(flat, "matches_played") or 0.0}
-    matches = _num(flat, "d_gk_matches")
-    if matches:
+                "psxg": psxg, "xg_ga": xg_ga, "xg_minutes": xg_minutes, "cs": _num(flat, "gk_clean_sheets"),
+                "minutes": minutes, "matches": _num(flat, "matches_played") or 0.0}
+    if d_matches:
+        minutes = _num(flat, "d_gk_minutes") or d_matches * 90.0
         return {"source": "derived", "saves": _num(flat, "d_gk_saves"), "sota": _num(flat, "d_gk_sota"),
-                "ga": _num(flat, "d_gk_ga"), "psxg": _num(flat, "d_gk_xgot"), "cs": _num(flat, "d_gk_clean_sheets"),
-                "minutes": _num(flat, "d_gk_minutes") or matches * 90.0, "matches": matches}
+                "ga": _num(flat, "d_gk_ga"), "psxg": _num(flat, "d_gk_xgot"), "xg_ga": _num(flat, "d_gk_ga"),
+                "xg_minutes": minutes, "cs": _num(flat, "d_gk_clean_sheets"),
+                "minutes": minutes, "matches": d_matches}
+    m_matches = _num(flat, "m_gk_matches")
+    if m_matches:
+        minutes = _num(flat, "m_gk_minutes") or m_matches * 90.0
+        return {"source": "match_stats", "saves": _num(flat, "m_gk_saves"), "sota": _num(flat, "m_gk_sota"),
+                "ga": _num(flat, "m_gk_ga"), "psxg": None, "xg_ga": None, "xg_minutes": minutes,
+                "cs": _num(flat, "m_gk_clean_sheets"), "minutes": minutes, "matches": m_matches}
     return None
 
 
@@ -270,6 +290,17 @@ def compute_metrics(role: str, flat: Mapping[str, Any]) -> Dict[str, Optional[fl
             out["onpitch_xga_p90"] = (_num(flat, "d_onp_xga") or 0) / onp
             out["onpitch_ga_p90"] = (_num(flat, "d_onp_ga") or 0) / onp
             out["onpitch_shots_p90"] = (_num(flat, "d_onp_shots_against") or 0) / onp
+        else:
+            # Sem estatística derivada dos chutes: usa o placar / xG / chutes dos jogos gravados no banco.
+            m_onp = _num(flat, "m_onp_90s")
+            if m_onp and m_onp >= 3.0:
+                out["onpitch_ga_p90"] = (_num(flat, "m_onp_ga") or 0) / m_onp
+            m_xga_90s = _num(flat, "m_onp_xga_90s")
+            if m_xga_90s and m_xga_90s >= 3.0:
+                out["onpitch_xga_p90"] = (_num(flat, "m_onp_xga") or 0) / m_xga_90s
+            m_shots_90s = _num(flat, "m_onp_shots_90s")
+            if m_shots_90s and m_shots_90s >= 3.0:
+                out["onpitch_shots_p90"] = (_num(flat, "m_onp_shots") or 0) / m_shots_90s
     elif role == "GK":
         gk = gk_totals(flat)
         if gk is not None:
@@ -277,7 +308,8 @@ def compute_metrics(role: str, flat: Mapping[str, Any]) -> Dict[str, Optional[fl
             gk_matches = gk["matches"]
             saves, sota, ga, psxg = gk["saves"], gk["sota"], gk["ga"], gk["psxg"]
             out["save_pct"] = _shrunk_pct(saves, sota, 0.70, 20)
-            out["psxg_diff_p90"] = _p90(psxg - ga, gk_n90) if (psxg is not None and ga is not None) else None
+            xg_ga, xg_n90 = gk.get("xg_ga"), (gk.get("xg_minutes") or gk["minutes"]) / 90.0
+            out["psxg_diff_p90"] = _p90(psxg - xg_ga, xg_n90) if (psxg is not None and xg_ga is not None) else None
             out["ga_p90"] = _p90(ga, gk_n90)
             cs = gk["cs"]
             out["clean_sheet_pct"] = 100.0 * cs / gk_matches if (cs is not None and gk_matches > 0) else None
@@ -435,6 +467,110 @@ def flatten_stat(columns: Mapping[str, Any], supplemental: Optional[Mapping[str,
     return flat
 
 
+# --------------------------------------------------------------------------- totais das partidas gravadas no banco
+MATCH_SUM_FIELDS = (
+    "tackles", "interceptions", "fouls_committed", "fouls_suffered", "passes", "passes_completed",
+    "key_passes", "duels", "duels_won", "yellow", "red",
+)
+MATCH_COVERAGE_MIN = 0.8   # fração mínima dos jogos da temporada com registro para usar as somas
+
+
+def _f(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if number == number else 0.0
+
+
+def aggregate_match_rows(rows: Iterable[Mapping[str, Any]]) -> Dict[str, float]:
+    """Soma as linhas por partida (``PlayerMatchStatistics`` + placar/estatística do time) de UM jogador.
+
+    Cada linha: ``minutes, is_starter, position, tackles, interceptions, fouls_committed, fouls_suffered,
+    passes, passes_completed, key_passes, duels, duels_won, yellow, red, saves, goals_conceded,
+    shots_faced, team_ga, team_xga, opp_shots``. Retorna chaves com prefixo ``m_``:
+
+    * ``m_matches`` / ``m_<campo>``: jogos com participação e soma de cada contagem;
+    * ``m_gk_*``: jogos de goleiro, defesas, gols sofridos, chutes no alvo enfrentados, minutos, jogos sem sofrer gol.
+      Chute no alvo enfrentado = defesas + gols sofridos quando a fonte manda ``shots_faced`` zerado;
+    * ``m_onp_*``: o que o time sofreu enquanto o jogador esteve em campo (placar, xG e chutes), em "jogos de 90'".
+    Função pura.
+    """
+    out: Dict[str, float] = {}
+
+    def add(key: str, value: float) -> None:
+        out[key] = out.get(key, 0.0) + value
+
+    for r in rows:
+        minutes = _f(r.get("minutes"))
+        starter = bool(r.get("is_starter"))
+        counts = {f: _f(r.get(f)) for f in MATCH_SUM_FIELDS}
+        saves, conceded, faced = _f(r.get("saves")), _f(r.get("goals_conceded")), _f(r.get("shots_faced"))
+        is_gk_row = classify_role(r.get("position")) == "GK"
+        played = starter or minutes > 0 or any(v > 0 for v in counts.values()) or saves > 0 or faced > 0
+        if not played:
+            continue
+        add("m_matches", 1.0)
+        for field, value in counts.items():
+            add(f"m_{field}", value)
+        if is_gk_row or saves > 0 or faced > 0:
+            sota = faced if faced > 0 else saves + conceded
+            gk_minutes = minutes if minutes > 0 else (90.0 if starter else 45.0)
+            add("m_gk_matches", 1.0)
+            add("m_gk_minutes", min(gk_minutes, 120.0))
+            add("m_gk_saves", saves)
+            add("m_gk_ga", conceded)
+            add("m_gk_sota", sota)
+            add("m_gk_clean_sheets", 1.0 if conceded == 0 and r.get("team_ga") in (None, 0) else 0.0)
+            continue
+        w = min(minutes, 90.0) / 90.0 if minutes > 0 else (1.0 if starter else 0.0)
+        if w <= 0:
+            continue
+        team_ga = r.get("team_ga")
+        if team_ga is not None:
+            add("m_onp_90s", w)
+            add("m_onp_ga", _f(team_ga) * w)
+        if _f(r.get("team_xga")) > 0:
+            add("m_onp_xga_90s", w)
+            add("m_onp_xga", _f(r.get("team_xga")) * w)
+        if _f(r.get("opp_shots")) > 0:
+            add("m_onp_shots_90s", w)
+            add("m_onp_shots", _f(r.get("opp_shots")) * w)
+    return out
+
+
+def apply_match_totals(flat: Dict[str, Any], totals: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    """Completa ``flat`` com as somas por partida **sem sobrescrever** FBref/SoccerData/colunas da temporada.
+
+    Contagens de jogador de linha só entram se as partidas gravadas cobrem ≥ 80% dos jogos da temporada
+    (senão o "por 90" ficaria subestimado) e se a soma não é zero (0 = fonte sem o dado). As chaves
+    ``m_gk_*`` / ``m_onp_*`` entram sempre; ``gk_totals`` e ``compute_metrics`` só as usam como último recurso.
+    """
+    if not totals:
+        return flat
+    for key, value in totals.items():
+        if key.startswith(("m_gk_", "m_onp_")) and value is not None:
+            flat[key] = value
+    matches = _f(totals.get("m_matches"))
+    season_matches = _f(flat.get("matches_played"))
+    covered = matches > 0 and (season_matches <= 0 or matches >= MATCH_COVERAGE_MIN * season_matches)
+    if not covered:
+        return flat
+    flat["m_matches"] = matches
+    for src, dst in (("tackles", "tackles"), ("interceptions", "interceptions"),
+                     ("fouls_committed", "fouls_committed"), ("passes", "passes"),
+                     ("passes_completed", "passes_completed"), ("key_passes", "key_passes")):
+        value = _f(totals.get(f"m_{src}"))
+        if value > 0 and not flat.get(dst):
+            flat[dst] = value
+    yellow, red = _f(totals.get("m_yellow")), _f(totals.get("m_red"))
+    if (yellow or red) and "us_yellow" not in flat and "yellow_cards" not in flat:
+        flat["us_yellow"], flat["us_red"] = yellow, red
+    if "pass_cmp" not in flat and flat.get("passes_completed"):
+        flat["pass_cmp"], flat["pass_att"] = flat["passes_completed"], flat.get("passes")
+    return flat
+
+
 # --------------------------------------------------------------------------- goleiro adversário nas previsões
 LEAGUE_SAVE_PCT = 0.70
 GK_FACTOR_PRIOR_SHOTS = 40.0
@@ -469,7 +605,7 @@ def reduce_peer_metrics(role: str, flats: Iterable[Mapping[str, Any]], min_minut
 
 
 __all__ = [
-    "classify_role", "infer_role", "gk_totals", "compute_metrics", "score_index", "flatten_stat", "gk_goal_factor",
+    "classify_role", "infer_role", "gk_totals", "aggregate_match_rows", "apply_match_totals", "compute_metrics", "score_index", "flatten_stat", "gk_goal_factor",
     "reduce_peer_metrics", "anchor_score", "percentile_score", "reliability",
     "ROLE_LABELS", "INDEX_NAMES", "COMPONENTS", "MIN_PEERS",
 ]

@@ -12,13 +12,15 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Lineup, Player, PlayerMatchStatistics, PlayerStatistics
+from app.db.models import (
+    Lineup, Match, Player, PlayerMatchStatistics, PlayerStatistics, Season, TeamMatchStatistics,
+)
 from app.services.player_profile import LEAGUE_LABELS, team_league_map
 from app.services.position_index import (
-    COMPONENTS, LEAGUE_SAVE_PCT, ROLE_LABELS, compute_metrics, flatten_stat,
+    COMPONENTS, LEAGUE_SAVE_PCT, ROLE_LABELS, aggregate_match_rows, apply_match_totals, compute_metrics, flatten_stat,
     gk_goal_factor, gk_totals, infer_role, reduce_peer_metrics, score_index,
 )
 
@@ -39,14 +41,82 @@ def stat_columns(stat: PlayerStatistics) -> Dict[str, Any]:
     )}
 
 
-def stat_flat(stat: Optional[PlayerStatistics]) -> Dict[str, Any]:
+def stat_flat(stat: Optional[PlayerStatistics],
+              match_totals: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
+    """``flat`` da temporada; ``match_totals`` (somas das partidas no banco) só completa o que falta."""
     if stat is None:
         return {}
-    return flatten_stat(
+    flat = flatten_stat(
         stat_columns(stat),
         stat.supplemental_stats if isinstance(stat.supplemental_stats, dict) else None,
         stat.recent_form if isinstance(stat.recent_form, dict) else None,
     )
+    return apply_match_totals(flat, match_totals)
+
+
+def _espn_raw(supplemental: Any, key: str) -> float:
+    espn = supplemental.get("espn") if isinstance(supplemental, dict) else None
+    raw = espn.get("raw") if isinstance(espn, dict) else None
+    try:
+        return float(raw.get(key) or 0) if isinstance(raw, dict) else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def match_totals_for(db: Session, player_ids: Sequence[int],
+                     season_id: Optional[int]) -> Dict[int, Dict[str, float]]:
+    """``{jogador: somas}`` das partidas da temporada gravadas em ``PlayerMatchStatistics``.
+
+    Traz do banco o que o JSON do FBref não trouxe: defesas/gols sofridos/chutes enfrentados do
+    goleiro, faltas, cartões, passes, desarmes e interceptações (quando a fonte tem) e o que o time
+    sofreu com o jogador em campo (placar, xG e chutes do adversário). Só partidas "canônicas"
+    (sem clones de outras fontes). A temporada é casada por ``season_id`` OU pela janela de datas.
+    """
+    ids = sorted({int(i) for i in player_ids if i is not None})
+    if not ids:
+        return {}
+    stmt = (
+        select(PlayerMatchStatistics, Match)
+        .join(Match, Match.id == PlayerMatchStatistics.match_id)
+        .where(PlayerMatchStatistics.player_id.in_(ids), Match.canonical_match_id.is_(None))
+    )
+    season = db.get(Season, season_id) if season_id is not None else None
+    if season is not None:
+        in_season = [Match.season_id == season.id]
+        if season.start_date and season.end_date:
+            in_season.append(and_(Match.kickoff_time >= season.start_date,
+                                  Match.kickoff_time <= season.end_date))
+        stmt = stmt.where(or_(*in_season))
+    pairs = db.execute(stmt).all()
+    if not pairs:
+        return {}
+
+    team_rows: Dict[Tuple[int, int], TeamMatchStatistics] = {}
+    match_ids = {m.id for _, m in pairs}
+    for tms in db.scalars(select(TeamMatchStatistics).where(TeamMatchStatistics.match_id.in_(match_ids))).all():
+        team_rows[(tms.match_id, tms.team_id)] = tms
+
+    by_player: Dict[int, List[Dict[str, Any]]] = {}
+    for pms, match in pairs:
+        is_home = pms.team_id == match.home_team_id
+        opp_id = match.away_team_id if is_home else match.home_team_id
+        scored_against = match.away_score if is_home else match.home_score
+        own, opp = team_rows.get((match.id, pms.team_id)), team_rows.get((match.id, opp_id))
+        finished = (match.status or "").lower() == "finished"
+        by_player.setdefault(pms.player_id, []).append({
+            "minutes": pms.minutes_played, "is_starter": pms.is_starter, "position": pms.position,
+            "tackles": pms.tackles, "interceptions": pms.interceptions,
+            "fouls_committed": pms.fouls_committed, "fouls_suffered": pms.fouls_suffered,
+            "passes": pms.passes, "passes_completed": pms.passes_completed, "key_passes": pms.key_passes,
+            "duels": pms.duels, "duels_won": pms.duels_won,
+            "yellow": _espn_raw(pms.supplemental_stats, "yellowCards"),
+            "red": _espn_raw(pms.supplemental_stats, "redCards"),
+            "saves": pms.saves, "goals_conceded": pms.goals_conceded, "shots_faced": pms.shots_faced,
+            "team_ga": scored_against if finished else None,
+            "team_xga": own.xga if own is not None else None,
+            "opp_shots": opp.shots if opp is not None else None,
+        })
+    return {pid: aggregate_match_rows(rows) for pid, rows in by_player.items()}
 
 
 def role_of(position: Optional[str], stat: Optional[PlayerStatistics], flat: Optional[Dict[str, Any]] = None) -> Optional[str]:
@@ -93,10 +163,12 @@ def league_peers(db: Session, role: str, season_id: Optional[int], league_code: 
         if season_id is not None:
             stmt = stmt.where(PlayerStatistics.season_id == season_id)
         seen: set[int] = set()
-        for stat, position, player_id in db.execute(stmt).all():
+        rows = db.execute(stmt).all()
+        totals = match_totals_for(db, [pid for _, _, pid in rows], season_id)
+        for stat, position, player_id in rows:
             if player_id in seen:
                 continue
-            flat = stat_flat(stat)
+            flat = stat_flat(stat, totals.get(player_id))
             if role_of(position, stat, flat) != role:
                 continue
             seen.add(player_id)
@@ -108,8 +180,10 @@ def league_peers(db: Session, role: str, season_id: Optional[int], league_code: 
 def league_save_pct(peers: Iterable[Dict[str, Any]]) -> float:
     saves = sota = 0.0
     for flat in peers:
-        saves += float(flat.get("gk_saves") or 0)
-        sota += float(flat.get("gk_sota") or 0)
+        gk = gk_totals(flat)
+        if gk and gk.get("sota"):
+            saves += float(gk.get("saves") or 0)
+            sota += float(gk["sota"])
     return saves / sota if sota >= 150 else LEAGUE_SAVE_PCT
 
 
@@ -133,17 +207,18 @@ def build_kpis(role: str, flat: Dict[str, Any], m: Dict[str, Optional[float]],
     g = lambda k: flat.get(k)  # noqa: E731
     if role == "GK":
         pk_att, pk_saved = g("gk_pk_att"), g("gk_pk_saved")
+        gk = gk_totals(flat) or {}
         return [
             _kpi("save_pct", "Defesas", m.get("save_pct"), "%", 1,
-                 sub=f"{int(g('gk_saves') or 0)} em {int(g('gk_sota') or 0)} chutes no alvo",
+                 sub=f"{int(gk.get('saves') or 0)} em {int(gk.get('sota') or 0)} chutes no alvo",
                  league_avg=_avg(peer_metrics, "save_pct")),
             _kpi("psxg_diff_p90", "Gols evitados / 90", m.get("psxg_diff_p90"), "", 2,
                  sub="PSxG − gols sofridos (positivo = acima do esperado)",
                  league_avg=_avg(peer_metrics, "psxg_diff_p90")),
             _kpi("ga_p90", "Gols sofridos / 90", m.get("ga_p90"), "", 2,
-                 sub=f"Total: {int(g('gk_ga') or 0)}", league_avg=_avg(peer_metrics, "ga_p90")),
+                 sub=f"Total: {int(gk.get('ga') or 0)}", league_avg=_avg(peer_metrics, "ga_p90")),
             _kpi("clean_sheet_pct", "Jogos sem sofrer gol", m.get("clean_sheet_pct"), "%", 0,
-                 sub=f"{int(g('gk_clean_sheets') or 0)} jogos", league_avg=_avg(peer_metrics, "clean_sheet_pct")),
+                 sub=f"{int(gk.get('cs') or 0)} jogos", league_avg=_avg(peer_metrics, "clean_sheet_pct")),
             _kpi("cross_stop_pct", "Cruzamentos interceptados", m.get("cross_stop_pct"), "%", 1,
                  sub=f"{int(g('gk_crosses_stopped') or 0)} de {int(g('gk_crosses_opp') or 0)}",
                  league_avg=_avg(peer_metrics, "cross_stop_pct")),
@@ -192,6 +267,8 @@ def _data_sources(flat: Dict[str, Any]) -> List[str]:
         out.append("Understat (xGBuildup, xGChain, passes-chave, cartões)")
     if any(k.startswith("d_") for k in flat):
         out.append("Derivado dos chutes do Understat + escalações (defesas, gols evitados, defesa em campo)")
+    if any(k.startswith(("m_gk_", "m_onp_")) for k in flat):
+        out.append("Estatísticas por partida do banco (ESPN: defesas, gols sofridos, faltas, cartões, placar)")
     if any(k in flat for k in (
         "gk_sota", "tkl", "tkl_plus_int", "tackles", "interceptions", "clearances",
         "aerials_won", "aerials_lost", "progressive_passes", "pass_att",
@@ -216,7 +293,7 @@ def player_index_payload(db: Session, player: Player) -> Dict[str, Any]:
 
     league_map = team_league_map(db)
     league_code = (league_map.get(player.team_id) or {}).get("code") if player.team_id else None
-    flat = stat_flat(stat)
+    flat = stat_flat(stat, match_totals_for(db, [player.id], stat.season_id).get(player.id))
     metrics = compute_metrics(role, flat)
     peers = [p for p in league_peers(db, role, stat.season_id, league_code, league_map) if p["player_id"] != player.id]
     peer_metrics = reduce_peer_metrics(role, peers, PEER_MIN_MINUTES)
@@ -259,6 +336,7 @@ def team_goalkeeper(db: Session, team_ids: Sequence[int]) -> Optional[Dict[str, 
         return None
     candidates.sort(key=lambda sp: (sp[0].season_id or 0, sp[0].minutes_played or 0), reverse=True)
     stat, player, flat = candidates[0]
+    flat = stat_flat(stat, match_totals_for(db, [player.id], stat.season_id).get(player.id))
     totals = gk_totals(flat)
     if totals is None:
         # Sem defesas nem chutes derivados (ainda não rodou derived_stats / FBref): nada a comparar.

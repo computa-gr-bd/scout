@@ -5,7 +5,7 @@ from app.services.fbref_stats import (
     extract_keeper_match, extract_season_stats, finalize_totals, merge_totals,
 )
 from app.services.position_index import (
-    MIN_PEERS, anchor_score, classify_role, compute_metrics, flatten_stat, gk_goal_factor,
+    MIN_PEERS, aggregate_match_rows, anchor_score, apply_match_totals, classify_role, compute_metrics, flatten_stat, gk_goal_factor,
     infer_role, percentile_score, reliability, score_index,
 )
 
@@ -207,3 +207,49 @@ def test_fbref_totals_win_over_derived_for_goalkeepers():
     )
     from app.services.position_index import gk_totals
     assert gk_totals(flat)["source"] == "fbref" and gk_totals(flat)["sota"] == 100
+
+
+def test_gk_totals_complete_missing_psxg_with_derived_pair():
+    flat = {"gk_sota": 61, "gk_saves": 40, "gk_ga": 21, "matches_played": 10, "minutes_played": 900,
+            "d_gk_matches": 10, "d_gk_xgot": 22.5, "d_gk_ga": 21, "d_gk_minutes": 900}
+    assert compute_metrics("GK", flat)["psxg_diff_p90"] == 0.15
+
+
+def test_goalkeeper_match_rows_calculate_shots_faced_and_clean_sheets():
+    rows = [
+        {"is_starter": True, "position": "GK", "saves": 3, "goals_conceded": 1, "shots_faced": 0, "team_ga": 1},
+        {"is_starter": True, "position": "GK", "saves": 5, "goals_conceded": 0, "shots_faced": 0, "team_ga": 0},
+        {"is_starter": False, "position": "GK"},  # reserva que não jogou
+    ]
+    totals = aggregate_match_rows(rows)
+    assert totals["m_gk_matches"] == 2 and totals["m_gk_sota"] == 9 and totals["m_gk_saves"] == 8
+    flat = apply_match_totals({"matches_played": 2, "minutes_played": 180}, totals)
+    metrics = compute_metrics("GK", flat)
+    assert round(metrics["save_pct"], 1) > 60 and metrics["clean_sheet_pct"] == 50.0
+
+
+def test_defender_match_rows_fill_missing_counts_without_overwriting():
+    rows = [
+        {"minutes": 90, "is_starter": True, "position": "D", "fouls_committed": 2, "yellow": 1,
+         "team_ga": 2, "team_xga": 1.4, "opp_shots": 11},
+        {"minutes": 90, "is_starter": True, "position": "D", "fouls_committed": 1,
+         "team_ga": 0, "team_xga": 0.6, "opp_shots": 7},
+        {"minutes": 90, "is_starter": True, "position": "D", "fouls_committed": 1,
+         "team_ga": 1, "team_xga": 1.0, "opp_shots": 9},
+        {"minutes": 90, "is_starter": True, "position": "D",
+         "team_ga": 1, "team_xga": 1.0, "opp_shots": 9},
+    ]
+    totals = aggregate_match_rows(rows)
+    flat = apply_match_totals({"matches_played": 4, "minutes_played": 360, "fouls_committed": 99}, totals)
+    assert flat["fouls_committed"] == 99            # dado da temporada tem prioridade
+    assert flat["us_yellow"] == 1
+    metrics = compute_metrics("DEF", flat)
+    assert round(metrics["onpitch_ga_p90"], 2) == 1.0
+    assert round(metrics["onpitch_xga_p90"], 2) == 1.0
+    assert round(metrics["onpitch_shots_p90"], 2) == 9.0
+
+
+def test_match_totals_ignored_when_they_cover_too_few_matches():
+    totals = aggregate_match_rows([{"minutes": 90, "is_starter": True, "position": "D", "fouls_committed": 3}])
+    flat = apply_match_totals({"matches_played": 20, "minutes_played": 1800}, totals)
+    assert "fouls_committed" not in flat

@@ -106,7 +106,7 @@ export function PositionIndexSection({ data }: { data: PlayerIndex }) {
               </ResponsiveContainer>
             ) : (
               <div className="h-full grid place-items-center text-xs text-sv-muted text-center px-4">
-                Dados insuficientes para o radar. Rode a sincronização do FBref (SoccerData).
+                Dados insuficientes para o radar: menos de 3 componentes com dado para esta temporada.
               </div>
             )}
           </div>

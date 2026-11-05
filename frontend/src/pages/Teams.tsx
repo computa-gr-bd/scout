@@ -119,35 +119,27 @@ export default function TeamsPage() {
     retry: 1, retryDelay: 600,
   });
 
-  // Descobrir o season_id corrente da liga selecionada.
-  // O /competitions não devolve a season embutida, então consultamos /seasons e
-  // usamos a temporada marcada como current (ou a de finalização mais recente).
+  // Temporada corrente de cada competição (a marcada como current, senão a de fim mais recente).
+  const currentSeasonByComp = useMemo(() => {
+    const byComp = new Map<number, Season>();
+    for (const s of seasonsQ.data ?? []) {
+      const cur = byComp.get(s.competition_id);
+      const better = !cur
+        || (s.current && !cur.current)
+        || (Boolean(s.current) === Boolean(cur.current)
+          && String(s.end_date ?? "") > String(cur.end_date ?? ""));
+      if (better) byComp.set(s.competition_id, s);
+    }
+    return byComp;
+  }, [seasonsQ.data]);
+
+  // O /competitions não devolve a season embutida, então usamos /seasons.
   const seasonIdForLeague = useMemo<number | undefined>(() => {
     if (leagueId === "all") return undefined;
     const compId = Number(leagueId);
     if (!Number.isFinite(compId)) return undefined;
-    const fromComp = (seasonsQ.data ?? []).filter((s) => s.competition_id === compId);
-    if (!fromComp.length) return undefined;
-    const current = fromComp.find((s) => s.current);
-    if (current) return current.id;
-    const byEnd = [...fromComp].sort((a, b) => String(b.end_date ?? "").localeCompare(String(a.end_date ?? "")));
-    return byEnd[0]?.id;
-  }, [leagueId, seasonsQ.data]);
-
-  const teamsQ = useInfiniteQuery({
-    queryKey: ["teams-page", leagueId, seasonIdForLeague, searchTerm],
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) => listTeams({
-      q: searchTerm || undefined,
-      season_id: seasonIdForLeague,
-      skip: pageParam,
-      limit: TEAM_PAGE_SIZE,
-    }),
-    getNextPageParam: (lastPage, pages) =>
-      lastPage.length === TEAM_PAGE_SIZE ? pages.length * TEAM_PAGE_SIZE : undefined,
-    enabled: leagueId === "all" || seasonIdForLeague !== undefined,
-    retry: 1, retryDelay: 600,
-  });
+    return currentSeasonByComp.get(compId)?.id;
+  }, [leagueId, currentSeasonByComp]);
 
   const comps: League[] = useMemo(() => {
     const unique = new Map<string, Competition>();
@@ -174,6 +166,46 @@ export default function TeamsPage() {
         matches_per_season: 38,
       }));
   }, [compsQ.data, seasonsQ.data]);
+
+  // "Todas as ligas": busca a temporada corrente de CADA liga exibida (mesma consulta do filtro
+  // por liga). Antes a lista paginava todos os times por nome, sem temporada, e vinha misturada
+  // com times de outras fontes (football-data) que não têm xG/xGA — por isso as 2 métricas
+  // sumiam só nesse modo.
+  const allSeasonIds = useMemo<number[]>(() => {
+    const ids: number[] = [];
+    for (const l of comps) {
+      const id = currentSeasonByComp.get(Number(l.id))?.id;
+      if (id != null && !ids.includes(id)) ids.push(id);
+    }
+    return ids;
+  }, [comps, currentSeasonByComp]);
+  const multiLeague = leagueId === "all" && allSeasonIds.length > 0;
+
+  const teamsQ = useInfiniteQuery({
+    queryKey: ["teams-page", leagueId, seasonIdForLeague, searchTerm, multiLeague ? allSeasonIds.join(",") : ""],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      if (multiLeague) {
+        const perLeague = await Promise.all(allSeasonIds.map((sid) => listTeams({
+          q: searchTerm || undefined, season_id: sid, skip: 0, limit: TEAM_PAGE_SIZE,
+        })));
+        return perLeague.flat();
+      }
+      return listTeams({
+        q: searchTerm || undefined,
+        season_id: seasonIdForLeague,
+        skip: pageParam,
+        limit: TEAM_PAGE_SIZE,
+      });
+    },
+    getNextPageParam: (lastPage, pages) =>
+      multiLeague || lastPage.length < TEAM_PAGE_SIZE ? undefined : pages.length * TEAM_PAGE_SIZE,
+    // No modo "todas" espera competições e temporadas carregarem para não buscar duas vezes.
+    enabled: leagueId === "all"
+      ? !compsQ.isPending && !seasonsQ.isPending
+      : seasonIdForLeague !== undefined,
+    retry: 1, retryDelay: 600,
+  });
 
   const leagueById: Record<string, League> = useMemo(() => {
     const r: Record<string, League> = {};
@@ -267,7 +299,7 @@ export default function TeamsPage() {
   }, [teamsQ.data, compIdBySeasonId, comps, compsQ.data, seasonsQ.data]);
 
   const loading = compsQ.isPending
-    || (leagueId !== "all" && seasonsQ.isPending)
+    || seasonsQ.isPending
     || (teamsQ.isPending && teamsQ.fetchStatus !== "idle");
 
   const requestFailed = compsQ.isError || teamsQ.isError
