@@ -285,21 +285,30 @@ export const Crowd = memo(function Crowd({ exciteRef, positions }: { exciteRef: 
     b.instanceMatrix.needsUpdate = true; h.instanceMatrix.needsUpdate = true;
   }, [seats, heads_c, dummy, k]);
 
+  const calm = useRef(false);
   useFrame((state) => {
     frame.current++;
     const b = bodies.current, h = heads.current;
     if (!b || !h) return;
-    // com muitos torcedores, atualiza só uma fatia por frame (rodízio) para poupar o celular
-    const stride = seats.length > 3000 ? 4 : 2;
-    const phase = frame.current % stride;
-    const t = state.clock.elapsedTime;
     const ex = exciteRef.current;
-    dummy.scale.setScalar(k);
-    for (let i = phase; i < seats.length; i += stride) {
+    const ba = b.instanceMatrix.array as Float32Array, ha = h.instanceMatrix.array as Float32Array;
+    // torcida calma: o balanço é imperceptível, então volta ao repouso uma vez e não gasta mais nada
+    if (ex < 0.03) {
+      if (!calm.current) {
+        for (let i = 0; i < seats.length; i++) { ba[i * 16 + 13] = seats[i].y + 0.22 * k; ha[i * 16 + 13] = seats[i].y + 0.6 * k; }
+        b.instanceMatrix.needsUpdate = true; h.instanceMatrix.needsUpdate = true; calm.current = true;
+      }
+      return;
+    }
+    calm.current = false;
+    if (frame.current & 1) return;                      // 30 Hz é suficiente para a torcida pulando
+    const t = state.clock.elapsedTime;
+    const w = 4 + ex * 5, amp = 0.012 + 0.2 * ex;
+    for (let i = 0; i < seats.length; i++) {
       const s = seats[i];
-      const jump = Math.max(0, Math.sin(t * (4 + ex * 5) + s.ph)) * (0.012 + 0.2 * ex);
-      dummy.position.set(s.x, s.y + 0.22 * k + jump, s.z); dummy.updateMatrix(); b.setMatrixAt(i, dummy.matrix);
-      dummy.position.set(s.x, s.y + 0.6 * k + jump, s.z); dummy.updateMatrix(); h.setMatrixAt(i, dummy.matrix);
+      const jump = Math.max(0, Math.sin(t * w + s.ph)) * amp;
+      ba[i * 16 + 13] = s.y + 0.22 * k + jump;          // só a translação Y da matriz (sem recompor a matriz inteira)
+      ha[i * 16 + 13] = s.y + 0.6 * k + jump;
     }
     b.instanceMatrix.needsUpdate = true; h.instanceMatrix.needsUpdate = true;
   });

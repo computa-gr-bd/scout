@@ -202,6 +202,11 @@ export function choreoExtra(c: Choreo, q: number, plan: Plan, clips: ClipTable, 
   const toBall = Math.atan2(plan.S.x - e.pos.x, plan.S.z - e.pos.z);
   const toOutcome = Math.atan2(plan.aim.x - e.pos.x, plan.aim.z - e.pos.z);
   c.yaw = lerpAngle(toBall, toOutcome, smooth((q - plan.TE) / 0.25));
+  if (e.wall) {
+    // barreira: encara a bola e dá um pulinho quando o batedor chuta
+    c.yaw = toBall;
+    c.y = 0.24 * Math.sin(Math.PI * clamp01((q - (plan.TC + 0.012)) / 0.065));
+  }
   add(c, IDLE, pingPong(q * plan.animSec + e.seed * 1.7, info(clips, IDLE).dur), 1);
   return c;
 }

@@ -99,7 +99,7 @@ export class Actor {
   private readonly tmpA = new THREE.Vector3();
   private readonly tmpB = new THREE.Vector3();
 
-  constructor(assets: Assets, kit: KitColors, opts: { number?: number; name?: string; cast?: boolean } = {}) {
+  constructor(assets: Assets, kit: KitColors, opts: { number?: number; name?: string; cast?: boolean; clips?: ClipKey[] } = {}) {
     this.model = cloneSkinned(assets.scene);
     const uniforms = {
       uKitMask: { value: assets.mask },
@@ -151,6 +151,7 @@ export class Actor {
 
     this.mixer = new THREE.AnimationMixer(this.model);
     for (const [k, pc] of Object.entries(assets.clips) as [ClipKey, PreparedClip][]) {
+      if (opts.clips && !opts.clips.includes(k)) continue;      // figurantes só ligam os clipes que usam
       const a = this.mixer.clipAction(pc.clip);
       a.play();
       a.paused = true;

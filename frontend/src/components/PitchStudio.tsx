@@ -59,6 +59,7 @@ const REPLAY_3D_FACTOR = 3.8;
 const REPLAY_3D_CORNER_FACTOR = 6.0;
 const REPLAY_LABEL: Record<ReplayMode, string> = { "2d": "2D", "real": "3D" };
 const isCornerShot = (a?: { situation?: string } | null) => /escanteio|corner/i.test(a?.situation ?? "");
+const isFreeKickShot = (a?: { situation?: string } | null) => /falta|free.?kick|tiro livre/i.test(a?.situation ?? "") && !/p[eê]nalti|penalty/i.test(a?.situation ?? "");
 const replayFactor = (mode: ReplayMode, a?: { situation?: string } | null) =>
   mode === "real" ? (isCornerShot(a) ? REPLAY_3D_CORNER_FACTOR : REPLAY_3D_FACTOR) : 1;
 
@@ -582,6 +583,8 @@ export function PitchStudio({
   const [popupOpen, setPopupOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
   const progressRef = useRef(0);
+  /** Progresso 0..1 a cada frame para o 3D (não passa pelo React); `progress` (state) é atualizado devagar nesse modo. */
+  const liveProgressRef = useRef(0);
   /** No modo 3D, o relógio do replay espera os modelos (estádio, jogadores, animações) carregarem. */
   const realReadyRef = useRef(true);
   const rafRef = useRef<number | null>(null);
@@ -604,7 +607,7 @@ export function PitchStudio({
   const awayStar = useMemo(() => Object.values(ds.players).find((p) => p.team === "away"), [ds]);
 
   useEffect(() => {
-    setIdx(0); progressRef.current = 0; setProgress(0); setPlaying(false); setStarted(false); setSelectedPlayer(null);
+    setIdx(0); progressRef.current = 0; liveProgressRef.current = 0; setProgress(0); setPlaying(false); setStarted(false); setSelectedPlayer(null);
     setPopupOpen(false);
     clearGoalPulse();
   }, [ds]);
@@ -621,7 +624,7 @@ export function PitchStudio({
   const isShotView = view === "shots" || view === "onTarget" || view === "goals";
 
   useEffect(() => {
-    setIdx(0); progressRef.current = 0; setProgress(0); setPlaying(false); setStarted(false);
+    setIdx(0); progressRef.current = 0; liveProgressRef.current = 0; setProgress(0); setPlaying(false); setStarted(false);
     setPopupOpen(false);
     clearGoalPulse();
   }, [view, filtered.length]);
@@ -655,12 +658,15 @@ export function PitchStudio({
     }
     const dur = (current.duration || 1.8) * 1000 * replayFactor(replayMode, current);
     let last = performance.now();
+    let lastUi = 0;
     const step = (now: number) => {
       // no modo 3D o replay só começa a andar depois que os modelos carregaram
       if (replayMode === "real" && !realReadyRef.current) { last = now; rafRef.current = requestAnimationFrame(step); return; }
       const dt = now - last; last = now; progressRef.current += dt;
       const p = Math.min(1, progressRef.current / dur);
-      setProgress(p);
+      liveProgressRef.current = p;
+      // no 3D o relógio vem do ref; o React só precisa de ~12 atualizações/s (textos e legendas)
+      if (replayMode !== "real" || p >= 1 || now - lastUi >= 80) { lastUi = now; setProgress(p); }
       if (p >= 1) {
         setPlaying(false);
         if (current.result === "goal") {
@@ -685,11 +691,11 @@ export function PitchStudio({
   const startPlayback = () => {
     // se o replay 3D já está aberto (repetindo o mesmo lance), os modelos já estão carregados
     realReadyRef.current = replayMode !== "real" || started;
-    progressRef.current = 0; setProgress(0); clearGoalPulse(); setPopupOpen(false); setStarted(true); setPlaying(true);
+    progressRef.current = 0; liveProgressRef.current = 0; setProgress(0); clearGoalPulse(); setPopupOpen(false); setStarted(true); setPlaying(true);
   };
   const selectShot = (nextIndex: number) => {
     setIdx(nextIndex);
-    progressRef.current = 0;
+    progressRef.current = 0; liveProgressRef.current = 0;
     setProgress(0);
     clearGoalPulse();
     setStarted(false);
@@ -700,7 +706,7 @@ export function PitchStudio({
   /** Fecha o replay 3D e volta ao mapa. */
   const closeReplay = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    progressRef.current = 0;
+    progressRef.current = 0; liveProgressRef.current = 0;
     setProgress(0);
     clearGoalPulse();
     setPlaying(false);
@@ -708,7 +714,7 @@ export function PitchStudio({
   };
   const selectReplayMode = (mode: ReplayMode) => {
     setReplayMode(mode);
-    progressRef.current = 0;
+    progressRef.current = 0; liveProgressRef.current = 0;
     setProgress(0);
     clearGoalPulse();
     setStarted(false);
@@ -942,6 +948,8 @@ export function PitchStudio({
                   shirtNumber={current.number > 0 ? current.number : undefined}
                   seed={current.id}
                   corner={isCornerShot(current)}
+                  freeKick={isFreeKickShot(current)}
+                  progressRef={liveProgressRef}
                   onReady={() => { realReadyRef.current = true; }}
                   info={{
                     player: current.player,

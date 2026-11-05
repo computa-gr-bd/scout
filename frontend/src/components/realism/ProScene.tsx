@@ -57,7 +57,7 @@ export const ProScene = memo(function ProScene({ plan, qRef, teamColor, foeColor
       t: plan.taker ? new Actor(assets, kit(teamColor, "#f8fafc"), { cast: true }) : null,
       g: new Actor(assets, KEEPER, { cast: true }),
       d: plan.defender ? new Actor(assets, kit(foeColor, "#111827"), { cast: true }) : null,
-      e: plan.extras.map((x) => new Actor(assets, x.own ? kit(teamColor, "#f8fafc") : kit(foeColor, "#111827"))),
+      e: plan.extras.map((x) => new Actor(assets, x.own ? kit(teamColor, "#f8fafc") : kit(foeColor, "#111827"), { clips: ["idle_offensive"] })),
     };
   }, [assets, plan, teamColor, foeColor, number, name]);
 
@@ -72,6 +72,7 @@ export const ProScene = memo(function ProScene({ plan, qRef, teamColor, foeColor
 
   const ch = useMemo<Choreo>(() => newChoreo(), []);
   const kPos = useRef(new THREE.Vector3());
+  const frameN = useRef(0);
 
   useFrame(() => {
     const q = qRef.current;
@@ -81,7 +82,8 @@ export const ProScene = memo(function ProScene({ plan, qRef, teamColor, foeColor
     if (actors.t) { choreoTaker(ch, q, plan, table); apply(actors.t, ch); }
     choreoKeeper(ch, q, plan, table); apply(actors.g, ch);
     if (actors.d) { choreoDefender(ch, q, plan, table); apply(actors.d, ch); }
-    actors.e.forEach((a, i) => { choreoExtra(ch, q, plan, table, i); apply(a, ch); });
+    // figurantes só mexem em ritmo de espera: metade dos frames basta (e poupa o esqueleto de cada um)
+    if ((frameN.current++ & 1) === 0) actors.e.forEach((a, i) => { choreoExtra(ch, q, plan, table, i); apply(a, ch); });
   });
 
   const getHold = useMemo(() => (out: THREE.Vector3) => { actors.g.handsMid(out); }, [actors]);

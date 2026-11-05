@@ -1,5 +1,6 @@
-import { Component, Suspense, useMemo, useRef, useState, type ReactNode } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Component, Suspense, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { PerformanceMonitor } from "@react-three/drei";
 import * as THREE from "three";
 import { MaterialIcon } from "./MaterialIcon";
 import { clamp, clamp01, smooth, type ShotResult } from "./realism/common";
@@ -37,6 +38,15 @@ function makeWarp(center: number, enabled: boolean) {
   };
 }
 
+/**
+ * Relógio da cena: lê o progresso "ao vivo" (ref, atualizado a cada frame pelo player) e converte em tempo de cena.
+ * Assim o 3D anda a 60 fps sem re-renderizar o React a cada frame. Roda antes de todos os outros useFrame.
+ */
+function SceneClock({ progressRef, warp, qRef }: { progressRef: MutableRefObject<number>; warp: (p: number) => number; qRef: MutableRefObject<number> }) {
+  useFrame(() => { qRef.current = warp(progressRef.current); }, -1);
+  return null;
+}
+
 /** Se os modelos falharem (arquivo ausente, WebGL…), mostra um aviso no lugar da cena. */
 class ModelBoundary extends Component<{ onError: () => void; children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -58,7 +68,7 @@ const RESULT_LABEL: Record<ShotResult, { text: string; tone: string }> = {
 
 export function RealisticReplay3D({
   goalLoc, shotOrigin, team = "home", result = "goal", teamColor, foeColor = "#e2e8f0", progress, penalty = false, header = false,
-  leftFooted = false, shirtNumber, info, seed = 1, corner = false, onReady, onClose,
+  leftFooted = false, shirtNumber, info, seed = 1, corner = false, freeKick = false, progressRef, onReady, onClose,
 }: {
   goalLoc?: { x: number; y: number };
   shotOrigin: { x: number; y: number };
@@ -75,6 +85,10 @@ export function RealisticReplay3D({
   seed?: number;
   /** O lance veio de escanteio: mostra a batida e o cruzamento antes da finalização. */
   corner?: boolean;
+  /** Cobrança de falta direta: mostra a barreira e a bola por cima dela. */
+  freeKick?: boolean;
+  /** Progresso (0..1) atualizado a cada frame pelo player. Se informado, `progress` só alimenta os textos (pode ser lento). */
+  progressRef?: MutableRefObject<number>;
   /** Chamado quando os modelos terminaram de carregar (o replay só começa a andar depois disso). */
   onReady?: () => void;
   onClose?: () => void;
@@ -82,17 +96,18 @@ export function RealisticReplay3D({
   const [camMode, setCamMode] = useState<CamMode>("auto");
   const [slow, setSlow] = useState(true);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [dpr, setDpr] = useState(1.5);                // cai para 1 se o aparelho não aguentar 60 fps
 
   const gx = goalLoc?.x, gy = goalLoc?.y, ox = shotOrigin.x, oy = shotOrigin.y;
   const plan = useMemo(() => buildPlan({
-    goalX: gx, goalY: gy, originX: ox, originY: oy, team, result, penalty, header, left: leftFooted, seed, corner,
-  }), [gx, gy, ox, oy, team, result, penalty, header, leftFooted, seed, corner]);
+    goalX: gx, goalY: gy, originX: ox, originY: oy, team, result, penalty, header, left: leftFooted, seed, corner, freeKick,
+  }), [gx, gy, ox, oy, team, result, penalty, header, leftFooted, seed, corner, freeKick]);
 
   const warp = useMemo(() => makeWarp(plan.TC, slow), [plan.TC, slow]);
   const q = warp(progress);
   // O tempo da cena é lido por ref dentro do useFrame: a cena 3D não re-renderiza no React a cada frame.
   const qRef = useRef(q);
-  qRef.current = q;
+  if (!progressRef) qRef.current = q;
 
   const label = RESULT_LABEL[plan.result];
   const showResult = q > plan.TE + 0.03;
@@ -104,11 +119,13 @@ export function RealisticReplay3D({
     <div className="goal-replay-3d goal-replay-real" role="img" aria-label="Replay 3D do chute">
       <Canvas
         shadows
-        dpr={[1, 1.5]}
+        dpr={dpr}
         camera={{ position: [0, 2.7, 9.5], fov: 40, near: 0.1, far: 900 }}
         gl={{ antialias: true, powerPreference: "high-performance" }}
         onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 1.08; }}
       >
+        {progressRef && <SceneClock progressRef={progressRef} warp={warp} qRef={qRef} />}
+        <PerformanceMonitor onDecline={() => setDpr(1)} onIncline={() => setDpr(1.5)} flipflops={2} />
         <ModelBoundary onError={() => { setStatus("error"); onReady?.(); }}>
           <Suspense fallback={null}>
             <ProScene
@@ -139,6 +156,12 @@ export function RealisticReplay3D({
               <div className="text-[11px] text-slate-400">Use o modo 2D ou tente novamente.</div>
             </>
           )}
+        </div>
+      )}
+
+      {plan.freeKick && q < plan.TC + 0.12 && (
+        <div className="pointer-events-none absolute left-1/2 top-[14%] z-[4] -translate-x-1/2 rounded-full border border-white/20 bg-slate-950/75 px-3.5 py-1 text-[11px] font-black uppercase tracking-[0.18em] text-white backdrop-blur" aria-hidden="true">
+          Falta
         </div>
       )}
 

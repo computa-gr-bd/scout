@@ -7,9 +7,13 @@ export type Kind = "open" | "penalty" | "header";
 type Ease = "out" | "lin" | "quad" | "outq";
 
 /** Trecho do voo da bola: interpolação a→b com arco (apex, em metros) e curva lateral. */
-export type Seg = { t0: number; t1: number; a: THREE.Vector3; b: THREE.Vector3; apex: number; curl: number; ease: Ease };
+export type Seg = {
+  t0: number; t1: number; a: THREE.Vector3; b: THREE.Vector3; apex: number; curl: number; ease: Ease;
+  /** Altura como parábola explícita y = a.y + c1·u + c2·u² (u = progresso eased). Substitui o `apex`. */
+  ycoef?: readonly [number, number];
+};
 
-export type Extra = { pos: THREE.Vector3; yaw: number; own: boolean; seed: number };
+export type Extra = { pos: THREE.Vector3; yaw: number; own: boolean; seed: number; /** Barreira de falta: encara a bola e pula. */ wall?: boolean };
 
 /** Um jogador que toca na bola (chute, cabeceio, carrinho): qual clipe, onde e quando. */
 export type Contact = {
@@ -56,6 +60,7 @@ export type Plan = {
   defender?: { pos: THREE.Vector3; touch: THREE.Vector3; contactQ: number; contact: Contact };
   extras: Extra[];
   crossFrom?: THREE.Vector3;
+  freeKick?: boolean;
   /** Pra fora: a bola vai por cima (true) ou pelo lado. */
   offHigh: boolean;
   /** Clipes de animação necessários para este lance (só eles são baixados). */
@@ -67,19 +72,28 @@ export type PlanInput = {
   team: "home" | "away"; result: ShotResult; penalty: boolean; header: boolean; left: boolean; seed: number; xg?: number | null;
   /** Lance veio de escanteio: mostra a batida, o cruzamento e só então a finalização. */
   corner?: boolean;
+  /** Cobrança de falta: barreira a 9,15 m e bola por cima dela. */
+  freeKick?: boolean;
 };
 
 function ease(e: Ease, u: number) {
   switch (e) {
-    case "out": return 1 - Math.pow(1 - u, 1.35);
+    // desacelera só um pouco (derivada 1,12 → 0,88): a bola não "freia" antes do trecho seguinte
+    case "out": return 1.12 * u - 0.12 * u * u;
     case "outq": return 1 - (1 - u) * (1 - u);
     case "quad": return u * u;
     default: return u;
   }
 }
 
-function seg(t0: number, t1: number, a: THREE.Vector3, b: THREE.Vector3, apex = 0, e: Ease = "lin", curl = 0): Seg {
-  return { t0, t1, a: a.clone(), b: b.clone(), apex, curl, ease: e };
+function seg(t0: number, t1: number, a: THREE.Vector3, b: THREE.Vector3, apex = 0, e: Ease = "lin", curl = 0, ycoef?: readonly [number, number]): Seg {
+  return { t0, t1, a: a.clone(), b: b.clone(), apex, curl, ease: e, ycoef };
+}
+
+/** Parábola y(u) = a + c1·u + c2·u² passando por (0, a), (f, y1) e (1, y2). */
+function parabola(a: number, y1: number, y2: number, f: number): readonly [number, number] {
+  const c2 = ((y1 - a) - (y2 - a) * f) / (f * f - f);
+  return [(y2 - a) - c2, c2];
 }
 
 export function ballAt(plan: Plan, q: number, out: THREE.Vector3) {
@@ -88,8 +102,10 @@ export function ballAt(plan: Plan, q: number, out: THREE.Vector3) {
   let s = segs[0];
   for (const c of segs) { if (c.t0 <= q) s = c; else break; }
   const u = clamp01((q - s.t0) / Math.max(1e-6, s.t1 - s.t0));
-  out.lerpVectors(s.a, s.b, ease(s.ease, u));
-  out.y += s.apex * 4 * u * (1 - u);
+  const e = ease(s.ease, u);
+  out.lerpVectors(s.a, s.b, e);
+  if (s.ycoef) out.y = s.a.y + s.ycoef[0] * e + s.ycoef[1] * e * e;
+  else out.y += s.apex * 4 * u * (1 - u);
   out.x += s.curl * Math.sin(Math.PI * u);
   out.y = Math.max(BALL_R, out.y);
   return out;
@@ -115,6 +131,7 @@ export function buildPlan(o: PlanInput): Plan {
   const corner = !!o.corner && !penalty;
   const kind: Kind = penalty ? "penalty" : o.header ? "header" : "open";
   let result = o.result;
+  const freeKick = !!o.freeKick && !penalty && !corner && kind === "open" && result !== "own_goal";
   if (penalty && result === "blocked") result = "saved";
   if (penalty && result === "own_goal") result = "goal";
 
@@ -131,6 +148,7 @@ export function buildPlan(o: PlanInput): Plan {
   if (kind === "open") {
     dist = clamp(metersToGoal * 0.6 + 2.5, 6, 22);
     lateral = clamp((o.originY - 50) * 0.5 * sgnHome, -13, 13);
+    if (freeKick) { dist = clamp(metersToGoal * 0.6 + 3, 15, 25); lateral = clamp(lateral, -11, 11); }
   } else if (kind === "header") {
     dist = clamp(metersToGoal * 0.45 + 2.5, 4.5, 10);
     lateral = clamp((o.originY - 50) * 0.3 * sgnHome, -5, 5);
@@ -148,7 +166,8 @@ export function buildPlan(o: PlanInput): Plan {
   else if (kind === "header") {
     clip = (corner ? h3 < 0.6 : h3 < 0.5) ? "anim_header" : "header_1";
     mirror = h2 < 0.5 ? 1 : -1; wantsApproach = false;
-  } else if (dist < 8 && !corner) { clip = foot === "L" ? "kick_1" : "kick_2"; }
+  } else if (freeKick) { clip = "penalty_kick"; mirror = mirrorFor("R"); wantsApproach = false; }
+  else if (dist < 8 && !corner) { clip = foot === "L" ? "kick_1" : "kick_2"; }
   else if (corner && dist < 7) { clip = foot === "L" ? "kick_1" : "kick_2"; }
   else if (corner && h3 < 0.5) { clip = "scissor_kick"; mirror = mirrorFor("R"); wantsApproach = false; }
   else { clip = "kick_jog"; mirror = mirrorFor("R"); }
@@ -168,10 +187,24 @@ export function buildPlan(o: PlanInput): Plan {
   const ballCorner = v3(cs * 33.55, BALL_R, GL + 0.45);
   const crossSec = corner ? clamp(ballCorner.distanceTo(S) / 21, 1.25, 1.9) : 0;
   const TC = corner ? qKc + crossSec / animSec : penalty ? 0.43 : kind === "header" ? 0.36 : 0.38;
-  let FL = penalty ? 0.11 : kind === "header" ? 0.14 : clamp(0.085 + dist * 0.0045, 0.12, 0.2);
-  const apexBase = penalty ? 0.12 : kind === "header" ? 0.05 : clamp(0.18 + dist * 0.035, 0.25, 1.3);
-  const curl = kind === "open" ? (h3 - 0.5) * clamp(dist * 0.1, 0.4, 1.6) : 0;
+  let FL = penalty ? 0.11 : kind === "header" ? 0.14 : freeKick ? clamp(0.1 + dist * 0.0055, 0.18, 0.24) : clamp(0.085 + dist * 0.0045, 0.12, 0.2);
+  let apexBase = penalty ? 0.12 : kind === "header" ? 0.05 : clamp(0.18 + dist * 0.035, 0.25, 1.3);
+  const curl = freeKick ? (h3 - 0.5) * 2.2 : kind === "open" ? (h3 - 0.5) * clamp(dist * 0.1, 0.4, 1.6) : 0;
   const dirDefault = Math.abs(tx) < 0.4 ? (S.x > 0 ? -1 : 1) : Math.sign(tx);
+
+  /* barreira: 9,15 m da bola, na linha bola → centro do gol */
+  const wallD = freeKick ? Math.min(9.15, dist - 4) : 0;
+  const wallDir = new THREE.Vector3(-S.x, 0, GL - S.z).normalize();
+  const wallC = freeKick ? v3(S.x + wallDir.x * wallD, 0, S.z + wallDir.z * wallD) : v3();
+  const wallFrac = freeKick ? (S.z - wallC.z) / Math.max(1, S.z - GL) : 0;
+  /** Apex mínimo para a bola passar por cima da barreira (≥ 2,35 m) numa trajetória S→aim. */
+  if (freeKick) {
+    const to = v3(tx, ty, GL);
+    let u = 0;
+    for (let i = 0; i <= 200; i++) { u = i / 200; if (ease("out", u) >= wallFrac) break; }
+    const base = S.y + (to.y - S.y) * ease("out", u);
+    apexBase = clamp(Math.max(apexBase, (2.35 - base) / Math.max(0.2, 4 * u * (1 - u))), 1.2, 4.2);
+  }
 
   const segs: Seg[] = [];
   let TE = TC + FL;
@@ -256,6 +289,19 @@ export function buildPlan(o: PlanInput): Plan {
         segs.push(seg(TE + 0.14, TE + 0.26, P1, P2, 0.22, "out"));
       }
     }
+  } else if (result === "blocked" && freeKick) {
+    // a bola bate na barreira e volta
+    FL = FL * Math.max(0.3, wallFrac);
+    TE = TC + FL;
+    const B = v3(wallC.x - wallDir.x * 0.3, 1.05 + h2 * 0.5, wallC.z - wallDir.z * 0.3);
+    const side = h1 < 0.5 ? -1 : 1;
+    const D = v3(B.x - wallDir.x * 2.6 + side * 2.2, BALL_R, B.z - wallDir.z * 2.6);
+    const D2 = v3(D.x - wallDir.x * 1.3 + side * 0.8, BALL_R, D.z - wallDir.z * 1.3);
+    aim = B.clone();
+    segs.push(seg(TC, TE, S, B, 0.35, "out"));
+    segs.push(seg(TE, TE + 0.16, B, D, 0.8, "outq"));
+    segs.push(seg(TE + 0.16, TE + 0.28, D, D2, 0.18, "out"));
+    keeper = trackKeeper(clamp(B.x * 0.25, -1.2, 1.2));
   } else if (result === "blocked") {
     FL = FL * 0.45;
     TE = TC + FL;
@@ -272,21 +318,56 @@ export function buildPlan(o: PlanInput): Plan {
     defender = makeDefender(Dp, B, TE);
     keeper = trackKeeper(clamp(Dp.x * 0.25, -1.2, 1.2));
   } else {
-    // pra fora
-    offHigh = h2 > 0.62;
+    // pra fora: uma única trajetória reta que atravessa a linha do gol e segue com a mesma velocidade
+    offHigh = freeKick ? true : h2 > 0.62;
     const side = hasLoc ? (gx >= 0.5 ? 1 : -1) : h1 < 0.5 ? -1 : 1;
     const HALF = GOAL_W / 2;
     const cross = offHigh
-      ? v3((h1 - 0.5) * 4.4, GOAL_H + 0.7 + (h2 - 0.62) * 2.9, GL)
+      ? freeKick
+        ? v3(clamp(tx * 1.1, -HALF, HALF) + (h1 - 0.5) * 1.2, GOAL_H + 0.6 + h2 * 1.4, GL)
+        : v3((h1 - 0.5) * 4.4, GOAL_H + 0.45 + (h2 - 0.62) * 2.4, GL)
       : v3(side * (HALF + 0.9 + h1 * 1.4), 0.6 + h2 * 1.5, GL);
-    const out = offHigh
-      ? v3(cross.x + (h1 - 0.5) * 0.8, BALL_R, GL - 4.2)
-      : v3(cross.x + side * (0.6 + h1 * 0.8), BALL_R, GL - 3.4);
-    const rest = v3(out.x + side * 0.3, BALL_R, GL - 4.9);
     aim = cross.clone();
-    segs.push(seg(TC, TE, S, cross, apexBase + (offHigh ? 0.5 : 0), "out", curl));
-    segs.push(seg(TE, TE + 0.17, cross, out, 0, "quad"));
-    segs.push(seg(TE + 0.17, TE + 0.3, out, rest, 0.12, "out"));
+
+    // ponto onde a bola toca o chão depois da linha (limitado para não entrar na arquibancada)
+    // bola alta vai até a arquibancada (chega ainda no ar e cai); a rasteira/pelo lado toca o chão logo depois da linha
+    const landZ = GL - (offHigh ? 6.2 + h1 * 0.8 : 2.2 + h2 * 1.2);
+    const yEnd = offHigh ? 1.5 : BALL_R;
+    let k = (S.z - landZ) / Math.max(0.5, S.z - cross.z);
+    k = Math.min(k, 1 + 0.16 / FL);                      // o voo não pode estourar o tempo do replay
+    const f = 1 / k;
+    const F = v3(S.x + (cross.x - S.x) * k, yEnd, S.z + (cross.z - S.z) * k);
+    let y1 = cross.y;
+    if (freeKick) {                                      // por cima da barreira
+      const uW = (S.z - wallC.z) / Math.max(0.5, S.z - F.z);
+      for (let i = 0; i < 10; i++) {
+        const [c1, c2] = parabola(S.y, y1, yEnd, f);
+        if (S.y + c1 * uW + c2 * uW * uW >= 2.35) break;
+        y1 += 0.35;
+      }
+      aim.y = y1; cross.y = y1;
+    }
+    const yc = parabola(S.y, y1, yEnd, f);
+    const t1 = TC + FL * k;
+    segs.push(seg(TC, t1, S, F, 0, "lin", 0, yc));
+
+    const dir = new THREE.Vector3(F.x - S.x, 0, F.z - S.z).normalize();
+    const vq = Math.hypot(F.x - S.x, F.z - S.z) / Math.max(1e-3, t1 - TC);   // m por unidade de q
+    if (offHigh) {
+      // bate na arquibancada/placa e cai na vertical
+      const G = v3(F.x + dir.x * 0.25, BALL_R, Math.max(F.z + dir.z * 0.25, GL - 7.4));
+      segs.push(seg(t1, t1 + 0.07, F, G, 0, "quad"));
+    } else {
+      // quica e rola na mesma direção, casando a velocidade horizontal com a do voo
+      const len1 = 2.6, len2 = 1.3;
+      const F2 = v3(F.x + dir.x * len1, BALL_R, Math.max(F.z + dir.z * len1, GL - 6.8));
+      const rest = v3(F2.x + dir.x * len2, BALL_R, Math.max(F2.z + dir.z * len2, GL - 7.4));
+      const d1 = Math.hypot(F2.x - F.x, F2.z - F.z), d2 = Math.hypot(rest.x - F2.x, rest.z - F2.z);
+      const t2 = Math.min(t1 + d1 / (0.62 * vq) * 1.12, t1 + 0.1);
+      const t3 = Math.min(t2 + d2 / (0.4 * vq) * 1.12, t2 + 0.09);
+      segs.push(seg(t1, t2, F, F2, 0.45, "out"));
+      segs.push(seg(t2, t3, F2, rest, 0.1, "out"));
+    }
     keeper = trackKeeper(clamp(cross.x * 0.3, -1.3, 1.3));
   }
 
@@ -334,7 +415,17 @@ export function buildPlan(o: PlanInput): Plan {
   /* ------------------------------------------------ elenco de apoio (parado, olhando a jogada) */
   const lane = (z: number) => S.x * (z - GL) / Math.max(1, S.z - GL);
   const extras: Extra[] = [];
-  if (penalty) {
+  if (freeKick) {
+    const n = dist > 21 ? 5 : 4;
+    const perp = v3(wallDir.z, 0, -wallDir.x);
+    for (let i = 0; i < n; i++) {
+      const off = (i - (n - 1) / 2) * 0.64;
+      const p = v3(wallC.x + perp.x * off, 0, wallC.z + perp.z * off);
+      extras.push({ pos: p, yaw: yawTo(p, S), own: false, seed: i + 1, wall: true });
+    }
+    extras.push({ pos: v3(clamp(S.x + 3.2, -13, 13), 0, S.z + 2.6), yaw: 0, own: true, seed: 7 });
+    extras.push({ pos: v3(clamp(-S.x * 0.3 + 6, -13, 13), 0, GL + 6), yaw: 0, own: true, seed: 8 });
+  } else if (penalty) {
     [-9, -3.4, 3.4, 9].forEach((x, i) => extras.push({ pos: v3(x, 0, GL + 17.6 + (i % 2) * 0.7), yaw: 0, own: i % 2 === 0, seed: i + 1 }));
   } else {
     const place = (x: number, z: number, own: boolean, seed: number) => {
@@ -352,7 +443,7 @@ export function buildPlan(o: PlanInput): Plan {
   if (keeper.clip) clipSet.add(keeper.clip);
   return {
     kind, result, left: o.left, animSec, S, aim, TC, TE, segs, net, catches,
-    shooter, taker, corner: cornerInfo, celebTo, keeper, defender, extras, crossFrom, offHigh,
+    shooter, taker, corner: cornerInfo, celebTo, keeper, defender, extras, crossFrom, offHigh, freeKick,
     clips: Array.from(clipSet),
   };
 }

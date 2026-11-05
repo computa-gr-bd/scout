@@ -132,7 +132,7 @@ export function directCamera(mode: CamMode, q: number, plan: Plan, kPos: THREE.V
       out.pos.set(aim.x + sx * -7.5, 1.5, GL + 4.5); out.look.set(aim.x, 1.0, GL + 0.5); out.fov = 38;
     } else if (plan.result === "blocked") {
       const d = plan.defender;
-      out.pos.set((d?.pos.x ?? aim.x) + 4.5 * sx, 1.4, (d?.pos.z ?? S.z) + 4.0); out.look.set(d?.touch.x ?? aim.x, 0.7, d?.touch.z ?? S.z); out.fov = 34;
+      out.pos.set((d?.pos.x ?? aim.x) + 4.5 * sx, 1.4, (d?.pos.z ?? aim.z) + 4.0); out.look.set(d?.touch.x ?? aim.x, 0.7, d?.touch.z ?? aim.z); out.fov = 34;
     } else {
       out.pos.set(ball.x * 0.4 + 5 * sx, 1.8, GL + 6.5); out.look.set(lerp(ball.x, 0, 0.2), Math.max(0.8, ball.y * 0.8), lerp(ball.z, GL, 0.2)); out.fov = 40;
     }
@@ -229,7 +229,7 @@ export function useBallAndCamera({ plan, qRef, camMode, kPos, getHold }: {
 
     // torcida
     const goal = plan.result === "goal" || plan.result === "own_goal";
-    excite.current = goal ? smooth((qq - plan.TE) / 0.08) : plan.result === "saved" ? 0.35 * smooth((qq - plan.TE) / 0.1) : 0.1 + 0.2 * smooth((qq - plan.TE) / 0.1);
+    excite.current = goal ? smooth((qq - plan.TE) / 0.08) : plan.result === "saved" ? 0.35 * smooth((qq - plan.TE) / 0.1) : 0.3 * smooth((qq - plan.TE) / 0.1);
 
     // câmera
     const cam = camera as THREE.PerspectiveCamera;
