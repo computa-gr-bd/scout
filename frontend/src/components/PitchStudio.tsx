@@ -55,8 +55,12 @@ type PlayerDetail = {
 
 /** O replay 3D realista tem corrida, câmera lenta no contato, voo, desfecho e comemoração: é o mais longo. */
 const REPLAY_3D_FACTOR = 3.8;
+/** Lance de escanteio: mostra a batida e o cruzamento antes da finalização, então dura mais. */
+const REPLAY_3D_CORNER_FACTOR = 6.0;
 const REPLAY_LABEL: Record<ReplayMode, string> = { "2d": "2D", "real": "3D" };
-const replayFactor = (mode: ReplayMode) => (mode === "real" ? REPLAY_3D_FACTOR : 1);
+const isCornerShot = (a?: { situation?: string } | null) => /escanteio|corner/i.test(a?.situation ?? "");
+const replayFactor = (mode: ReplayMode, a?: { situation?: string } | null) =>
+  mode === "real" ? (isCornerShot(a) ? REPLAY_3D_CORNER_FACTOR : REPLAY_3D_FACTOR) : 1;
 
 const HOME_COLOR = "#3b82f6";
 const AWAY_COLOR = "#e1534e";
@@ -578,6 +582,8 @@ export function PitchStudio({
   const [popupOpen, setPopupOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
   const progressRef = useRef(0);
+  /** No modo 3D, o relógio do replay espera os modelos (estádio, jogadores, animações) carregarem. */
+  const realReadyRef = useRef(true);
   const rafRef = useRef<number | null>(null);
   const goalPulseRafRef = useRef<number | null>(null);
   const [progress, setProgress] = useState(0);
@@ -647,9 +653,11 @@ export function PitchStudio({
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       return;
     }
-    const dur = (current.duration || 1.8) * 1000 * replayFactor(replayMode);
+    const dur = (current.duration || 1.8) * 1000 * replayFactor(replayMode, current);
     let last = performance.now();
     const step = (now: number) => {
+      // no modo 3D o replay só começa a andar depois que os modelos carregaram
+      if (replayMode === "real" && !realReadyRef.current) { last = now; rafRef.current = requestAnimationFrame(step); return; }
       const dt = now - last; last = now; progressRef.current += dt;
       const p = Math.min(1, progressRef.current / dur);
       setProgress(p);
@@ -675,6 +683,8 @@ export function PitchStudio({
 
   /** Inicia a reprodução do lance atual (limpa progresso e toca). */
   const startPlayback = () => {
+    // se o replay 3D já está aberto (repetindo o mesmo lance), os modelos já estão carregados
+    realReadyRef.current = replayMode !== "real" || started;
     progressRef.current = 0; setProgress(0); clearGoalPulse(); setPopupOpen(false); setStarted(true); setPlaying(true);
   };
   const selectShot = (nextIndex: number) => {
@@ -705,7 +715,7 @@ export function PitchStudio({
     setPlaying(false);
   };
   const togglePlayback = () => {
-    if (!started || progressRef.current >= (current?.duration ?? 1.8) * 1000 * replayFactor(replayMode)) startPlayback();
+    if (!started || progressRef.current >= (current?.duration ?? 1.8) * 1000 * replayFactor(replayMode, current)) startPlayback();
     else setPlaying((wasPlaying) => !wasPlaying);
   };
   const goPrev = () => { if (idx > 0) selectShot(idx - 1); };
@@ -931,6 +941,8 @@ export function PitchStudio({
                   leftFooted={/esquerd|left/i.test(current.shotType)}
                   shirtNumber={current.number > 0 ? current.number : undefined}
                   seed={current.id}
+                  corner={isCornerShot(current)}
+                  onReady={() => { realReadyRef.current = true; }}
                   info={{
                     player: current.player,
                     subtitle: `${current.teamName} · ${current.minute || "—"}'${current.matchLabel ? ` · ${current.matchLabel}` : ""}`,

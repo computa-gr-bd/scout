@@ -1,40 +1,29 @@
-import { Component, Suspense, useEffect, useMemo, useRef, type MutableRefObject, type ReactNode, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { BALL_R, GL, lerp, smooth, v3 } from "./common";
 import { ballAt, type Plan } from "./plan";
-import { AdBoards, Crowd, Flashes, Floodlights, GoalFrame, GoalNet, Pitch, StandsStructure, type NetImpact } from "./Stadium";
+import type { NetImpact } from "./Stadium";
 import { StadiumModel } from "./StadiumModel";
 
 export type CamMode = "auto" | "back" | "side" | "goal" | "air";
 
 /* ------------------------------ Bola -------------------------------------- */
-const PHI = (1 + Math.sqrt(5)) / 2;
-const PENTAGON_DIRS = [
-  [0, 1, PHI], [0, -1, PHI], [0, 1, -PHI], [0, -1, -PHI],
-  [1, PHI, 0], [-1, PHI, 0], [1, -PHI, 0], [-1, -PHI, 0],
-  [PHI, 0, 1], [-PHI, 0, 1], [PHI, 0, -1], [-PHI, 0, -1],
-] as const;
-
-export function SoccerBall() {
-  const patches = useMemo(() => PENTAGON_DIRS.map(([x, y, z]) => {
-    const n = new THREE.Vector3(x, y, z).normalize();
-    return { pos: n.clone().multiplyScalar(BALL_R * 1.004), quat: new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n) };
-  }), []);
-  return (
-    <group>
-      <mesh castShadow>
-        <sphereGeometry args={[BALL_R, 28, 20]} />
-        <meshStandardMaterial color="#fafafa" roughness={0.34} metalness={0.02} />
-      </mesh>
-      {patches.map((p, i) => (
-        <mesh key={i} position={p.pos} quaternion={p.quat}>
-          <circleGeometry args={[BALL_R * 0.4, 5]} />
-          <meshStandardMaterial color="#121826" roughness={0.45} side={THREE.DoubleSide} />
-        </mesh>
-      ))}
-    </group>
-  );
+/** Bola 3D (modelo GLB): centralizada e escalada para o raio BALL_R (um pouco maior que a real, para ler melhor). */
+export function SoccerBall({ model }: { model: THREE.Object3D }) {
+  const ball = useMemo(() => {
+    const clone = model.clone(true);
+    const box = new THREE.Box3().setFromObject(clone);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    clone.position.sub(center);
+    clone.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = false; } });
+    const pivot = new THREE.Group();
+    pivot.scale.setScalar((2 * BALL_R) / Math.max(size.x, size.y, size.z, 1e-6));
+    pivot.add(clone);
+    return pivot;
+  }, [model]);
+  return <primitive object={ball} />;
 }
 
 const TRAIL_N = 16;
@@ -100,7 +89,18 @@ export function directCamera(mode: CamMode, q: number, plan: Plan, kPos: THREE.V
   const b4 = b3 + (plan.result === "goal" || plan.result === "own_goal" ? 0.24 : 0.17);
   const header = plan.kind === "header";
 
-  if (q < b1) {
+  const cr = plan.corner;
+  if (cr && q < b1) {
+    if (q < cr.qKick + 0.03) {
+      // quem bate o escanteio, visto de dentro do campo, com a área ao fundo
+      out.pos.set(cr.ballAt.x - cr.side * 6.5, 1.8, cr.ballAt.z + 5.5); out.look.set(cr.ballAt.x, 1.0, cr.ballAt.z - 0.5);
+      out.fov = 40; out.key = 5; out.k = 3;
+    } else {
+      // o cruzamento: câmera alta e aberta, olhando a bola até a área
+      out.pos.set(-cr.side * 6, 4.4, GL + 20); out.look.set(ball.x, ball.y + 0.8, ball.z);
+      out.fov = 38; out.key = 6; out.k = 5;
+    }
+  } else if (q < b1) {
     // acompanha quem vai chutar
     const dolly = 1 - smooth(q / b1);
     if (plan.kind === "penalty") {
@@ -169,42 +169,8 @@ export function Env({ impactRef, exciteRef }: { impactRef: MutableRefObject<NetI
         shadow-camera-near={1} shadow-camera-far={80} shadow-bias={-0.0005}
       />
       <primitive object={target} />
-      <StadiumSwitch impactRef={impactRef} exciteRef={exciteRef} />
+      <StadiumModel impactRef={impactRef} exciteRef={exciteRef} />
     </>
-  );
-}
-
-/** Se o estádio 3D falhar ao carregar, usa o cenário simples (e ele também aparece enquanto baixa). */
-class SoftBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
-  static getDerivedStateFromError() { return { failed: true }; }
-  componentDidCatch() { console.warn("[3d] estádio 3D indisponível; usando o cenário simples"); }
-  render() { return this.state.failed ? this.props.fallback : this.props.children; }
-}
-
-function SimpleStadium({ impactRef, exciteRef }: { impactRef: MutableRefObject<NetImpact>; exciteRef: MutableRefObject<number> }) {
-  return (
-    <>
-      <Pitch />
-      <GoalFrame />
-      <GoalNet impactRef={impactRef} />
-      <AdBoards />
-      <StandsStructure />
-      <Crowd exciteRef={exciteRef} />
-      <Flashes />
-      <Floodlights />
-    </>
-  );
-}
-
-function StadiumSwitch({ impactRef, exciteRef }: { impactRef: MutableRefObject<NetImpact>; exciteRef: MutableRefObject<number> }) {
-  const simple = <SimpleStadium impactRef={impactRef} exciteRef={exciteRef} />;
-  return (
-    <SoftBoundary fallback={simple}>
-      <Suspense fallback={simple}>
-        <StadiumModel impactRef={impactRef} exciteRef={exciteRef} />
-      </Suspense>
-    </SoftBoundary>
   );
 }
 
@@ -270,7 +236,7 @@ export function useBallAndCamera({ plan, qRef, camMode, kPos, getHold }: {
     directCamera(camMode, qq, plan, kPos.current, tmp.ball, tmp.shot);
     const shot = tmp.shot;
     const key = shot.key + (camMode === "auto" ? 0 : 1000);
-    const snap = key !== tmp.lastKey && (camMode !== "auto" || shot.key === 1 || shot.key === 3 || shot.key === 4 || tmp.lastKey === -999);
+    const snap = key !== tmp.lastKey && (camMode !== "auto" || shot.key === 1 || shot.key === 3 || shot.key === 4 || shot.key === 5 || shot.key === 6 || tmp.lastKey === -999);
     const a = 1 - Math.exp(-shot.k * Math.min(delta, 0.05));
     if (snap || tmp.lastKey === -999) { cam.position.copy(shot.pos); tmp.lookCur.copy(shot.look); }
     else { cam.position.lerp(shot.pos, a); tmp.lookCur.lerp(shot.look, Math.min(1, a * 1.4)); }
@@ -284,11 +250,11 @@ export function useBallAndCamera({ plan, qRef, camMode, kPos, getHold }: {
   return { ball, impact, excite };
 }
 
-export function BallWithTrail({ ballRef, plan, qRef }: { ballRef: RefObject<THREE.Group>; plan: Plan; qRef: MutableRefObject<number> }) {
+export function BallWithTrail({ ballRef, plan, qRef, model }: { ballRef: RefObject<THREE.Group>; plan: Plan; qRef: MutableRefObject<number>; model: THREE.Object3D }) {
   return (
     <>
       <group ref={ballRef}>
-        <SoccerBall />
+        <SoccerBall model={model} />
       </group>
       <BallTrail ballRef={ballRef} plan={plan} qRef={qRef} />
     </>

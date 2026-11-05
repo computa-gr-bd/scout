@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { clamp } from "./common";
-import { CLIP_KEYS, MODEL_META, type ClipKey } from "./modelMeta";
+import { DECAL, type ClipKey } from "./modelMeta";
 import { makeBackTexture } from "./Rig";
 
 /** Clipe pronto para uso: sem deslocamento do quadril (ficamos no lugar) e com o caminho de raiz guardado. */
@@ -16,7 +16,8 @@ export type PreparedClip = {
 
 export type Assets = {
   scene: THREE.Object3D;
-  clips: Record<ClipKey, PreparedClip>;
+  /** Só os clipes que este lance usa (os demais nem são baixados). */
+  clips: Partial<Record<ClipKey, PreparedClip>>;
   mask: THREE.Texture;
 };
 
@@ -66,14 +67,13 @@ export function sampleRoot(pc: PreparedClip, t: number, out: { x: number; z: num
   return out;
 }
 
-const MODE: Record<ClipKey, "first" | "mean"> = {
-  idle: "mean", run: "first", kick: "first", header: "first", celebrate: "mean", lamento: "mean",
-  gkIdle: "mean", gkDive: "first", gkCatch: "first",
-};
+/** Clipes de espera/comemoração balançam no lugar: fixa o quadril na média. Os demais, no primeiro frame. */
+const MEAN_MODE = /^(anim_idle|idle_offensive|gk_idle_\d|anim_celebrate|anim_lamento|gk_directing_\d|stall_\d|knee_\d|kickup|fallen_idle)$/;
+const modeFor = (k: ClipKey): "first" | "mean" => (MEAN_MODE.test(k) ? "mean" : "first");
 
-export function buildAssets(player: { scene: THREE.Object3D }, clipFiles: { animations: THREE.AnimationClip[] }[], mask: THREE.Texture): Assets {
-  const clips = {} as Record<ClipKey, PreparedClip>;
-  CLIP_KEYS.forEach((k, i) => { clips[k] = prepareClip(clipFiles[i].animations[0], MODE[k]); });
+export function buildAssets(player: { scene: THREE.Object3D }, keys: ClipKey[], files: { animations: THREE.AnimationClip[] }[], mask: THREE.Texture): Assets {
+  const clips: Partial<Record<ClipKey, PreparedClip>> = {};
+  keys.forEach((k, i) => { clips[k] = prepareClip(files[i].animations[0], modeFor(k)); });
   mask.flipY = false;                       // convenção do glTF: v = 0 no topo
   mask.colorSpace = THREE.NoColorSpace;
   mask.needsUpdate = true;
@@ -130,15 +130,15 @@ export class Actor {
     this.outer.add(this.mirror);
 
     // número e nome nas costas, presos ao osso da coluna
-    const spine = this.find(MODEL_META.decal.bone);
+    const spine = this.find(DECAL.bone);
     if (spine && (opts.number != null || opts.name)) {
       const tex = makeBackTexture(opts.name, opts.number, kit.shirt);
       if (tex) {
         const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
         const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
-        plane.position.set(...MODEL_META.decal.position);
-        plane.quaternion.set(...MODEL_META.decal.quaternion);
-        plane.scale.set(MODEL_META.decal.size, MODEL_META.decal.size, 1);
+        plane.position.set(...DECAL.position);
+        plane.quaternion.set(...DECAL.quaternion);
+        plane.scale.set(DECAL.size, DECAL.size, 1);
         plane.renderOrder = 2;
         spine.add(plane);
         this.decal = plane;
@@ -150,8 +150,8 @@ export class Actor {
     this.handR = this.find("RightHand");
 
     this.mixer = new THREE.AnimationMixer(this.model);
-    for (const k of CLIP_KEYS) {
-      const a = this.mixer.clipAction(assets.clips[k].clip);
+    for (const [k, pc] of Object.entries(assets.clips) as [ClipKey, PreparedClip][]) {
+      const a = this.mixer.clipAction(pc.clip);
       a.play();
       a.paused = true;
       a.setEffectiveWeight(0);
@@ -209,7 +209,7 @@ export class Actor {
         if (e.weight <= 1e-4) continue;
         const a = this.actions.get(e.key);
         if (!a) continue;
-        a.time = clamp(e.time, 0, assets.clips[e.key].dur - 1e-3);
+        a.time = clamp(e.time, 0, (assets.clips[e.key]?.dur ?? 1) - 1e-3);
         a.setEffectiveWeight(e.weight / sum);
         used.add(e.key);
       }

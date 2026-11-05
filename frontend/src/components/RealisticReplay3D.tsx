@@ -1,12 +1,10 @@
-import { Component, Suspense, memo, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Component, Suspense, useMemo, useRef, useState, type ReactNode } from "react";
+import { Canvas } from "@react-three/fiber";
 import * as THREE from "three";
 import { MaterialIcon } from "./MaterialIcon";
 import { clamp, clamp01, smooth, type ShotResult } from "./realism/common";
-import { buildPlan, type Plan } from "./realism/plan";
-import { Humanoid, applyPose, makeKit, newPose, useRig, type Kit } from "./realism/Rig";
-import { poseDefender, poseExtra, poseKeeper, poseKicker } from "./realism/poses";
-import { BallWithTrail, Env, useBallAndCamera, type CamMode } from "./realism/shared";
+import { buildPlan } from "./realism/plan";
+import type { CamMode } from "./realism/shared";
 import { ProScene, preloadRealisticModels } from "./realism/ProScene";
 
 export { preloadRealisticModels };
@@ -39,60 +37,12 @@ function makeWarp(center: number, enabled: boolean) {
   };
 }
 
-/* ------------------------------ Cena procedural (reserva) ----------------- */
-const KEEPER_KIT: Partial<Kit> = { shirt: "#f59e0b", shorts: "#111827", socks: "#111827", glove: "#22c55e" };
-
-/** Cena com bonecos procedurais: usada enquanto os modelos carregam ou se não puderem ser carregados. */
-const Scene = memo(function Scene({ plan, qRef, teamColor, foeColor, camMode, number, name, seed }: {
-  plan: Plan; qRef: MutableRefObject<number>; teamColor: string; foeColor: string; camMode: CamMode; number?: number; name?: string; seed: number;
-}) {
-  const kRig = useRig(), gRig = useRig(), dRig = useRig();
-  const e0 = useRig(), e1 = useRig(), e2 = useRig(), e3 = useRig();
-  const extraRigs = [e0, e1, e2, e3];
-
-  const kKit = useMemo(() => makeKit(teamColor, seed, { number, name }), [teamColor, seed, number, name]);
-  const gKit = useMemo(() => makeKit(KEEPER_KIT.shirt as string, seed + 3, KEEPER_KIT), [seed]);
-  const dKit = useMemo(() => makeKit(foeColor, seed + 5, { shorts: "#0f172a" }), [foeColor, seed]);
-  const exKits = useMemo(() => plan.extras.map((e, i) => makeKit(e.own ? teamColor : foeColor, seed + 11 + i, { shorts: e.own ? "#f1f5f9" : "#0f172a" })), [plan, teamColor, foeColor, seed]);
-
-  const poses = useMemo(() => ({ k: newPose(), g: newPose(), d: newPose(), e: newPose() }), []);
-  const kPos = useRef(new THREE.Vector3());
-
-  useFrame(() => {
-    const qq = qRef.current;
-    const { k, g, d, e } = poses;
-    poseKicker(k, qq, plan); applyPose(kRig, k);
-    poseKeeper(g, qq, plan); applyPose(gRig, g);
-    if (plan.defender) { poseDefender(d, qq, plan); applyPose(dRig, d); }
-    extraRigs.forEach((r, i) => { if (plan.extras[i]) { poseExtra(e, qq, plan, i); applyPose(r, e); } });
-    kPos.current.set(k.x, 0, k.z);
-  });
-
-  const getHold = useMemo(() => (out: THREE.Vector3) => {
-    gRig.root.current?.updateMatrixWorld(true);
-    gRig.hold.current?.getWorldPosition(out);
-  }, [gRig.root, gRig.hold]);
-
-  const { ball, impact, excite } = useBallAndCamera({ plan, qRef, camMode, kPos, getHold });
-
-  return (
-    <>
-      <Env impactRef={impact} exciteRef={excite} />
-      <Humanoid rig={kRig} kit={kKit} />
-      <Humanoid rig={gRig} kit={gKit} />
-      {plan.defender && <Humanoid rig={dRig} kit={dKit} />}
-      {plan.extras.map((_, i) => <Humanoid key={i} rig={extraRigs[i]} kit={exKits[i]} />)}
-      <BallWithTrail ballRef={ball} plan={plan} qRef={qRef} />
-    </>
-  );
-});
-
-/** Se os modelos falharem (arquivo ausente, WebGL…), cai para os bonecos procedurais. */
-class ModelBoundary extends Component<{ fallback: ReactNode; onError: () => void; children: ReactNode }, { failed: boolean }> {
+/** Se os modelos falharem (arquivo ausente, WebGL…), mostra um aviso no lugar da cena. */
+class ModelBoundary extends Component<{ onError: () => void; children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   componentDidCatch() { this.props.onError(); }
-  render() { return this.state.failed ? this.props.fallback : this.props.children; }
+  render() { return this.state.failed ? null : this.props.children; }
 }
 
 /* ------------------------------ Componente público ------------------------ */
@@ -108,7 +58,7 @@ const RESULT_LABEL: Record<ShotResult, { text: string; tone: string }> = {
 
 export function RealisticReplay3D({
   goalLoc, shotOrigin, team = "home", result = "goal", teamColor, foeColor = "#e2e8f0", progress, penalty = false, header = false,
-  leftFooted = false, shirtNumber, info, seed = 1, onClose,
+  leftFooted = false, shirtNumber, info, seed = 1, corner = false, onReady, onClose,
 }: {
   goalLoc?: { x: number; y: number };
   shotOrigin: { x: number; y: number };
@@ -123,15 +73,20 @@ export function RealisticReplay3D({
   shirtNumber?: number;
   info?: RealisticReplayInfo;
   seed?: number;
+  /** O lance veio de escanteio: mostra a batida e o cruzamento antes da finalização. */
+  corner?: boolean;
+  /** Chamado quando os modelos terminaram de carregar (o replay só começa a andar depois disso). */
+  onReady?: () => void;
   onClose?: () => void;
 }) {
   const [camMode, setCamMode] = useState<CamMode>("auto");
   const [slow, setSlow] = useState(true);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   const gx = goalLoc?.x, gy = goalLoc?.y, ox = shotOrigin.x, oy = shotOrigin.y;
   const plan = useMemo(() => buildPlan({
-    goalX: gx, goalY: gy, originX: ox, originY: oy, team, result, penalty, header, left: leftFooted, seed,
-  }), [gx, gy, ox, oy, team, result, penalty, header, leftFooted, seed]);
+    goalX: gx, goalY: gy, originX: ox, originY: oy, team, result, penalty, header, left: leftFooted, seed, corner,
+  }), [gx, gy, ox, oy, team, result, penalty, header, leftFooted, seed, corner]);
 
   const warp = useMemo(() => makeWarp(plan.TC, slow), [plan.TC, slow]);
   const q = warp(progress);
@@ -146,30 +101,52 @@ export function RealisticReplay3D({
   const title = penalty ? `PÊNALTI · ${label.text}` : label.text;
 
   return (
-    <div className="goal-replay-3d goal-replay-real" role="img" aria-label="Replay realista do chute">
+    <div className="goal-replay-3d goal-replay-real" role="img" aria-label="Replay 3D do chute">
       <Canvas
         shadows
         dpr={[1, 1.5]}
-        camera={{ position: [0, 2.7, 9.5], fov: 40, near: 0.1, far: 260 }}
+        camera={{ position: [0, 2.7, 9.5], fov: 40, near: 0.1, far: 900 }}
         gl={{ antialias: true, powerPreference: "high-performance" }}
         onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 1.08; }}
       >
-        {(() => {
-          const fallback = <Scene plan={plan} qRef={qRef} teamColor={teamColor} foeColor={foeColor} camMode={camMode} number={shirtNumber} name={info?.player} seed={seed} />;
-          return (
-            <ModelBoundary fallback={fallback} onError={() => console.warn("[3d] modelos 3D indisponíveis; usando jogadores simples")}>
-              <Suspense fallback={fallback}>
-                <ProScene plan={plan} qRef={qRef} teamColor={teamColor} foeColor={foeColor} camMode={camMode} number={shirtNumber} name={info?.player} />
-              </Suspense>
-            </ModelBoundary>
-          );
-        })()}
+        <ModelBoundary onError={() => { setStatus("error"); onReady?.(); }}>
+          <Suspense fallback={null}>
+            <ProScene
+              plan={plan} qRef={qRef} teamColor={teamColor} foeColor={foeColor} camMode={camMode} number={shirtNumber} name={info?.player}
+              onReady={() => { setStatus("ready"); onReady?.(); }}
+            />
+          </Suspense>
+        </ModelBoundary>
       </Canvas>
 
       {/* vinheta + tarjas de cinema na câmera lenta */}
       <div className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%)" }} aria-hidden="true" />
       <div className="pointer-events-none absolute inset-x-0 top-0 bg-black transition-all duration-300" style={{ height: inSlow ? "7%" : "0%" }} aria-hidden="true" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-black transition-all duration-300" style={{ height: inSlow ? "7%" : "0%" }} aria-hidden="true" />
+
+      {status !== "ready" && (
+        <div className="absolute inset-0 z-[7] flex flex-col items-center justify-center gap-2 bg-[#060f1f] px-6 text-center" role="status">
+          {status === "loading" ? (
+            <>
+              <div className="h-7 w-7 animate-spin rounded-full border-2 border-emerald-300/30 border-t-emerald-300" aria-hidden="true" />
+              <div className="text-xs font-semibold text-slate-200">Carregando replay 3D…</div>
+              <div className="text-[11px] text-slate-400">Estádio, jogadores e animações (só na primeira vez)</div>
+            </>
+          ) : (
+            <>
+              <MaterialIcon name="error" className="text-2xl text-amber-300" />
+              <div className="text-xs font-semibold text-slate-200">Não foi possível carregar o replay 3D.</div>
+              <div className="text-[11px] text-slate-400">Use o modo 2D ou tente novamente.</div>
+            </>
+          )}
+        </div>
+      )}
+
+      {plan.corner && q < plan.corner.qKick + 0.2 && (
+        <div className="pointer-events-none absolute left-1/2 top-[14%] z-[4] -translate-x-1/2 rounded-full border border-white/20 bg-slate-950/75 px-3.5 py-1 text-[11px] font-black uppercase tracking-[0.18em] text-white backdrop-blur" aria-hidden="true">
+          Escanteio
+        </div>
+      )}
 
       <div className="goal-replay-tag" aria-hidden="true">REPLAY · 3D{inSlow ? " · CÂMERA LENTA" : ""}</div>
 
@@ -228,7 +205,7 @@ export function RealisticReplay3D({
       )}
 
       {onClose && (
-        <button type="button" className="goal-replay-close" onClick={onClose} title="Fechar (Esc)" aria-label="Fechar replay realista">
+        <button type="button" className="goal-replay-close" onClick={onClose} title="Fechar (Esc)" aria-label="Fechar replay 3D">
           <MaterialIcon name="close" className="mr-1 align-middle" />Fechar
         </button>
       )}

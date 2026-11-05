@@ -12,6 +12,7 @@ const PITCH_MATS = new Set(["Material.001", "Material.003", "Material.004", "Mat
 /** Começa a baixar o estádio (chamado junto com os jogadores). */
 export function preloadStadium() {
   useGLTF.preload(MODEL_URLS.stadium);
+  useLoader.preload(THREE.FileLoader, MODEL_URLS.crowd);
 }
 
 /**
