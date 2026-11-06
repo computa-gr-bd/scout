@@ -57,7 +57,7 @@ function TeamCard({ t, league }: { t: Team & { league_id: string }; league?: Lea
         <div className="min-w-0">
           <div className="font-semibold truncate">{t.name}</div>
           <div className="text-xs text-sv-muted">
-            {t.code || t.short_name || "—"} · {t.country || "—"}
+            {[t.code || t.short_name, t.country].filter(Boolean).join(" · ")}
           </div>
         </div>
       </div>

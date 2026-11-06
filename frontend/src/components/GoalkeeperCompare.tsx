@@ -12,11 +12,11 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
-function GoalkeeperBox({ team, gk }: { team: string; gk: TeamGoalkeeper | null }) {
+function GoalkeeperBox({ team, logo, gk }: { team: string; logo?: string | null; gk: TeamGoalkeeper | null }) {
   if (!gk) {
     return (
       <div className="rounded-lg border border-sv-border p-3 text-xs text-sv-muted">
-        <div className="font-medium text-sv-text mb-1 flex items-center gap-1.5"><TeamLogo name={team} className="h-4 w-4" />{team}</div>
+        <div className="font-medium text-sv-text mb-1 flex items-center gap-1.5"><TeamLogo name={team} src={logo} className="h-4 w-4" />{team}</div>
         Goleiro titular não identificado (sem estatísticas de goleiro importadas).
       </div>
     );
@@ -27,7 +27,7 @@ function GoalkeeperBox({ team, gk }: { team: string; gk: TeamGoalkeeper | null }
     <div className="rounded-lg border border-sv-border p-3 space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[11px] text-sv-muted flex items-center gap-1.5"><TeamLogo name={team} className="h-4 w-4" />{team}</div>
+          <div className="text-[11px] text-sv-muted flex items-center gap-1.5"><TeamLogo name={team} src={logo} className="h-4 w-4" />{team}</div>
           <div className="font-semibold truncate">{gk.name}</div>
           <div className="text-[11px] text-sv-muted">{gk.minutes ?? 0} min na temporada</div>
         </div>
@@ -66,13 +66,16 @@ function GoalkeeperBox({ team, gk }: { team: string; gk: TeamGoalkeeper | null }
 
 /** Goleiros titulares dos dois times: influenciam a chance de gol dos atacantes adversários. */
 export function GoalkeeperCompare({
-  homeName, awayName, home, away,
-}: { homeName: string; awayName: string; home: TeamGoalkeeper | null; away: TeamGoalkeeper | null }) {
+  homeName, awayName, home, away, homeLogo, awayLogo,
+}: {
+  homeName: string; awayName: string; home: TeamGoalkeeper | null; away: TeamGoalkeeper | null;
+  homeLogo?: string | null; awayLogo?: string | null;
+}) {
   if (!home && !away) return null;
   return (
     <div className="grid gap-3 md:grid-cols-2">
-      <GoalkeeperBox team={homeName} gk={home} />
-      <GoalkeeperBox team={awayName} gk={away} />
+      <GoalkeeperBox team={homeName} logo={homeLogo} gk={home} />
+      <GoalkeeperBox team={awayName} logo={awayLogo} gk={away} />
     </div>
   );
 }

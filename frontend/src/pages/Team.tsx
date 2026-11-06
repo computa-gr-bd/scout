@@ -404,11 +404,22 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h1 className="text-2xl font-bold tracking-tight">{t.data.name}</h1>
-                  <Badge>{t.data.code}</Badge>
+                  {t.data.code && <Badge>{t.data.code}</Badge>}
                   {t.data.country && <Badge kind="accent">{t.data.country}</Badge>}
                   {myStanding && <Badge kind="warn">{myStanding.position}º · {myStanding.points} pts</Badge>}
                 </div>
-                <div className="text-sm text-sv-muted mt-1">Fundado em {t.data.founded || "—"} · Estádio: {(t.data as any).stadium?.name || "—"} ({(t.data as any).stadium?.capacity || "—"})</div>
+                {(() => {
+                  const stadium = (t.data as any).stadium;
+                  const parts = [
+                    t.data.founded ? `Fundado em ${t.data.founded}` : null,
+                    stadium?.name
+                      ? `Estádio: ${stadium.name}${stadium.capacity ? ` (${stadium.capacity})` : ""}`
+                      : null,
+                  ].filter(Boolean);
+                  return parts.length ? (
+                    <div className="text-sm text-sv-muted mt-1">{parts.join(" · ")}</div>
+                  ) : null;
+                })()}
               </div>
             </div>
           </div>

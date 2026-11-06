@@ -282,6 +282,7 @@ export default function MatchPage() {
             homeWeaknessDetails={zones.data?.home_team_weaknesses}
             awayWeaknessDetails={zones.data?.away_team_weaknesses}
             teamNames={{ home: m?.home_team?.name, away: m?.away_team?.name }}
+            teamLogos={{ home: m?.home_team?.logo_url, away: m?.away_team?.logo_url }}
             opportunityZones={[]}
           />
         )}

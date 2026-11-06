@@ -225,7 +225,7 @@ function ZoneHitLayer({
 
 export function Pitch3D({
   title, homeWeakness, awayWeakness, homeWeaknessDetails, awayWeaknessDetails,
-  opportunityZones, teamNames, defaultSide = "home", singleTeam = false,
+  opportunityZones, teamNames, teamLogos, defaultSide = "home", singleTeam = false,
 }: {
   title?: string;
   homeWeakness?: Record<string, number>;
@@ -234,6 +234,7 @@ export function Pitch3D({
   awayWeaknessDetails?: WeaknessDetail[];
   opportunityZones?: ZoneStatEntry[];
   teamNames?: { home?: string; away?: string };
+  teamLogos?: { home?: string | null; away?: string | null };
   defaultSide?: ZoneSide;
   /** Página de um time só: esconde o seletor Casa/Visitante e o rótulo "mandante". */
   singleTeam?: boolean;
@@ -307,11 +308,11 @@ export function Pitch3D({
           <span className="text-[10px] uppercase tracking-wide text-sv-muted">Zonas de</span>
           <button onClick={() => setSide("home")}
             className={`sv-btn !px-2.5 !py-1 text-[11px] ${side === "home" ? "!border-sv-accent3 !bg-sv-accent text-white" : ""}`}>
-            <TeamLogo name={teamNames?.home || undefined} className="mr-1 inline-block h-4 w-4 align-middle" />{teamNames?.home || "Casa"}
+            <TeamLogo name={teamNames?.home || undefined} src={teamLogos?.home} className="mr-1 inline-block h-4 w-4 align-middle" />{teamNames?.home || "Casa"}
           </button>
           <button onClick={() => setSide("away")}
             className={`sv-btn !px-2.5 !py-1 text-[11px] ${side === "away" ? "!border-sv-accent3 !bg-sv-accent text-white" : ""}`}>
-            <TeamLogo name={teamNames?.away || undefined} className="mr-1 inline-block h-4 w-4 align-middle" />{teamNames?.away || "Visitante"}
+            <TeamLogo name={teamNames?.away || undefined} src={teamLogos?.away} className="mr-1 inline-block h-4 w-4 align-middle" />{teamNames?.away || "Visitante"}
           </button>
         </div>
         )}

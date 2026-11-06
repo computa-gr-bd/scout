@@ -43,7 +43,7 @@ function PlayerRow({ p }: { p: Player }) {
           </div>
           <div className="min-w-0">
             <div className="font-medium truncate">{p.display_name || `${p.first_name || ""} ${p.last_name}`.trim()}</div>
-            <div className="text-[11px] text-sv-muted truncate">{p.country || "—"} · {positionLabel(p.position)}</div>
+            <div className="text-[11px] text-sv-muted truncate">{[p.country, p.position ? positionLabel(p.position) : null].filter(Boolean).join(" · ")}</div>
           </div>
         </div>
         <div className="col-span-2 sm:col-span-1 flex items-center gap-2 min-w-0">

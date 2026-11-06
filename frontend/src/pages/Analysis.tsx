@@ -76,10 +76,20 @@ export default function AnalysisPage() {
   const [predictionTarget, setPredictionTarget] = useState<PredictionTarget>("shot");
   const [zoneView, setZoneView] = useState<"2d" | "3d">("2d");
 
-  const matchesQuery = useQuery({
-    queryKey: ["matches", "analysis", scope],
-    queryFn: () => listMatches({ scope, limit: 100, analysis: true }),
+  // Busca as duas listas para que ambas as abas mostrem a contagem (mesmas chaves = cache compartilhado).
+  const upcomingQuery = useQuery({
+    queryKey: ["matches", "analysis", "upcoming"],
+    queryFn: () => listMatches({ scope: "upcoming", limit: 100, analysis: true }),
   });
+  const recentQuery = useQuery({
+    queryKey: ["matches", "analysis", "recent"],
+    queryFn: () => listMatches({ scope: "recent", limit: 100, analysis: true }),
+  });
+  const matchesQuery = scope === "upcoming" ? upcomingQuery : recentQuery;
+  const scopeCounts = useMemo(() => ({
+    upcoming: upcomingQuery.data ? upcomingQuery.data.filter((m) => !isDemoMatch(m)).length : null,
+    recent: recentQuery.data ? recentQuery.data.filter((m) => !isDemoMatch(m)).length : null,
+  }), [upcomingQuery.data, recentQuery.data]);
   const matches = useMemo(
     () => (matchesQuery.data ?? []).filter((match) => !isDemoMatch(match)),
     [matchesQuery.data],
@@ -202,7 +212,7 @@ export default function AnalysisPage() {
           >
             {label}
             <span className="sv-chip ml-1.5 !py-0">
-              {scope === key ? matches.length : "—"}
+              {scopeCounts[key] ?? "—"}
             </span>
           </button>
         ))}
@@ -372,6 +382,10 @@ export default function AnalysisPage() {
                         home: selectedRealMatch.home_team.name,
                         away: selectedRealMatch.away_team.name,
                       }}
+                      teamLogos={{
+                        home: selectedRealMatch.home_team.logo_url,
+                        away: selectedRealMatch.away_team.logo_url,
+                      }}
                       opportunityZones={zoneEntries}
                     />
                   )}
@@ -423,6 +437,8 @@ export default function AnalysisPage() {
                             awayName={selectedRealMatch.away_team.name}
                             home={insightsQuery.data.goalkeepers.home}
                             away={insightsQuery.data.goalkeepers.away}
+                            homeLogo={selectedRealMatch.home_team.logo_url}
+                            awayLogo={selectedRealMatch.away_team.logo_url}
                           />
                         </div>
                       )}
