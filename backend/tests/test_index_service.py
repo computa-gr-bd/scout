@@ -74,7 +74,7 @@ def test_goalkeeper_index_uses_fbref_totals(db, world):
     assert out["role"] == "GK" and out["available"] and 0 <= out["index"] <= 100
     kpis = {k["key"]: k for k in out["kpis"]}
     assert kpis["save_pct"]["unit"] == "%" and kpis["psxg_diff_p90"]["value"] > 0
-    assert {c["key"] for c in out["components"]} >= {"shot_stopping", "area_control"}
+    assert {c["key"] for c in out["components"]} >= {"shot_stopping", "goals_against"}
 
 
 def test_outfield_player_without_fbref_data_is_not_scored(db, world):
@@ -168,3 +168,17 @@ def test_goalkeeper_from_derived_shots_only(db, world):
     assert gk["has_data"] is True and gk["data_source"] == "derived" and gk["has_fbref"] is False
     assert gk["goal_factor"] is not None and gk["psxg_diff_p90"] > 0
     assert player_index_payload(db, keeper)["available"] is True
+
+
+def test_goalkeeper_index_falls_back_to_match_statistics(db, world):
+    """Sem FBref nem chutes derivados, as defesas/gols por partida do banco alimentam o índice."""
+    keeper = _player(db, "gk9", "Sivera", "GK", world["home"])
+    db.add(PlayerStatistics(player_id=keeper.id, season_id=world["season"].id, scope="overall",
+                            matches_played=1, minutes_played=90))
+    db.add(PlayerMatchStatistics(match_id=world["match"].id, team_id=world["home"].id, player_id=keeper.id,
+                                 is_starter=True, minutes_played=90, saves=4, goals_conceded=0, shots_faced=0))
+    db.flush()
+    out = player_index_payload(db, keeper)
+    kpis = {k["key"]: k for k in out["kpis"]}
+    assert kpis["save_pct"]["sub"] == "4 em 4 chutes no alvo"
+    assert kpis["clean_sheet_pct"]["value"] == 100

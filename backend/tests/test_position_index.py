@@ -5,7 +5,8 @@ from app.services.fbref_stats import (
     extract_keeper_match, extract_season_stats, finalize_totals, merge_totals,
 )
 from app.services.position_index import (
-    MIN_PEERS, aggregate_match_rows, anchor_score, apply_match_totals, classify_role, compute_metrics, flatten_stat, gk_goal_factor,
+    COMPONENTS, MIN_PEERS, aggregate_match_rows, anchor_score, apply_match_totals, classify_role, complementary_from_totals,
+    compute_metrics, flatten_stat, gk_goal_factor, league_save_pct,
     infer_role, percentile_score, reliability, score_index,
 )
 
@@ -92,7 +93,7 @@ def test_goalkeeper_index_ranks_better_keeper_higher():
     bad = score_index("GK", compute_metrics("GK", _gk(60, 100, 40, 30)), minutes=1800)
     assert good["available"] and bad["available"]
     assert good["index"] > bad["index"]
-    assert {c["key"] for c in good["components"]} >= {"shot_stopping", "distribution"}
+    assert {c["key"] for c in good["components"]} >= {"shot_stopping", "goals_against"}
     assert good["method"] == "anchor"                    # sem pares -> âncoras
 
 
@@ -123,11 +124,11 @@ def test_defender_index_and_missing_data():
     )
     res = score_index("DEF", compute_metrics("DEF", flat), minutes=1800)
     assert res["available"] and 0 <= res["index"] <= 100
-    assert 0.7 < res["coverage"] < 1.0          # sem dados "em campo" (derivados), o resto está completo
+    assert 0.4 < res["coverage"] < 1.0          # sem "em campo" (derivados) nem xGBuildup (Understat)
 
     # só colunas básicas da tabela (sem FBref avançado): cobertura parcial, mas ainda calcula
     thin = flatten_stat({"minutes_played": 1800, "matches_played": 20, "tackles": 30, "interceptions": 25,
-                         "clearances": 80, "aerials_won": 40, "aerials_lost": 30}, None)
+                         "fouls_committed": 12, "clearances": 80, "aerials_won": 40, "aerials_lost": 30}, None)
     res_thin = score_index("DEF", compute_metrics("DEF", thin), minutes=1800)
     assert res_thin["available"] and res_thin["coverage"] < 1.0
 
@@ -165,8 +166,7 @@ def test_zero_columns_from_sources_without_the_stat_are_unknown_not_bad():
                          "aerials_lost": 0, "tackles": 0, "interceptions": 0, "fouls_committed": 0}, None)
     assert not {"clearances", "aerials_won", "tackles", "fouls_committed"} & set(flat)
     metrics = compute_metrics("DEF", flat)
-    assert metrics["clearances_p90"] is None and metrics["aerials_won_p90"] is None
-    assert metrics["tkl_int_p90"] is None
+    assert metrics["tkl_int_p90"] is None and metrics["fouls_p90"] is None
 
 
 def test_defender_index_works_with_understat_and_derived_only():
@@ -253,3 +253,46 @@ def test_match_totals_ignored_when_they_cover_too_few_matches():
     totals = aggregate_match_rows([{"minutes": 90, "is_starter": True, "position": "D", "fouls_committed": 3}])
     flat = apply_match_totals({"matches_played": 20, "minutes_played": 1800}, totals)
     assert "fouls_committed" not in flat
+
+
+def test_removed_metrics_are_not_computed_or_scored():
+    removed = {"clearances_p90", "blocks_p90", "aerials_won_p90", "aerial_win_pct", "prog_passes_p90",
+               "prog_carries_p90", "pass_cmp_pct", "dribbled_past_p90", "errors_p90", "tackle_win_pct",
+               "cross_stop_pct", "opa_p90", "launched_cmp_pct"}
+    assert not removed & set(compute_metrics("DEF", {"minutes_played": 900, "matches_played": 10}))
+    assert not removed & set(compute_metrics("GK", _gk(70, 100, 30, 28)))
+    for role in ("DEF", "GK"):
+        scored = {m.key for c in COMPONENTS[role] for m in c.metrics}
+        assert not removed & scored
+        assert abs(sum(c.weight for c in COMPONENTS[role]) - 1.0) < 1e-9
+
+
+def test_goalkeeper_avoided_goals_estimated_from_league_save_pct():
+    # 40 defesas em 61 chutes no alvo (900 min); liga defende 65,9%: esperado = 61 × 0,659 = 40,2
+    flat = {"gk_saves": 40, "gk_sota": 61, "gk_ga": 21, "matches_played": 10, "minutes_played": 900}
+    m = compute_metrics("GK", flat, league_save_pct=0.659)
+    assert m["psxg_diff_estimated"] == 1.0 and m["psxg_league_save_pct"] == 65.9
+    assert abs(m["psxg_diff_p90"] - (40 - 61 * 0.659) / 10) < 1e-9
+    # goleiro que defende mais que a média ganha valor positivo; real (PSxG) não é marcado como estimativa
+    good = compute_metrics("GK", {**flat, "gk_saves": 50, "gk_ga": 11}, league_save_pct=0.659)
+    assert good["psxg_diff_p90"] > 0
+    real = compute_metrics("GK", {**flat, "gk_psxg": 24.0}, league_save_pct=0.659)
+    assert "psxg_diff_estimated" not in real and abs(real["psxg_diff_p90"] - 0.3) < 1e-9
+
+
+def test_league_save_pct_uses_peers_with_enough_shots():
+    peers = [{"gk_saves": 70, "gk_sota": 100}, {"gk_saves": 60, "gk_sota": 100}]
+    assert league_save_pct(peers) == 0.65
+    assert league_save_pct([{"gk_saves": 7, "gk_sota": 10}]) == 0.70      # amostra pequena -> padrão
+
+
+def test_complementary_totals_need_coverage():
+    totals = aggregate_match_rows([
+        {"minutes": 90, "is_starter": True, "position": "D", "fouls_committed": 2, "fouls_suffered": 1,
+         "yellow": 1, "shots": 1, "shots_on_target": 0},
+        {"minutes": 90, "is_starter": True, "position": "D", "fouls_committed": 1},
+    ])
+    out = complementary_from_totals(totals, matches_played=2)
+    assert out["fouls"] == 3 and out["fouled"] == 1 and out["yellow_cards"] == 1 and out["red_cards"] == 0
+    assert complementary_from_totals(totals, matches_played=10) == {}
+    assert complementary_from_totals(None, 2) == {}

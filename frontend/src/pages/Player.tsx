@@ -55,9 +55,6 @@ const SUPPLEMENTAL_FBREF_METRICS = [
   { key: "shots_on_target", label: "Chutes no alvo" },
   { key: "tackles", label: "Desarmes ganhos" },
   { key: "interceptions", label: "Interceptações" },
-  { key: "clearances", label: "Cortes" },
-  { key: "aerials_won", label: "Aéreos ganhos" },
-  { key: "aerials_lost", label: "Aéreos perdidos" },
   { key: "recoveries", label: "Recuperações" },
   { key: "fouls", label: "Faltas cometidas" },
   { key: "fouled", label: "Faltas sofridas" },
@@ -173,15 +170,26 @@ export default function PlayerPage() {
   const soccerdataStats = isRecord(stats?.supplemental_stats?.soccerdata)
     ? stats.supplemental_stats.soccerdata
     : null;
-  const supplementalFbrefMetrics = SUPPLEMENTAL_FBREF_METRICS.flatMap(({ key, label }) => {
-    const value = soccerdataStats?.[key];
-    return typeof value === "number" && Number.isFinite(value) ? [{ key, label, value }] : [];
-  });
-
   const avg = ov?.league_average ?? null;
   const role = indexQ.data?.role ?? ov?.role ?? null;
   // Goleiros e defensores têm índice próprio (backend); atacantes e meias usam o índice ofensivo.
   const specialRole = role === "GK" || role === "DEF";
+  // Estatísticas complementares: FBref/SoccerData quando trouxe o jogador; senão (bloco vazio ou tudo
+  // zerado) os totais das partidas gravadas no banco (ESPN). Goleiros não usam este painel.
+  const seasonTotals = indexQ.data?.season_totals ?? {};
+  const supplementalMetrics = useMemo(() => {
+    if (role === "GK") return [] as Array<{ key: string; label: string; value: number }>;
+    const providerLooksEmpty = !soccerdataStats || ["tackles", "interceptions", "recoveries", "shots", "fouls"]
+      .every((k) => !(typeof soccerdataStats[k] === "number" && (soccerdataStats[k] as number) > 0));
+    return SUPPLEMENTAL_FBREF_METRICS.flatMap(({ key, label }) => {
+      const provider = soccerdataStats?.[key];
+      const fallback = seasonTotals[key];
+      let value: number | undefined;
+      if (!providerLooksEmpty && typeof provider === "number" && Number.isFinite(provider)) value = provider;
+      else if (typeof fallback === "number" && Number.isFinite(fallback)) value = fallback;
+      return value === undefined ? [] : [{ key, label, value }];
+    });
+  }, [role, soccerdataStats, seasonTotals]);
   const parts = useMemo(() => ratingParts(role), [role]);
   const rating = useMemo(() => computeRating(stats, ov?.extras, role), [stats, ov, role]);
 
@@ -353,10 +361,10 @@ export default function PlayerPage() {
           </div>
           )}
 
-          {supplementalFbrefMetrics.length > 0 ? (
-            <Panel title="Estatísticas complementares" right={<Badge kind="accent">FBref · SoccerData</Badge>}>
+          {supplementalMetrics.length > 0 ? (
+            <Panel title="Estatísticas complementares" right={<Badge kind="accent">FBref · SoccerData · ESPN</Badge>}>
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                {supplementalFbrefMetrics.map((metric) => (
+                {supplementalMetrics.map((metric) => (
                   <Kpi key={metric.key} label={metric.label} value={metric.value} sub="Total na temporada" />
                 ))}
               </div>

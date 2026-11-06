@@ -119,68 +119,44 @@ def _m(key, label, unit, lo, hi, invert=False, weight=1.0, decimals=2) -> Metric
 
 
 DEF_COMPONENTS: List[ComponentDef] = [
-    ComponentDef("onpitch", "Defesa com ele em campo", 0.25, [
+    ComponentDef("onpitch", "Defesa com ele em campo", 0.30, [
         _m("onpitch_xga_p90", "xG sofrido pelo time / 90", "/90", 0.8, 1.8, invert=True, weight=2),
         _m("onpitch_ga_p90", "Gols sofridos pelo time / 90", "/90", 0.7, 2.0, invert=True),
         _m("onpitch_shots_p90", "Chutes sofridos pelo time / 90", "/90", 8.0, 15.0, invert=True),
-    ], "Quanto o time sofre enquanto ele joga (chutes do Understat). Indicador coletivo."),
-    ComponentDef("duels", "Desarmes e interceptações", 0.20, [
-        _m("tkl_int_p90", "Desarmes + interc.", "/90", 1.5, 5.0, weight=2),
-        _m("tackle_win_pct", "Desarmes ganhos", "%", 50, 75, decimals=1),
-        _m("dribbled_past_p90", "Driblado", "/90", 0.2, 1.3, invert=True),
-    ], "Quanto o defensor rouba a bola e ganha o 1x1."),
-    ComponentDef("aerial", "Jogo aéreo", 0.10, [
-        _m("aerials_won_p90", "Aéreos ganhos", "/90", 0.5, 4.5, weight=2),
-        _m("aerial_win_pct", "Aproveitamento aéreo", "%", 40, 75, decimals=1),
-    ], "Disputas pelo alto, bolas paradas e cruzamentos."),
-    ComponentDef("box", "Proteção da área", 0.10, [
-        _m("clearances_p90", "Cortes", "/90", 1.0, 6.0),
-        _m("blocks_p90", "Bloqueios", "/90", 0.3, 2.2),
-        _m("blocked_shots_p90", "Chutes bloqueados", "/90", 0.1, 1.2),
-    ], "Corta, bloqueia e se joga na frente da finalização."),
-    ComponentDef("buildup", "Construção e criação", 0.20, [
+    ], "Quanto o time sofre enquanto ele joga (chutes do Understat ou placar dos jogos). Indicador coletivo."),
+    ComponentDef("duels", "Desarmes e interceptações", 0.25, [
+        _m("tkl_int_p90", "Desarmes + interc.", "/90", 1.5, 5.0),
+    ], "Quanto o defensor rouba a bola."),
+    ComponentDef("buildup", "Construção e criação", 0.25, [
         _m("xg_buildup_p90", "xGBuildup", "/90", 0.1, 0.7, weight=1.5),
         _m("xg_chain_p90", "xGChain", "/90", 0.2, 1.0),
         _m("key_passes_p90", "Passes-chave", "/90", 0.1, 1.2),
-        _m("prog_passes_p90", "Passes progressivos", "/90", 2.0, 9.0),
-        _m("prog_carries_p90", "Conduções progressivas", "/90", 0.3, 3.0),
-        _m("pass_cmp_pct", "Precisão de passe", "%", 72, 92, decimals=1),
-    ], "Participação na construção das jogadas (Understat) e progressão com a bola."),
-    ComponentDef("discipline", "Disciplina", 0.10, [
+    ], "Participação na construção das jogadas (Understat)."),
+    ComponentDef("discipline", "Disciplina", 0.12, [
         _m("fouls_p90", "Faltas", "/90", 0.5, 1.8, invert=True),
         _m("cards_p90", "Cartões (V=1, Vm=2)", "/90", 0.05, 0.35, invert=True),
-        _m("errors_p90", "Erros que viram chute", "/90", 0.0, 0.12, invert=True, decimals=3),
-    ], "Menos faltas, cartões e erros comprometedores = nota maior."),
-    ComponentDef("availability", "Regularidade", 0.05, [
+    ], "Menos faltas e cartões = nota maior."),
+    ComponentDef("availability", "Regularidade", 0.08, [
         _m("availability_pct", "Minutos / jogos", "%", 50, 100, decimals=0),
     ], "Quanto joga por partida em que entra."),
 ]
 
 GK_COMPONENTS: List[ComponentDef] = [
-    ComponentDef("shot_stopping", "Defesas e gols evitados", 0.40, [
-        _m("psxg_diff_p90", "Gols evitados (xG no alvo − gols)", "/90", -0.25, 0.25, weight=2, decimals=2),
+    ComponentDef("shot_stopping", "Defesas e gols evitados", 0.55, [
+        _m("psxg_diff_p90", "Gols evitados (esperado − gols)", "/90", -0.25, 0.25, weight=2, decimals=2),
         _m("save_pct", "Defesas (% dos chutes no alvo)", "%", 62, 78, decimals=1),
-    ], "Quanto o goleiro evita acima do esperado pela qualidade dos chutes."),
-    ComponentDef("goals_against", "Gols sofridos", 0.20, [
+    ], "Quanto o goleiro evita acima do esperado pela qualidade (ou, sem PSxG, pela média da liga) dos chutes."),
+    ComponentDef("goals_against", "Gols sofridos", 0.25, [
         _m("ga_p90", "Gols sofridos", "/90", 0.8, 1.9, invert=True),
         _m("clean_sheet_pct", "Jogos sem sofrer gol", "%", 10, 45, decimals=0),
     ], "Resultado coletivo (depende também da defesa à frente)."),
-    ComponentDef("area_control", "Cruzamentos e saídas", 0.15, [
-        _m("cross_stop_pct", "Cruzamentos interceptados", "%", 3, 12, decimals=1),
-        _m("opa_p90", "Ações fora da área", "/90", 0.2, 1.8),
-    ], "Domínio da área e atuação como líbero."),
-    ComponentDef("distribution", "Jogo com os pés", 0.15, [
-        _m("launched_cmp_pct", "Lançamentos certos", "%", 35, 65, decimals=1),
-        _m("pass_cmp_pct", "Precisão de passe", "%", 60, 85, decimals=1),
-    ], "Qualidade na saída de bola."),
-    ComponentDef("penalties", "Pênaltis", 0.05, [
+    ComponentDef("penalties", "Pênaltis", 0.10, [
         _m("pk_save_pct", "Pênaltis defendidos", "%", 0, 35, decimals=0),
     ], "Amostra pequena: entra com peso baixo e muito suavizada."),
-    ComponentDef("availability", "Regularidade", 0.05, [
+    ComponentDef("availability", "Regularidade", 0.10, [
         _m("availability_pct", "Minutos / jogos", "%", 70, 100, decimals=0),
     ], "Quanto joga por partida em que entra."),
 ]
-
 COMPONENTS: Dict[str, List[ComponentDef]] = {"DEF": DEF_COMPONENTS, "GK": GK_COMPONENTS}
 
 
@@ -248,7 +224,8 @@ def gk_totals(flat: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
-def compute_metrics(role: str, flat: Mapping[str, Any]) -> Dict[str, Optional[float]]:
+def compute_metrics(role: str, flat: Mapping[str, Any],
+                    league_save_pct: Optional[float] = None) -> Dict[str, Optional[float]]:
     """Valores (não normalizados) de todas as métricas da função, ``None`` quando não há dado."""
     minutes = _num(flat, "minutes_played") or 0.0
     n90 = minutes / 90.0
@@ -266,21 +243,9 @@ def compute_metrics(role: str, flat: Mapping[str, Any]) -> Dict[str, Optional[fl
             tackles, inter = _num(flat, "tkl_won", "tackles"), _num(flat, "interceptions")
             tkl_int = (tackles or 0) + (inter or 0) if (tackles is not None or inter is not None) else None
         out["tkl_int_p90"] = _p90(tkl_int, n90)
-        out["tackle_win_pct"] = _shrunk_pct(_num(flat, "tkl_won"), _num(flat, "tkl"), 0.62, 10)
-        out["dribbled_past_p90"] = _p90(_num(flat, "dribbled_past"), n90)
-        won, lost = _num(flat, "aerials_won"), _num(flat, "aerials_lost")
-        out["aerials_won_p90"] = _p90(won, n90) if (won or lost) else None
-        out["aerial_win_pct"] = _shrunk_pct(won, (won or 0) + (lost or 0), 0.5, 10) if (won or lost) else None
-        out["clearances_p90"] = _p90(_num(flat, "clearances"), n90)
-        out["blocks_p90"] = _p90(_num(flat, "blocks"), n90)
-        out["blocked_shots_p90"] = _p90(_num(flat, "blocks_shots"), n90)
-        out["prog_passes_p90"] = _p90(_num(flat, "progressive_passes"), n90)
-        out["prog_carries_p90"] = _p90(_num(flat, "progressive_carries"), n90)
-        out["pass_cmp_pct"] = _shrunk_pct(_num(flat, "pass_cmp"), _num(flat, "pass_att"), 0.80, 30)
         out["fouls_p90"] = _p90(_num(flat, "fouls", "fouls_committed"), n90)
         yellow, red = _num(flat, "yellow_cards", "us_yellow"), _num(flat, "red_cards", "us_red")
         out["cards_p90"] = _p90((yellow or 0) + 2 * (red or 0), n90) if (yellow is not None or red is not None) else None
-        out["errors_p90"] = _p90(_num(flat, "errors"), n90)
         # Understat (cobre todos os jogadores) e "em campo" derivado dos chutes.
         out["xg_buildup_p90"] = _p90(_num(flat, "us_xg_buildup"), n90)
         out["xg_chain_p90"] = _p90(_num(flat, "us_xg_chain"), n90)
@@ -310,13 +275,19 @@ def compute_metrics(role: str, flat: Mapping[str, Any]) -> Dict[str, Optional[fl
             out["save_pct"] = _shrunk_pct(saves, sota, 0.70, 20)
             xg_ga, xg_n90 = gk.get("xg_ga"), (gk.get("xg_minutes") or gk["minutes"]) / 90.0
             out["psxg_diff_p90"] = _p90(psxg - xg_ga, xg_n90) if (psxg is not None and xg_ga is not None) else None
+            if out["psxg_diff_p90"] is None and saves is not None and sota:
+                # Sem PSxG/xG no alvo: "gols evitados" ESTIMADO pela média da liga.
+                #   esperado_defesas = chutes_no_alvo × %_defesa_da_liga
+                #   gols_evitados    = defesas − esperado_defesas      (= gols esperados − gols sofridos)
+                #   por 90           = gols_evitados ÷ (minutos ÷ 90)
+                # Positivo = defendeu mais que o goleiro médio da liga diante do mesmo número de chutes.
+                league_pct = league_save_pct if league_save_pct else LEAGUE_SAVE_PCT
+                out["psxg_diff_p90"] = _p90(saves - sota * league_pct, gk_n90)
+                out["psxg_diff_estimated"] = 1.0
+                out["psxg_league_save_pct"] = round(100.0 * league_pct, 1)
             out["ga_p90"] = _p90(ga, gk_n90)
             cs = gk["cs"]
             out["clean_sheet_pct"] = 100.0 * cs / gk_matches if (cs is not None and gk_matches > 0) else None
-        out["cross_stop_pct"] = _shrunk_pct(_num(flat, "gk_crosses_stopped"), _num(flat, "gk_crosses_opp"), 0.075, 20)
-        out["opa_p90"] = _p90(_num(flat, "gk_opa"), n90)
-        out["launched_cmp_pct"] = _shrunk_pct(_num(flat, "gk_launched_cmp"), _num(flat, "gk_launched_att"), 0.50, 20)
-        out["pass_cmp_pct"] = _shrunk_pct(_num(flat, "pass_cmp"), _num(flat, "pass_att"), 0.70, 40)
         out["pk_save_pct"] = _shrunk_pct(_num(flat, "gk_pk_saved"), _num(flat, "gk_pk_att"), 0.20, 8)
     return out
 
@@ -470,7 +441,7 @@ def flatten_stat(columns: Mapping[str, Any], supplemental: Optional[Mapping[str,
 # --------------------------------------------------------------------------- totais das partidas gravadas no banco
 MATCH_SUM_FIELDS = (
     "tackles", "interceptions", "fouls_committed", "fouls_suffered", "passes", "passes_completed",
-    "key_passes", "duels", "duels_won", "yellow", "red",
+    "key_passes", "duels", "duels_won", "yellow", "red", "shots", "shots_on_target",
 )
 MATCH_COVERAGE_MIN = 0.8   # fração mínima dos jogos da temporada com registro para usar as somas
 
@@ -571,6 +542,22 @@ def apply_match_totals(flat: Dict[str, Any], totals: Optional[Mapping[str, Any]]
     return flat
 
 
+def complementary_from_totals(totals: Optional[Mapping[str, Any]], matches_played: Optional[float]) -> Dict[str, float]:
+    """Estatísticas complementares do jogador de linha vindas das partidas gravadas no banco (ESPN).
+
+    Só campos que a fonte realmente informa (chutes, chutes no alvo, faltas, cartões); o zero aqui é um zero de
+    verdade. Exige cobertura ≥ 80% dos jogos da temporada. Chaves iguais às da tela (``yellow_cards`` etc.).
+    """
+    if not totals:
+        return {}
+    matches, season = _f(totals.get("m_matches")), _f(matches_played)
+    if matches <= 0 or (season > 0 and matches < MATCH_COVERAGE_MIN * season):
+        return {}
+    mapping = (("shots", "shots"), ("shots_on_target", "shots_on_target"), ("fouls", "fouls_committed"),
+               ("fouled", "fouls_suffered"), ("yellow_cards", "yellow"), ("red_cards", "red"))
+    return {dst: _f(totals.get(f"m_{src}")) for dst, src in mapping}
+
+
 # --------------------------------------------------------------------------- goleiro adversário nas previsões
 LEAGUE_SAVE_PCT = 0.70
 GK_FACTOR_PRIOR_SHOTS = 40.0
@@ -597,15 +584,28 @@ def gk_goal_factor(flat: Mapping[str, Any], league_save_pct: float = LEAGUE_SAVE
             "shots_on_target_faced": sota, "source": gk["source"]}
 
 
+def league_save_pct(peers: Iterable[Mapping[str, Any]]) -> float:
+    """% de defesa média dos goleiros da liga (defesas ÷ chutes no alvo); 70% com amostra pequena (< 150 chutes)."""
+    saves = sota = 0.0
+    for flat in peers:
+        gk = gk_totals(flat)
+        if gk and gk.get("sota"):
+            saves += float(gk.get("saves") or 0)
+            sota += float(gk["sota"])
+    return saves / sota if sota >= 150 else LEAGUE_SAVE_PCT
+
+
 def reduce_peer_metrics(role: str, flats: Iterable[Mapping[str, Any]], min_minutes: float) -> List[Dict[str, Optional[float]]]:
+    flats = list(flats)
+    league_pct = league_save_pct(flats) if role == "GK" else None
     return [
-        compute_metrics(role, flat) for flat in flats
+        compute_metrics(role, flat, league_pct) for flat in flats
         if (_num(flat, "minutes_played") or 0) >= min_minutes
     ]
 
 
 __all__ = [
     "classify_role", "infer_role", "gk_totals", "aggregate_match_rows", "apply_match_totals", "compute_metrics", "score_index", "flatten_stat", "gk_goal_factor",
-    "reduce_peer_metrics", "anchor_score", "percentile_score", "reliability",
+    "reduce_peer_metrics", "league_save_pct", "complementary_from_totals", "anchor_score", "percentile_score", "reliability",
     "ROLE_LABELS", "INDEX_NAMES", "COMPONENTS", "MIN_PEERS",
 ]

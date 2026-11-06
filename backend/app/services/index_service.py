@@ -20,7 +20,7 @@ from app.db.models import (
 )
 from app.services.player_profile import LEAGUE_LABELS, team_league_map
 from app.services.position_index import (
-    COMPONENTS, LEAGUE_SAVE_PCT, ROLE_LABELS, aggregate_match_rows, apply_match_totals, compute_metrics, flatten_stat,
+    COMPONENTS, ROLE_LABELS, aggregate_match_rows, apply_match_totals, complementary_from_totals, compute_metrics, flatten_stat, league_save_pct,
     gk_goal_factor, gk_totals, infer_role, reduce_peer_metrics, score_index,
 )
 
@@ -109,6 +109,7 @@ def match_totals_for(db: Session, player_ids: Sequence[int],
             "fouls_committed": pms.fouls_committed, "fouls_suffered": pms.fouls_suffered,
             "passes": pms.passes, "passes_completed": pms.passes_completed, "key_passes": pms.key_passes,
             "duels": pms.duels, "duels_won": pms.duels_won,
+            "shots": pms.shots, "shots_on_target": pms.shots_on_target,
             "yellow": _espn_raw(pms.supplemental_stats, "yellowCards"),
             "red": _espn_raw(pms.supplemental_stats, "redCards"),
             "saves": pms.saves, "goals_conceded": pms.goals_conceded, "shots_faced": pms.shots_faced,
@@ -177,16 +178,6 @@ def league_peers(db: Session, role: str, season_id: Optional[int], league_code: 
     return peers
 
 
-def league_save_pct(peers: Iterable[Dict[str, Any]]) -> float:
-    saves = sota = 0.0
-    for flat in peers:
-        gk = gk_totals(flat)
-        if gk and gk.get("sota"):
-            saves += float(gk.get("saves") or 0)
-            sota += float(gk["sota"])
-    return saves / sota if sota >= 150 else LEAGUE_SAVE_PCT
-
-
 # --------------------------------------------------------------------------- KPIs de cada função
 def _kpi(key: str, label: str, value: Optional[float], unit: str = "", decimals: int = 2,
          sub: Optional[str] = None, league_avg: Optional[float] = None) -> Dict[str, Any]:
@@ -213,49 +204,26 @@ def build_kpis(role: str, flat: Dict[str, Any], m: Dict[str, Optional[float]],
                  sub=f"{int(gk.get('saves') or 0)} em {int(gk.get('sota') or 0)} chutes no alvo",
                  league_avg=_avg(peer_metrics, "save_pct")),
             _kpi("psxg_diff_p90", "Gols evitados / 90", m.get("psxg_diff_p90"), "", 2,
-                 sub="PSxG − gols sofridos (positivo = acima do esperado)",
+                 sub=(f"Estimado: defesas − chutes no alvo × {m['psxg_league_save_pct']:.1f}% (média de defesa da liga)"
+                      if m.get("psxg_diff_estimated") and m.get("psxg_league_save_pct") is not None
+                      else "PSxG − gols sofridos (positivo = acima do esperado)"),
                  league_avg=_avg(peer_metrics, "psxg_diff_p90")),
             _kpi("ga_p90", "Gols sofridos / 90", m.get("ga_p90"), "", 2,
                  sub=f"Total: {int(gk.get('ga') or 0)}", league_avg=_avg(peer_metrics, "ga_p90")),
             _kpi("clean_sheet_pct", "Jogos sem sofrer gol", m.get("clean_sheet_pct"), "%", 0,
                  sub=f"{int(gk.get('cs') or 0)} jogos", league_avg=_avg(peer_metrics, "clean_sheet_pct")),
-            _kpi("cross_stop_pct", "Cruzamentos interceptados", m.get("cross_stop_pct"), "%", 1,
-                 sub=f"{int(g('gk_crosses_stopped') or 0)} de {int(g('gk_crosses_opp') or 0)}",
-                 league_avg=_avg(peer_metrics, "cross_stop_pct")),
-            _kpi("opa_p90", "Ações fora da área / 90", m.get("opa_p90"), "", 2,
-                 league_avg=_avg(peer_metrics, "opa_p90")),
-            _kpi("launched_cmp_pct", "Lançamentos certos", m.get("launched_cmp_pct"), "%", 1,
-                 league_avg=_avg(peer_metrics, "launched_cmp_pct")),
             _kpi("pk_save_pct", "Pênaltis defendidos", None if not pk_att else float(pk_saved or 0), "", 0,
                  sub=f"de {int(pk_att)} cobrados" if pk_att else None),
         ]
     if role == "DEF":
-        tackle_win_pct = m.get("tackle_win_pct")
         tackles = flat.get("tkl_won")
         if tackles is None:
             tackles = g("tackles")
-        tackle_value = tackle_win_pct if tackle_win_pct is not None else tackles
-        tackle_unit = "%" if tackle_win_pct is not None else ""
-        tackle_sub = (
-            None if tackle_win_pct is not None or tackles is None
-            else f"{int(tackles)} desarmes ganhos na temporada"
-        )
         return [
             _kpi("tkl_int_p90", "Desarmes + interc. / 90", m.get("tkl_int_p90"), "", 2,
                  league_avg=_avg(peer_metrics, "tkl_int_p90")),
-            _kpi("tackle_win_pct", "Desarmes ganhos", tackle_value, tackle_unit, 1, sub=tackle_sub,
-                 league_avg=_avg(peer_metrics, "tackle_win_pct")),
-            _kpi("aerials_won_p90", "Aéreos ganhos / 90", m.get("aerials_won_p90"), "", 2,
-                 sub=f"{m['aerial_win_pct']:.0f}% de aproveitamento" if m.get("aerial_win_pct") is not None else None,
-                 league_avg=_avg(peer_metrics, "aerials_won_p90")),
-            _kpi("clearances_p90", "Cortes / 90", m.get("clearances_p90"), "", 2,
-                 league_avg=_avg(peer_metrics, "clearances_p90")),
-            _kpi("blocks_p90", "Bloqueios / 90", m.get("blocks_p90"), "", 2,
-                 league_avg=_avg(peer_metrics, "blocks_p90")),
-            _kpi("prog_passes_p90", "Passes progressivos / 90", m.get("prog_passes_p90"), "", 2,
-                 league_avg=_avg(peer_metrics, "prog_passes_p90")),
-            _kpi("prog_carries_p90", "Conduções progressivas / 90", m.get("prog_carries_p90"), "", 2,
-                 league_avg=_avg(peer_metrics, "prog_carries_p90")),
+            _kpi("tackle_win_pct", "Desarmes ganhos", tackles, "", 0,
+                 sub=f"{int(tackles)} desarmes ganhos na temporada" if tackles else None),
             _kpi("fouls_p90", "Faltas / 90", m.get("fouls_p90"), "", 2, league_avg=_avg(peer_metrics, "fouls_p90")),
         ]
     return []
@@ -283,6 +251,10 @@ def player_index_payload(db: Session, player: Player) -> Dict[str, Any]:
     stat = latest_overall(db, player.id)
     role = role_of(player.position, stat)
     base = {"player_id": player.id, "role": role, "role_label": ROLE_LABELS.get(role) if role else None}
+    row_totals = match_totals_for(db, [player.id], stat.season_id).get(player.id) if stat is not None else None
+    # Totais da temporada das partidas gravadas no banco: a tela completa com eles as estatísticas
+    # complementares quando o FBref/SoccerData não trouxe o jogador (vem tudo zerado).
+    base["season_totals"] = complementary_from_totals(row_totals, stat.matches_played if stat is not None else None)
     if role not in COMPONENTS:
         return {**base, "available": False, "index": None,
                 "reason": "Atacantes e meias usam o índice ofensivo." if role else "Posição do jogador desconhecida."}
@@ -293,9 +265,9 @@ def player_index_payload(db: Session, player: Player) -> Dict[str, Any]:
 
     league_map = team_league_map(db)
     league_code = (league_map.get(player.team_id) or {}).get("code") if player.team_id else None
-    flat = stat_flat(stat, match_totals_for(db, [player.id], stat.season_id).get(player.id))
-    metrics = compute_metrics(role, flat)
+    flat = stat_flat(stat, row_totals)
     peers = [p for p in league_peers(db, role, stat.season_id, league_code, league_map) if p["player_id"] != player.id]
+    metrics = compute_metrics(role, flat, league_save_pct(peers) if role == "GK" else None)
     peer_metrics = reduce_peer_metrics(role, peers, PEER_MIN_MINUTES)
     result = score_index(role, metrics, peer_metrics, float(stat.minutes_played or 0))
     return {
@@ -348,9 +320,10 @@ def team_goalkeeper(db: Session, team_ids: Sequence[int]) -> Optional[Dict[str, 
     league_code = next((league_map[t]["code"] for t in team_ids if t in league_map), None)
     peers = [p for p in league_peers(db, "GK", stat.season_id, league_code, league_map) if p["player_id"] != player.id]
     peer_metrics = reduce_peer_metrics("GK", peers, PEER_MIN_MINUTES)
-    metrics = compute_metrics("GK", flat)
+    league_pct = league_save_pct(peers)
+    metrics = compute_metrics("GK", flat, league_pct)
     result = score_index("GK", metrics, peer_metrics, float(stat.minutes_played or 0))
-    factor = gk_goal_factor(flat, league_save_pct(peers))
+    factor = gk_goal_factor(flat, league_pct)
     return {
         "player_id": player.id,
         "name": player.display_name or player.last_name,
@@ -366,7 +339,7 @@ def team_goalkeeper(db: Session, team_ids: Sequence[int]) -> Optional[Dict[str, 
         "psxg_diff_p90": metrics.get("psxg_diff_p90"),
         "ga_p90": metrics.get("ga_p90"),
         "clean_sheet_pct": metrics.get("clean_sheet_pct"),
-        "cross_stop_pct": metrics.get("cross_stop_pct"),
+        "psxg_diff_estimated": bool(metrics.get("psxg_diff_estimated")),
         "goal_factor": factor["factor"] if factor else None,
         "shots_on_target_faced": factor["shots_on_target_faced"] if factor else None,
     }

@@ -341,6 +341,8 @@ export interface PlayerIndex {
   notes?: string[];
   /** De onde vieram os números (Understat, derivado dos chutes, FBref). */
   data_sources?: string[];
+  /** Totais da temporada das partidas gravadas no banco (chutes, faltas, cartões) para as estatísticas complementares. */
+  season_totals?: Record<string, number>;
 }
 export async function getPlayerIndex(id: number) { return api.get<PlayerIndex>(`/players/${id}/index`).then((r) => r.data); }
 
@@ -385,11 +387,13 @@ export interface TeamGoalkeeper {
   player_id: number; name: string; minutes: number | null; matches?: number | null;
   /** true quando há defesas/chutes sofridos de qualquer fonte (FBref ou derivados dos chutes do Understat). */
   has_data?: boolean;
-  data_source?: "fbref" | "derived";
+  data_source?: "fbref" | "derived" | "match_stats";
   has_fbref: boolean; index: number | null; reliability?: number;
   components?: Array<{ key: string; label: string; score: number | null }>;
   save_pct?: number | null; psxg_diff_p90?: number | null; ga_p90?: number | null;
-  clean_sheet_pct?: number | null; cross_stop_pct?: number | null;
+  clean_sheet_pct?: number | null;
+  /** true quando "gols evitados" é estimado pela média de defesa da liga (sem PSxG). */
+  psxg_diff_estimated?: boolean;
   goal_factor: number | null; shots_on_target_faced?: number | null;
 }
 export interface MatchInsights {
