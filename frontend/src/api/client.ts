@@ -824,7 +824,9 @@ export interface TeamProfilePlayer {
   source: "understat" | "shots";
 }
 export interface TeamProfileSquadMember {
-  key: string; name: string; position: string | null; born: number | null; group: SquadGroupKey;
+  key: string;
+  /** Id do jogador (preferindo o da Understat, que tem as estatísticas) para abrir /players/:id. */
+  player_id?: number | null; name: string; position: string | null; born: number | null; group: SquadGroupKey;
   games: number | null; goals: number | null; assists: number | null; xg: number | null; has_stats: boolean;
 }
 export interface TeamProfileSummary {

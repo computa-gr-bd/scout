@@ -159,7 +159,8 @@ def _squad_block(
         u = by_fd_id.get(p.id)
         position = p.position or (u or {}).get("position")
         out.append({
-            "key": f"fd-{p.id}", "name": name, "position": position,
+            "key": f"fd-{p.id}", "player_id": u["player_id"] if u else p.id,
+            "name": name, "position": position,
             "born": p.date_of_birth.year if p.date_of_birth else None,
             "group": _group_of(p.position) if p.position else (u or {}).get("group", "att"),
             "games": u["games"] if u else None, "goals": u["goals"] if u else None,
@@ -172,7 +173,8 @@ def _squad_block(
             continue
         seen.add(norm_person(u["name"]))
         out.append({
-            "key": f"us-{u['player_id']}", "name": u["name"], "position": u["position"], "born": None,
+            "key": f"us-{u['player_id']}", "player_id": u["player_id"],
+            "name": u["name"], "position": u["position"], "born": None,
             "group": u["group"], "games": u["games"], "goals": u["goals"],
             "assists": u["assists"], "xg": u["xg"], "has_stats": True,
         })

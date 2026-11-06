@@ -75,6 +75,8 @@ function groupOfFootballData(position: string | null | undefined): SquadGroupKey
 /** Um atleta do elenco já combinado com as estatísticas da Understat (quando o nome bate). */
 interface SquadEntry {
   key: string;
+  /** Id para abrir o perfil em /players/:id (null se não der para determinar). */
+  playerId: number | null;
   name: string;
   position: string | null;
   born: number | null;
@@ -85,11 +87,17 @@ interface SquadEntry {
   hasStats: boolean;
 }
 
+/** Extrai o id numérico de chaves "fd-123" / "us-123" (fallback quando a API não manda player_id). */
+function idFromKey(key: string): number | null {
+  const m = /^(?:fd|us)-(\d+)$/.exec(key);
+  return m ? Number(m[1]) : null;
+}
+
 function buildSquad(fdPlayers: Player[], profile: TeamProfile | undefined): SquadEntry[] {
   // O backend já junta o elenco de todas as fontes (vale para o id do football-data e da Understat).
   if (profile?.squad?.length) {
     return profile.squad.map((m) => ({
-      key: m.key, name: m.name, position: m.position, born: m.born, group: m.group,
+      key: m.key, playerId: m.player_id ?? idFromKey(m.key), name: m.name, position: m.position, born: m.born, group: m.group,
       games: m.games, goals: m.goals, xg: m.xg, hasStats: m.has_stats,
     }));
   }
@@ -103,6 +111,7 @@ function buildSquad(fdPlayers: Player[], profile: TeamProfile | undefined): Squa
     const name = p.display_name || `${p.first_name || ""} ${p.last_name}`.trim();
     return {
       key: `fd-${p.id}`,
+      playerId: u?.player_id ?? p.id,
       name,
       position: p.position,
       born: p.date_of_birth ? new Date(p.date_of_birth).getFullYear() : null,
@@ -116,7 +125,7 @@ function buildSquad(fdPlayers: Player[], profile: TeamProfile | undefined): Squa
   // Jogadores da Understat sem par no elenco cadastrado (ou time sem elenco): entram com a posição da Understat.
   understat.filter((u) => u.fd_player_id == null).forEach((u) => {
     entries.push({
-      key: `us-${u.player_id}`, name: u.name, position: u.position, born: null, group: u.group,
+      key: `us-${u.player_id}`, playerId: u.player_id, name: u.name, position: u.position, born: null, group: u.group,
       games: u.games, goals: u.goals, xg: u.xg, hasStats: true,
     });
   });
@@ -130,8 +139,9 @@ const bySquadStats = (a: SquadEntry, b: SquadEntry) =>
 function SquadRow({ p }: { p: SquadEntry }) {
   const initials = p.name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
   const dash = "—";
-  return (
-    <div className="flex items-center gap-3 py-2 border-b border-sv-border/40 last:border-0">
+  const rowClass = "flex items-center gap-3 py-2 border-b border-sv-border/40 last:border-0";
+  const content = (
+    <>
       <div className="w-8 h-8 shrink-0 rounded-full bg-sv-panel2 grid place-items-center text-[11px] font-semibold border border-sv-border">
         {initials}
       </div>
@@ -146,7 +156,18 @@ function SquadRow({ p }: { p: SquadEntry }) {
         <div><div className="sv-stat-k">G</div><div className="text-sv-accent3">{p.goals ?? dash}</div></div>
         <div><div className="sv-stat-k">xG</div><div>{p.xg != null ? p.xg.toFixed(2) : dash}</div></div>
       </div>
-    </div>
+    </>
+  );
+  // Atleta com id conhecido abre o perfil na tela Jogadores.
+  if (p.playerId == null) return <div className={rowClass}>{content}</div>;
+  return (
+    <Link
+      to={`/players/${p.playerId}`}
+      title={`Abrir perfil de ${p.name}`}
+      className={`${rowClass} px-1 rounded-lg hover:bg-sv-panel2 transition`}
+    >
+      {content}
+    </Link>
   );
 }
 
@@ -230,10 +251,15 @@ function StandingsTable({ rows, teamIds }: { rows: StandingRow[]; teamIds: numbe
                   className={`border-b border-sv-border/40 last:border-0 ${mine ? "bg-sv-accent/10" : ""}`}>
                 <td className="py-2 font-mono text-xs">{r.position}</td>
                 <td className="py-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <TeamLogo name={r.team_name} src={r.team_logo} className="w-5 h-5 shrink-0" />
-                    <span className={`truncate ${mine ? "font-semibold text-white" : ""}`}>{r.team_name}</span>
-                  </div>
+                  {/* Logo e nome abrem o perfil do time (o próprio time já está na página, mas o link é inofensivo) */}
+                  <Link
+                    to={`/teams/${r.team_id}`}
+                    title={`Abrir ${r.team_name}`}
+                    className="flex items-center gap-2 min-w-0 group"
+                  >
+                    <TeamLogo name={r.team_name} src={r.team_logo} className="w-5 h-5 shrink-0 transition-transform duration-150 group-hover:scale-110" />
+                    <span className={`truncate group-hover:underline ${mine ? "font-semibold text-white" : ""}`}>{r.team_name}</span>
+                  </Link>
                 </td>
                 <td className="text-center font-mono text-xs">{r.played}</td>
                 <td className="text-center font-mono text-xs">{r.won}</td>
