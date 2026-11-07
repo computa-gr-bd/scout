@@ -7,6 +7,7 @@ import { clamp, clamp01, smooth, type ShotResult } from "./realism/common";
 import { buildPlan } from "./realism/plan";
 import type { CamMode } from "./realism/shared";
 import { ProScene, preloadRealisticModels } from "./realism/ProScene";
+import type { KitColors } from "./realism/Actors";
 
 export { preloadRealisticModels };
 export type { ShotResult };
@@ -67,7 +68,7 @@ const RESULT_LABEL: Record<ShotResult, { text: string; tone: string }> = {
 };
 
 export function RealisticReplay3D({
-  goalLoc, shotOrigin, team = "home", result = "goal", teamColor, foeColor = "#e2e8f0", progress, penalty = false, header = false,
+  goalLoc, shotOrigin, team = "home", result = "goal", teamColor, foeColor = "#e2e8f0", ownKit, foeKit, progress, penalty = false, header = false,
   leftFooted = false, shirtNumber, info, seed = 1, corner = false, freeKick = false, progressRef, fullscreen = false, onToggleFullscreen, onReady, onClose,
 }: {
   goalLoc?: { x: number; y: number };
@@ -76,6 +77,9 @@ export function RealisticReplay3D({
   result?: ShotResult;
   teamColor: string;
   foeColor?: string;
+  /** Uniforme completo de quem chuta / de quem defende (do CSV). Opcional: sem eles usa `teamColor`/`foeColor`. */
+  ownKit?: KitColors;
+  foeKit?: KitColors;
   progress: number;
   penalty?: boolean;
   header?: boolean;
@@ -132,7 +136,7 @@ export function RealisticReplay3D({
         <ModelBoundary onError={() => { setStatus("error"); onReady?.(); }}>
           <Suspense fallback={null}>
             <ProScene
-              plan={plan} qRef={qRef} teamColor={teamColor} foeColor={foeColor} camMode={camMode} number={shirtNumber} name={info?.player}
+              plan={plan} qRef={qRef} teamColor={teamColor} foeColor={foeColor} ownKit={ownKit} foeKit={foeKit} camMode={camMode} number={shirtNumber} name={info?.player}
               onReady={() => { setStatus("ready"); onReady?.(); }}
             />
           </Suspense>

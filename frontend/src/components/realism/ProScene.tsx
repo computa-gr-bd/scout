@@ -21,8 +21,11 @@ export function preloadRealisticModels() {
 const KEEPER: KitColors = { shirt: "#f59e0b", shorts: "#111827", socks: "#111827" };
 
 /** Cena com os modelos reais (Mixamo): jogadores com esqueleto e animações de captura de movimento. */
-export const ProScene = memo(function ProScene({ plan, qRef, teamColor, foeColor, camMode, number, name, onReady }: {
-  plan: Plan; qRef: MutableRefObject<number>; teamColor: string; foeColor: string; camMode: CamMode; number?: number; name?: string;
+export const ProScene = memo(function ProScene({ plan, qRef, teamColor, foeColor, ownKit, foeKit, camMode, number, name, onReady }: {
+  plan: Plan; qRef: MutableRefObject<number>; teamColor: string; foeColor: string;
+  /** Uniformes completos (camisa, calção, meia). Sem eles, usa só `teamColor`/`foeColor`. */
+  ownKit?: KitColors; foeKit?: KitColors;
+  camMode: CamMode; number?: number; name?: string;
   onReady?: () => void;
 }) {
   const urls = useMemo(() => plan.clips.map(clipUrl), [plan]);
@@ -51,15 +54,17 @@ export const ProScene = memo(function ProScene({ plan, qRef, teamColor, foeColor
   }, [assets]);
 
   const actors = useMemo(() => {
-    const kit = (shirt: string, shorts: string): KitColors => ({ shirt, shorts, socks: shirt });
+    const legacy = (shirt: string, shorts: string): KitColors => ({ shirt, shorts, socks: shirt });
+    const own = ownKit ?? legacy(teamColor, "#f8fafc");
+    const foe = foeKit ?? legacy(foeColor, "#111827");
     return {
-      k: new Actor(assets, kit(teamColor, "#f8fafc"), { number, name, cast: true }),
-      t: plan.taker ? new Actor(assets, kit(teamColor, "#f8fafc"), { cast: true }) : null,
-      g: new Actor(assets, KEEPER, { cast: true }),
-      d: plan.defender ? new Actor(assets, kit(foeColor, "#111827"), { cast: true }) : null,
-      e: plan.extras.map((x) => new Actor(assets, x.own ? kit(teamColor, "#f8fafc") : kit(foeColor, "#111827"), { clips: ["idle_offensive"] })),
+      k: new Actor(assets, own, { number, name, cast: true }),
+      t: plan.taker ? new Actor(assets, own, { cast: true }) : null,
+      g: new Actor(assets, KEEPER, { cast: true }),                    // goleiro: uniforme padrão, igual para todos
+      d: plan.defender ? new Actor(assets, foe, { cast: true }) : null,
+      e: plan.extras.map((x) => new Actor(assets, x.own ? own : foe, { clips: ["idle_offensive"] })),
     };
-  }, [assets, plan, teamColor, foeColor, number, name]);
+  }, [assets, plan, teamColor, foeColor, ownKit, foeKit, number, name]);
 
   useEffect(() => () => {
     actors.k.dispose(); actors.t?.dispose(); actors.g.dispose(); actors.d?.dispose(); actors.e.forEach((a) => a.dispose());

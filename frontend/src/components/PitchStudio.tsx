@@ -4,6 +4,7 @@ import { type StudioDataset, type StudioRealInfo } from "../api/studioData";
 import { crestFor } from "../api/footballDataOrg";
 import { JerseyGlyph, JerseyDefs, JerseyBadge, BallGlyph } from "./Jersey";
 import { TeamLogo } from "./ui";
+import { resolveMatchKits } from "../lib/kits";
 import { MaterialIcon } from "./MaterialIcon";
 
 // Replay 3D realista (animação estilo transmissão): carregado sob demanda, só quando o modo é usado.
@@ -625,6 +626,12 @@ export function PitchStudio({
   }, [view, shots]);
 
   const current = filtered[idx];
+  // Uniformes reais (CSV): iguais em todos os lances do jogo (mandante = uniforme 1, visitante = uniforme 2;
+  // troca só se as camisas ficarem parecidas). Time fora da lista → `null` → cores padrão azul/vermelho.
+  const matchKits = useMemo(() => resolveMatchKits(matchInfo.home, matchInfo.away), [matchInfo.home, matchInfo.away]);
+  const kits = current?.team === "away"
+    ? { own: matchKits.away, foe: matchKits.home }
+    : { own: matchKits.home, foe: matchKits.away };
 
   const isShotView = view === "shots" || view === "onTarget" || view === "goals";
 
@@ -978,6 +985,8 @@ export function PitchStudio({
                   result={current.ownGoal ? "own_goal" : current.result}
                   teamColor={current.team === "home" ? HOME_COLOR : AWAY_COLOR}
                   foeColor={current.team === "home" ? AWAY_COLOR : HOME_COLOR}
+                  ownKit={kits.own ?? undefined}
+                  foeKit={kits.foe ?? undefined}
                   penalty={/p[eê]nalti|penalty/i.test(current.situation)}
                   header={/cabe[cç]|head/i.test(current.shotType)}
                   leftFooted={/esquerd|left/i.test(current.shotType)}
