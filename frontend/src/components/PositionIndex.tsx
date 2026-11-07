@@ -59,6 +59,12 @@ function MetricRow({ m }: { m: IndexMetric }) {
         {m.value == null ? "—" : `${m.value}${m.unit === "%" ? "%" : ""}`}
       </span>
       <span className="font-mono w-14 text-right text-sv-muted">{m.league_avg == null ? "" : `liga ${m.league_avg}`}</span>
+      <span
+        className={`font-mono w-10 text-right ${m.robust_z == null ? "text-sv-muted" : m.robust_z >= 1 ? "text-emerald-300" : m.robust_z <= -1 ? "text-rose-300" : "text-sv-muted"}`}
+        title={m.z == null && m.robust_z == null ? "Sem variação no grupo" : `Z ${m.z ?? "—"} (média/desvio) · Z robusto ${m.robust_z ?? "—"} (mediana/MAD). Positivo = melhor que o típico.`}
+      >
+        {m.robust_z == null ? "" : `${m.robust_z > 0 ? "+" : ""}${m.robust_z.toFixed(1)}σ`}
+      </span>
       <span className="inline-block h-1.5 w-16 overflow-hidden rounded-full bg-white/10">
         <span className="block h-full rounded-full bg-sv-accent3" style={{ width: `${score}%`, opacity: m.score == null ? 0.2 : 1 }} />
       </span>

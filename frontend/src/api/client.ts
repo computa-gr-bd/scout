@@ -213,6 +213,31 @@ export interface ZoneOpportunity {
   player_frequency: number;
 }
 
+export interface PredictionDistribution {
+  model: "negative_binomial" | "poisson";
+  dispersion: number;
+  expected: number;
+  /** [P(0), P(1), P(2), P(3 ou mais)] */
+  probs: number[];
+  p_at_least_2: number;
+}
+
+export interface PredictionScenarios {
+  favorable: number;
+  base: number;
+  conservative: number;
+  spread: number;
+  level: "stable" | "moderate" | "sensitive";
+  drivers: { amostra: number; contexto: number };
+}
+
+export interface PredictionForm {
+  structural: number;
+  recent: number;
+  delta_pct: number;
+  trend: "up" | "down" | "stable";
+}
+
 export interface PlayerMatchPrediction {
   player_id: number;
   player_name: string;
@@ -236,6 +261,14 @@ export interface PlayerMatchPrediction {
   minutes_known?: boolean;
   /** Multiplicador do goleiro adversário na chance de gol (1,0 = médio). */
   gk_factor?: number | null;
+  /** Distribuição do número de eventos: Binomial Negativa (chutes/no alvo) ou Poisson (gols). */
+  distribution?: PredictionDistribution | null;
+  /** Cenários condicionais (favorável / base / conservador) e quão sensível é a previsão. */
+  scenarios?: PredictionScenarios | null;
+  /** Forma recente (média ponderada das últimas partidas) x temporada, em xG por jogo. */
+  form?: PredictionForm | null;
+  /** Cadeia de conversão suavizada: % no alvo e % de gol por chute no alvo. */
+  conversion?: { p_on_target: number; p_goal_given_sot: number } | null;
   /** Só em partidas encerradas com chutes coletados: o que aconteceu de fato na partida. */
   /** played: false = nem entrou em campo; null = sem escalação para afirmar. */
   outcome?: { happened: boolean; count: number; played?: boolean | null } | null;
@@ -315,6 +348,8 @@ export interface PlayerOverview {
 export interface IndexMetric {
   key: string; label: string; unit: string; value: number | null; score: number | null;
   league_avg: number | null; higher_is_better: boolean; method?: "percentile" | "anchor";
+  /** Desvios-padrão do grupo (positivo = melhor) e versão robusta (mediana/MAD); só no método percentil. */
+  z?: number | null; robust_z?: number | null;
 }
 export interface IndexComponent {
   key: string; label: string; weight: number; hint?: string; score: number | null; metrics: IndexMetric[];

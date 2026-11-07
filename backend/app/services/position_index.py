@@ -25,6 +25,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
+from app.services.stats_math import robust_z, z_score
+
 MIN_PEERS = 8
 RELIABILITY_FULL_MINUTES = 1350.0   # ~15 jogos completos
 RELIABILITY_FLOOR = 0.4
@@ -358,6 +360,15 @@ def score_index(
                 used_methods.add(method)
                 entry["score"] = round(score, 1)
                 entry["method"] = method
+                if method == "percentile":
+                    # Z-score (média/desvio) e Z robusto (mediana/MAD) do grupo: dizem "quantos desvios" o
+                    # jogador está do típico, algo que o percentil sozinho não mostra. Positivo = melhor
+                    # (invertido nas métricas em que menos é melhor). O robusto quase ignora extremos.
+                    sign = -1.0 if md.invert else 1.0
+                    z = z_score(value, peer_values)
+                    rz = robust_z(value, peer_values)
+                    entry["z"] = None if z is None else round(sign * z, 2)
+                    entry["robust_z"] = None if rz is None else round(sign * rz, 2)
                 m_weight += md.weight
                 m_sum += score * md.weight
             m_out.append(entry)

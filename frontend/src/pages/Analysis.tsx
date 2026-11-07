@@ -398,7 +398,7 @@ export default function AnalysisPage() {
                   <SectionTitle
                     title="Probabilidades de eventos por jogador"
                     hint="Cálculos experimentais com eventos reais anteriores; não são resultados observados nem garantias."
-                    right={<Badge kind="warn">Poisson + minutos + goleiro · experimental</Badge>}
+                    right={<Badge kind="warn">Poisson/Binomial Negativa + minutos + goleiro · experimental</Badge>}
                   />
                   {insightsQuery.isError ? (
                     <EmptyState
@@ -691,6 +691,88 @@ function OutcomeSummary({ predictions, target }: { predictions: PlayerMatchPredi
   );
 }
 
+const SENSITIVITY_LABEL: Record<string, { text: string; cls: string }> = {
+  stable: { text: "Estável", cls: "border-emerald-400/40 bg-emerald-500/10 text-emerald-300" },
+  moderate: { text: "Sensibilidade moderada", cls: "border-amber-400/40 bg-amber-500/10 text-amber-300" },
+  sensitive: { text: "Sensível", cls: "border-rose-400/40 bg-rose-500/10 text-rose-300" },
+};
+
+const pctText = (value: number) => `${Math.round(value * 100)}%`;
+
+/** Distribuição (0/1/2/3+), cenários e tendência de uma estimativa — recolhido para não poluir o card. */
+function PredictionMath({ prediction }: { prediction: PlayerMatchPrediction }) {
+  const { distribution, scenarios, form, conversion } = prediction;
+  if (!distribution && !scenarios && !form) return null;
+  const tag = scenarios ? SENSITIVITY_LABEL[scenarios.level] : null;
+  const labels = ["0", "1", "2", "3+"];
+  return (
+    <div className="space-y-2 text-[11px]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {scenarios && (
+          <span className="text-sv-muted">
+            Cenários: <strong className="text-sv-text">{pctText(scenarios.conservative)}</strong>
+            {" – "}<strong className="text-sv-text">{pctText(scenarios.base)}</strong>
+            {" – "}<strong className="text-sv-text">{pctText(scenarios.favorable)}</strong>
+            <span className="opacity-70"> (conservador · base · favorável)</span>
+          </span>
+        )}
+        {tag && <span className={`rounded-full border px-2 py-0.5 font-semibold ${tag.cls}`}>{tag.text}</span>}
+        {form && form.trend !== "stable" && (
+          <span className={form.trend === "up" ? "text-emerald-300" : "text-rose-300"}>
+            {form.trend === "up" ? "▲" : "▼"} forma recente {form.delta_pct > 0 ? "+" : ""}{form.delta_pct.toFixed(0)}% vs. temporada
+          </span>
+        )}
+      </div>
+      {distribution && (
+        <details className="group rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
+          <summary className="cursor-pointer select-none text-sv-muted marker:text-sv-muted">
+            Ver distribuição e como foi calculado
+          </summary>
+          <div className="mt-2 space-y-2">
+            <div className="grid grid-cols-4 gap-2">
+              {distribution.probs.map((prob, index) => (
+                <div key={labels[index]} className="text-center">
+                  <div className="mx-auto flex h-10 w-full items-end overflow-hidden rounded bg-white/5">
+                    <div className="w-full rounded bg-sv-accent2/70" style={{ height: `${Math.max(4, Math.round(prob * 100))}%` }} />
+                  </div>
+                  <div className="mt-1 font-mono tabular-nums text-sv-text">{(prob * 100).toFixed(1)}%</div>
+                  <div className="text-sv-muted">{labels[index]} {index === 0 ? "evento" : "eventos"}</div>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-0.5 text-sv-muted">
+              <div>
+                Esperado: <strong className="text-sv-text">{distribution.expected.toFixed(2)}</strong> por jogo ·
+                2 ou mais: <strong className="text-sv-text">{pctText(distribution.p_at_least_2)}</strong>
+              </div>
+              <div>
+                {distribution.model === "negative_binomial"
+                  ? `Binomial Negativa (irregularidade ${distribution.dispersion.toFixed(2)}): jogos sem chute e jogos com muitos.`
+                  : "Poisson: eventos raros e independentes."}
+              </div>
+              {conversion && (
+                <div>
+                  Conversão suavizada: {pctText(conversion.p_on_target)} no alvo · {pctText(conversion.p_goal_given_sot)} de gol por chute no alvo
+                </div>
+              )}
+              {scenarios && (
+                <div>
+                  Pesa mais: amostra do jogador ({scenarios.drivers.amostra.toFixed(0)} p.p.) · contexto ({scenarios.drivers.contexto.toFixed(0)} p.p.)
+                </div>
+              )}
+              {form && (
+                <div>
+                  xG por jogo: temporada {form.structural.toFixed(2)} · recente (pesos 5-4-3-2-1) {form.recent.toFixed(2)}
+                </div>
+              )}
+            </div>
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function PlayerEstimateCard({
   prediction, rank, homeName, awayName,
 }: {
@@ -740,6 +822,7 @@ function PlayerEstimateCard({
           </div>
         )}
         <ProbabilityBar p={prediction.probability} baseline={prediction.baseline_probability} />
+        <PredictionMath prediction={prediction} />
         {(prediction.expected_minutes != null || prediction.gk_factor != null) && (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-sv-muted">
             {prediction.expected_minutes != null && <span>Minutos esperados: ~{prediction.expected_minutes}&apos;</span>}

@@ -110,3 +110,65 @@ def test_opposing_goalkeeper_only_changes_goal_targets():
     assert g["goal_involvement"]["probability"] < b["goal_involvement"]["probability"]
     assert g["goal"]["gk_factor"] == 0.88
     assert any(f["feature"] == "opp_gk" for f in g["goal"]["negative_factors"])
+
+
+def _bursty_and_steady():
+    """Dois jogadores com o MESMO total de chutes: um regular, outro que alterna 0 e 6."""
+    match_ids = list(range(8, 0, -1))
+    steady = {m: {"shots": 3, "on_target": 1, "xg": 0.3} for m in match_ids}
+    bursty = {m: {"shots": (6 if m % 2 else 0), "on_target": (2 if m % 2 else 0), "xg": (0.6 if m % 2 else 0.0)}
+              for m in match_ids}
+    players = {}
+    for pid, by in ((1, steady), (2, bursty)):
+        players[pid] = {
+            "player_id": pid, "name": f"P{pid}", "shots": 24, "on_target": 8, "goals": 2, "xg": 2.4,
+            "assists": 1, "zones": {"central_box": {"n": 12, "xg": 1.2}}, "by_match": by,
+        }
+    return match_ids, players
+
+
+def test_predictions_carry_distribution_scenarios_and_conversion():
+    match_ids, players = _bursty_and_steady()
+    preds, _ = _predictions_for_team("home", 1, players, 8, {}, "Rival", match_ids=match_ids)
+    shot = _by_target(preds, 1)["shot"]
+    goal = _by_target(preds, 1)["goal"]
+
+    dist = shot["distribution"]
+    assert dist["model"] == "negative_binomial" and dist["dispersion"] > 0
+    assert len(dist["probs"]) == 4 and abs(sum(dist["probs"]) - 1.0) < 2e-3
+    assert abs((1 - dist["probs"][0]) - shot["probability"]) < 2e-3        # P(>=1) = 1 - P(0)
+    assert dist["p_at_least_2"] < shot["probability"]
+    assert goal["distribution"]["model"] == "poisson"
+
+    sc = shot["scenarios"]
+    assert sc["conservative"] < sc["base"] < sc["favorable"]
+    assert abs(sc["base"] - shot["probability"]) < 1e-3
+    assert sc["level"] in ("stable", "moderate", "sensitive")
+
+    assert shot["conversion"] is None
+    conv = goal["conversion"]
+    assert 0 < conv["p_on_target"] < 1 and 0 < conv["p_goal_given_sot"] < 1
+
+
+def test_negative_binomial_lowers_chance_of_at_least_one_vs_poisson():
+    match_ids, players = _bursty_and_steady()
+    preds, _ = _predictions_for_team("home", 1, players, 8, {}, "Rival", match_ids=match_ids)
+    shot = _by_target(preds, 1)["shot"]
+    from app.services.stats_math import poisson_at_least
+    assert shot["baseline_probability"] < poisson_at_least(1, shot["rate_per_match"])
+
+
+def test_form_trend_reports_recent_xg_against_the_window():
+    match_ids = list(range(10, 0, -1))
+    hot = {m: {"shots": 2, "on_target": 1, "xg": (0.8 if m > 5 else 0.1)} for m in match_ids}   # últimos 5 jogos quentes
+    players = {1: {
+        "player_id": 1, "name": "P1", "shots": 20, "on_target": 10, "goals": 3, "xg": 4.5, "assists": 0,
+        "zones": {"central_box": {"n": 10, "xg": 2.0}}, "by_match": hot,
+    }}
+    preds, _ = _predictions_for_team("home", 1, players, 10, {}, "Rival", match_ids=match_ids)
+    shot = _by_target(preds, 1)["shot"]
+    assert shot["form"]["trend"] == "up" and shot["form"]["delta_pct"] > 15
+    assert any(f["feature"] == "form" for f in shot["positive_factors"])
+    # sem partidas por jogador (dados antigos): sem tendência, sem quebrar
+    legacy, _ = _predictions_for_team("home", 1, _two_players(), 8, {}, "Rival")
+    assert _by_target(legacy, 1)["shot"]["form"] is None

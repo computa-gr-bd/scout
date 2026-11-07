@@ -6,7 +6,12 @@ Alimenta a tela de Análise sem depender de tabelas pré-calculadas (``Defensive
 * **Zonas fracas** de cada defesa: xG concedido por zona nos últimos jogos do time, comparado
   com a média da liga (mesma temporada). 0,5 = na média; 1,0 = o dobro da média (ou mais).
 * **Probabilidades por jogador** (chute, no alvo, gol, participação em gol): taxas recentes do
-  jogador (Poisson: P(≥1 evento)) ajustadas pela fraqueza da defesa adversária nas zonas onde ele finaliza.
+  jogador ajustadas pela fraqueza da defesa adversária nas zonas onde ele finaliza. A contagem de
+  eventos segue Poisson (gols, participação) ou Binomial Negativa (chutes e chutes no alvo, que são
+  "irregulares": alternam jogos sem chute e jogos com muitos). Gols vêm de uma cadeia de
+  probabilidades (chutes x % no alvo x % de gol por chute no alvo) com cada razão suavizada por
+  inferência bayesiana. Cada estimativa traz a distribuição (0, 1, 2, 3+), três cenários
+  (favorável/base/conservador) e a tendência recente x temporada (ver ``stats_math``).
 * **Confrontos**: atacante × defesa adversária, explicando o porquê.
 
 Tudo é estatística transparente (sem caixa-preta) e só usa jogos ANTERIORES à partida
@@ -18,12 +23,13 @@ import logging
 import math
 from collections import defaultdict
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Event, EventType, Lineup, Match, Player, PlayerMatchStatistics, ZONE_ORDER
+from app.services import stats_math as sm
 from app.services.player_dedupe import _name_match
 from app.services.index_service import recent_minutes, team_goalkeeper
 from app.services.studio import (
@@ -40,7 +46,12 @@ RECENCY_HALF_LIFE = 6.0   # jogos: um jogo 6 rodadas atrás pesa metade na defes
 RECENT_FORM_MATCHES = 5   # janela da "tendência" por zona
 MINUTES_HALF_LIFE = 5.0   # jogos: peso dos minutos recentes na projeção de minutos
 SHRINK_K = 2.0            # "jogos de 90' fictícios" que puxam a taxa do jogador para a média do time
-METHOD = "shot-poisson@2"
+SOT_PRIOR_FALLBACK = 0.35     # % no alvo de referência quando o time não tem chutes suficientes
+GOAL_PRIOR_FALLBACK = 0.28    # gol esperado por chute no alvo de referência (idem)
+SCENARIO_RATE_MIN, SCENARIO_RATE_MAX = 0.08, 0.35   # incerteza da taxa do jogador nos cenários (±)
+SCENARIO_CONTEXT = 0.10       # incerteza do contexto (defesa, mando, goleiro) nos cenários (±)
+SENSITIVE_STABLE, SENSITIVE_FRAGILE = 0.10, 0.20    # amplitude (p.p./100) que separa estável/sensível
+METHOD = "shot-poisson@3"
 
 ZONE_LABEL_PT = {
     "central_box": "área central",
@@ -271,11 +282,17 @@ def _player_rows(events: List[Event], team_ids: set, n_matches: int) -> Dict[int
             "player_id": e.player_id, "name": _player_name(e.player) or f"Jogador {e.player_id}",
             "shots": 0, "on_target": 0, "goals": 0, "xg": 0.0, "assists": 0,
             "zones": defaultdict(lambda: {"n": 0, "xg": 0.0}),
+            # por partida: alimenta a dispersão (binomial negativa) e a tendência recente x temporada
+            "by_match": defaultdict(lambda: {"shots": 0, "on_target": 0, "xg": 0.0}),
         })
         p["shots"] += 1
         p["on_target"] += 1 if _on_target(e) else 0
         p["goals"] += 1 if _is_goal(e) else 0
         p["xg"] += _xg(e)
+        bm = p["by_match"][e.match_id]
+        bm["shots"] += 1
+        bm["on_target"] += 1 if _on_target(e) else 0
+        bm["xg"] += _xg(e)
         p["zones"][a]["n"] += 1
         p["zones"][a]["xg"] += _xg(e)
     # Assistências: quantas vezes o nome do jogador aparece como "assisted_by" em chutes do time.
@@ -366,11 +383,46 @@ def _pooled_rates(players: Dict[int, Dict[str, Any]], profiles: Dict[int, Dict[s
     return {k: v / total_90 for k, v in pool.items()}
 
 
+def _series(p: Dict[str, Any], match_ids: Optional[Sequence[int]], mins: Optional[List[int]],
+            key: str) -> List[float]:
+    """Contagem por partida de ``key`` do jogador, da mais recente à mais antiga.
+
+    Com minutos conhecidos só entram as partidas em que ele jogou (o zero de quem estava no banco
+    não é "irregularidade" do jogador); sem minutos entram todas as partidas da janela."""
+    by = p.get("by_match")
+    if not by or not match_ids:
+        return []
+    out: List[float] = []
+    for i, mid in enumerate(match_ids):
+        if mins is not None and i < len(mins) and mins[i] <= 0:
+            continue
+        row = by.get(mid)
+        out.append(float(row[key]) if row else 0.0)
+    return out
+
+
+def _team_priors(players: Dict[int, Dict[str, Any]]) -> Tuple[float, float]:
+    """(% no alvo, gol esperado por chute no alvo) do time inteiro: âncora da cadeia de probabilidades."""
+    shots = sum(p["shots"] for p in players.values())
+    sot = sum(p["on_target"] for p in players.values())
+    goal_signal = sum(0.6 * p["xg"] + 0.4 * p["goals"] for p in players.values())
+    prior_sot = sm.clamp(sot / shots, 0.15, 0.70) if shots >= 20 else SOT_PRIOR_FALLBACK
+    prior_goal = sm.clamp(goal_signal / sot, 0.05, 0.60) if sot >= 8 else GOAL_PRIOR_FALLBACK
+    return prior_sot, prior_goal
+
+
+def _scenario_deltas(shots: int) -> Tuple[float, float]:
+    """Incerteza (±) da taxa do jogador e do contexto nos cenários: amostra pequena = leque maior."""
+    d_rate = sm.clamp(0.6 / math.sqrt(shots + 1.0), SCENARIO_RATE_MIN, SCENARIO_RATE_MAX)
+    return d_rate, SCENARIO_CONTEXT
+
+
 def _predictions_for_team(
     side: str, team_id: int, players: Dict[int, Dict[str, Any]], n_matches: int,
     opp_weak: Dict[str, Dict[str, Any]], opp_name: str,
     minutes: Optional[Dict[int, List[int]]] = None,
     opp_gk: Optional[Dict[str, Any]] = None,
+    match_ids: Optional[Sequence[int]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Estimativas por jogador.
 
@@ -379,6 +431,13 @@ def _predictions_for_team(
       (poucos minutos = menos extremo) x minutos esperados (recência ponderada). Quem vem sendo
       poupado/lesionado perde probabilidade; quem joga 90' não é penalizado por jogos que não disputou.
     * ``opp_gk``: goleiro adversário (``index_service.team_goalkeeper``) ajusta só gol e participação em gol.
+    * ``match_ids``: partidas da janela (da mais recente à mais antiga, alinhadas aos ``minutes``);
+      habilita a dispersão da binomial negativa e a tendência recente x temporada.
+
+    Matemática (``stats_math``): chutes e chutes no alvo -> Binomial Negativa (dispersão estimada do
+    próprio time); gols e participação -> Poisson. Gols = chutes x %no alvo x %gol por chute no alvo,
+    cada % suavizada (beta-binomial) para a média do time. Cada linha ainda recebe a distribuição
+    (0/1/2/3+), cenários favorável/base/conservador e a tendência da forma recente.
     """
     home_mult = 1.05 if side == "home" else 0.95
     ranked = sorted(players.values(), key=lambda p: (p["xg"] + 0.3 * p["shots"]), reverse=True)[:TOP_PLAYERS]
@@ -389,6 +448,12 @@ def _predictions_for_team(
     pool = _pooled_rates(players, profiles)
     gk_factor = (opp_gk or {}).get("goal_factor")
     gk_name = (opp_gk or {}).get("name")
+    prior_sot, prior_goal = _team_priors(players)
+    shot_series = [_series(p, match_ids, (minutes or {}).get(pid), "shots") for pid, p in players.items()]
+    sot_series = [_series(p, match_ids, (minutes or {}).get(pid), "on_target") for pid, p in players.items()]
+    alpha_shot = sm.estimate_dispersion([x for x in shot_series if x])
+    alpha_sot = sm.estimate_dispersion([x for x in sot_series if x], prior=0.08)
+    alpha_by_target = {"shot": alpha_shot, "shot_on_target": alpha_sot, "goal": 0.0, "goal_involvement": 0.0}
 
     for p in ranked:
         f_shot = _opp_factor(p, opp_weak, "n")
@@ -403,9 +468,11 @@ def _predictions_for_team(
 
         goal_value = 0.6 * p["xg"] + 0.4 * p["goals"]
         shots_pm = per_match(p["shots"], "shots")
-        sot_pm = per_match(p["on_target"], "on_target")
-        goal_pm = per_match(goal_value, "goal")
         assist_pm = per_match(p["assists"], "assist")
+        # Cadeia: chutes/jogo x %no alvo x %gol por chute no alvo (cada % suavizada para o time).
+        chain = sm.shot_chain(shots_pm, p["shots"], p["on_target"], goal_value, prior_sot, prior_goal)
+        sot_pm = chain["sot_rate"]
+        goal_pm = chain["goal_rate"]
         gk_mult = gk_factor if gk_factor else 1.0
         rates = {
             "shot": (shots_pm, f_shot, 1.0),
@@ -453,6 +520,15 @@ def _predictions_for_team(
                 negatives.append({"feature": "minutes", "factor": f"poucos minutos recentes (~{expected_min}' esperados)"})
             else:
                 negatives.append({"feature": "minutes", "factor": f"minutos limitados (~{expected_min}' esperados)"})
+        # Forma recente (pesos decrescentes nas últimas 5) x desempenho da janela toda: dois indicadores
+        # separados — a probabilidade usa o estrutural; a tendência só informa o momento.
+        mins_p = (minutes or {}).get(p["player_id"])
+        xg_series = _series(p, match_ids, mins_p, "xg")
+        form = sm.form_trend(xg_series, recent_n=RECENT_FORM_MATCHES) if len(xg_series) >= 5 else None
+        if form is not None and form["trend"] != "stable":
+            txt = (f"xG recente {abs(form['delta_pct']):.0f}% {'acima' if form['trend'] == 'up' else 'abaixo'}"
+                   f" da média dos últimos {form['n']} jogos")
+            (positives if form["trend"] == "up" else negatives).append({"feature": "form", "factor": txt})
         if gk_factor and gk_name:
             if gk_factor <= 0.96:
                 negatives.append({"feature": "opp_gk", "factor": f"goleiro {gk_name} evita gols acima da média (x{gk_factor:.2f})"})
@@ -463,13 +539,27 @@ def _predictions_for_team(
         if side == "away":
             negatives.append({"feature": "venue", "factor": "joga fora de casa"})
 
+        d_rate, d_ctx = _scenario_deltas(p["shots"])
+        conv = {"p_on_target": round(chain["p_on_target"], 3), "p_goal_given_sot": round(chain["p_goal_given_sot"], 3)}
         for target, (rate, factor, gk_adj) in rates.items():
-            base = _poisson(rate)
-            prob = _poisson(rate * factor * home_mult * gk_adj)
+            alpha = alpha_by_target[target]
+            ctx = factor * home_mult * gk_adj
+            base = sm.nb_at_least(1, rate, alpha)
+            prob = sm.nb_at_least(1, rate * ctx, alpha)
+            mu = rate * ctx
+            dist = sm.count_distribution(mu, alpha, top=3)
+            scen = sm.sensitivity(
+                lambda rm, cm, _r=rate, _c=ctx, _a=alpha: sm.nb_at_least(1, _r * rm * _c * cm, _a),
+                favorable=(1.0 + d_rate, 1.0 + d_ctx), conservative=(1.0 - d_rate, 1.0 - d_ctx),
+                stable_range=SENSITIVE_STABLE, fragile_range=SENSITIVE_FRAGILE,
+            )
+            conf = _confidence(p["shots"], prof["expected_90s"] if prof else None)
+            if scen["level"] == "sensitive" and conf != "low":      # previsão que balança muito: um nível a menos
+                conf = "medium" if conf == "high" else "low"
             preds.append({
                 "player_id": p["player_id"], "player_name": p["name"], "team_id": team_id,
                 "target": target, "probability": round(prob, 4), "baseline_probability": round(base, 4),
-                "venue": side, "confidence": _confidence(p["shots"], prof["expected_90s"] if prof else None),
+                "venue": side, "confidence": conf,
                 "positive_factors": positives, "negative_factors": negatives,
                 "zone_opportunities": zone_opps, "model_version": METHOD,
                 # Taxas usadas no cálculo (alimentam o gráfico de dispersão da tela).
@@ -477,6 +567,21 @@ def _predictions_for_team(
                 "rate_per_match": round(rate, 3), "opp_factor": round(factor, 3),
                 "expected_minutes": expected_min, "minutes_known": prof is not None,
                 "gk_factor": round(gk_adj, 3) if gk_factor else None,
+                # Distribuição do número de eventos (0, 1, 2, 3+) e P(>= 2).
+                "distribution": {
+                    "model": "negative_binomial" if alpha > 1e-6 else "poisson",
+                    "dispersion": round(alpha, 3), "expected": round(mu, 3),
+                    "probs": [round(x, 4) for x in dist],
+                    "p_at_least_2": round(sm.nb_at_least(2, mu, alpha), 4),
+                },
+                # Sensibilidade: favorável / base / conservador (cenários condicionais, não prováveis).
+                "scenarios": scen,
+                "form": None if form is None else {
+                    "structural": round(form["structural"], 3), "recent": round(form["recent"], 3),
+                    "delta_pct": round(form["delta_pct"], 1), "trend": form["trend"],
+                },
+                # Cadeia de conversão (só faz sentido nas metas de alvo/gol).
+                "conversion": conv if target in ("shot_on_target", "goal", "goal_involvement") else None,
             })
 
         # Confronto: atacante x defesa adversária.
@@ -653,9 +758,9 @@ def match_insights(db: Session, m: Match) -> Dict[str, Any]:
 
     # Atacantes do mandante enfrentam a defesa e o goleiro do visitante (e vice-versa).
     p1, m1 = _predictions_for_team("home", m.home_team_id, home_players, len(home_recent), weak_away_map, away_name,
-                                   minutes=home_minutes, opp_gk=away_gk)
+                                   minutes=home_minutes, opp_gk=away_gk, match_ids=home_recent)
     p2, m2 = _predictions_for_team("away", m.away_team_id, away_players, len(away_recent), weak_home_map, home_name,
-                                   minutes=away_minutes, opp_gk=home_gk)
+                                   minutes=away_minutes, opp_gk=home_gk, match_ids=away_recent)
     matchups = sorted(m1 + m2, key=lambda x: abs(x["score"] - 0.5), reverse=True)
 
     # Partida encerrada: a estimativa continua sendo a feita só com jogos anteriores, e cada
@@ -674,7 +779,12 @@ def match_insights(db: Session, m: Match) -> Dict[str, Any]:
         f"Baseado nos últimos {len(home_recent)} jogos do mandante e {len(away_recent)} do visitante com chutes reais (Understat), "
         f"comparados à média de {league_n} jogos da liga.",
         "Só jogos anteriores a esta partida entram no cálculo.",
-        "Probabilidade = chance de pelo menos 1 evento (Poisson), ajustada pela fraqueza da defesa adversária.",
+        "Probabilidade = chance de pelo menos 1 evento, ajustada pela fraqueza da defesa adversária: "
+        "Binomial Negativa para chutes e chutes no alvo (contagens irregulares), Poisson para gols.",
+        "Gols seguem uma cadeia chutes x % no alvo x % de gol por chute no alvo, cada razão suavizada para a média do time "
+        "(amostra pequena não vira índice inflado).",
+        "Cada estimativa traz cenários favorável/base/conservador: são cenários condicionais, não probabilidades igualmente "
+        "prováveis. Quanto mais se afastam, mais sensível é a previsão (e menor a confiança).",
     ]
     if home_minutes or away_minutes:
         notes.append("Taxas por 90' suavizadas para a média do time e multiplicadas pelos minutos esperados (jogos recentes pesam mais).")
