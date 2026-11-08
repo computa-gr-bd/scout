@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, Suspense, lazy, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -8,6 +8,9 @@ import {
 import { Badge, EmptyState, SectionTitle, TeamLogo } from "../components/ui";
 import { PolarCompare } from "../components/PolarCompare";
 import { positionLabel } from "../lib/positionLabel";
+
+// Three.js é pesado: o gráfico 3D só é baixado quando o usuário abre a visão 3D.
+const PolarCompare3D = lazy(() => import("../components/PolarCompare3D").then((m) => ({ default: m.PolarCompare3D })));
 
 const COLORS = ["#22e3d0", "#f2a64c", "#a78bfa", "#f472b6"];
 const MAX_PLAYERS = 4;
@@ -263,6 +266,7 @@ export default function ComparePage() {
   const selections = useMemo(() => parseSelections(params.get("p")), [params]);
   const [template, setTemplate] = useState<CompareTemplate>("auto");
   const [mode, setMode] = useState<"polar" | "radar">("polar");
+  const [view, setView] = useState<"2d" | "3d">("2d");
   const [openAxis, setOpenAxis] = useState<string | null>(null);
 
   const setSelections = (next: Selection[]) => {
@@ -367,6 +371,19 @@ export default function ComparePage() {
                 ))}
               </div>
             </div>
+            <div className="flex gap-1" role="group" aria-label="Tipo de gráfico">
+              {([["2d", "Gráfico 2D"], ["3d", "Gráfico 3D"]] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={view === key}
+                  onClick={() => setView(key)}
+                  className={`sv-btn !py-1.5 text-[11.5px] ${view === key ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             {selections.length === 0 ? (
               <EmptyState title="Nenhum jogador selecionado" description="Adicione jogadores ao lado para ver o gráfico." />
             ) : query.isError ? (
@@ -379,7 +396,13 @@ export default function ComparePage() {
               <EmptyState title="Sem estatísticas" description="Nenhum jogador tem minutos nas 5 ligas para a temporada escolhida." />
             ) : (
               <>
-                <PolarCompare axes={axes} series={series} mode={mode} />
+                {view === "2d" ? (
+                  <PolarCompare axes={axes} series={series} mode={mode} />
+                ) : (
+                  <Suspense fallback={<div className="skeleton h-[460px]" />}>
+                    <PolarCompare3D axes={axes} series={series} mode={mode} />
+                  </Suspense>
+                )}
                 <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs">
                   {series.map((s) => (
                     <span key={s.id} className="inline-flex items-center gap-1.5">
