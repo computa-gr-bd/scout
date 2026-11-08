@@ -246,9 +246,12 @@ def _data_sources(flat: Dict[str, Any]) -> List[str]:
 
 
 # --------------------------------------------------------------------------- payload do jogador
-def player_index_payload(db: Session, player: Player) -> Dict[str, Any]:
-    """Índice da função do jogador. MID/ATT continuam usando o índice ofensivo da tela (``role`` indica)."""
-    stat = latest_overall(db, player.id)
+def player_index_payload(db: Session, player: Player, stat: Optional[PlayerStatistics] = None) -> Dict[str, Any]:
+    """Índice da função do jogador. MID/ATT continuam usando o índice ofensivo da tela (``role`` indica).
+
+    ``stat``: temporada específica (usada pela comparação); sem ela vale a mais recente com minutos.
+    """
+    stat = stat if stat is not None else latest_overall(db, player.id)
     role = role_of(player.position, stat)
     base = {"player_id": player.id, "role": role, "role_label": ROLE_LABELS.get(role) if role else None}
     row_totals = match_totals_for(db, [player.id], stat.season_id).get(player.id) if stat is not None else None

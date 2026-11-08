@@ -12,6 +12,7 @@ from app.api.competitions import router as comp_router
 from app.api.teams import router as teams_router
 from app.api.players import router as players_router
 from app.api.matches import router as matches_router
+from app.api.compare import router as compare_router
 from app.api.models import router as models_router
 from app.db.models import CollectionState
 from app.db import get_db
@@ -168,6 +169,7 @@ app.include_router(comp_router, prefix=api_prefix)
 app.include_router(teams_router, prefix=api_prefix)
 app.include_router(players_router, prefix=api_prefix)
 app.include_router(matches_router, prefix=api_prefix)
+app.include_router(compare_router, prefix=api_prefix)
 app.include_router(models_router, prefix=api_prefix)
 if understat_router is not None:
     app.include_router(understat_router, prefix=api_prefix)
