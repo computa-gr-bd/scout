@@ -893,3 +893,156 @@ export interface TeamProfile {
 export async function getTeamProfile(teamId: number, params?: { season_id?: number }) {
   return api.get<TeamProfile>(`/understat/teams/${teamId}/profile`, { params }).then((r) => r.data);
 }
+
+// ---------- Relatório de análise pré-jogo ----------
+export type ReportSide = "home" | "away";
+export interface ReportTeam { id: number; name: string; logo_url: string | null }
+export interface ReportWeakness {
+  zone: string; label: string; ratio_vs_league: number; xga: number | null; shots_conceded: number | null;
+  goals_conceded: number | null; share_of_xga_pct: number | null; trend: "worse" | "better" | "stable";
+  reliability: "low" | "medium" | "high"; text: string;
+}
+export interface ReportLane {
+  lane: "left" | "center" | "right"; label: string; attack_share_pct: number; attack_ratio: number;
+  defense_ratio: number; opportunity: number;
+}
+export interface ReportLaneBlock {
+  lanes: ReportLane[]; best: "left" | "center" | "right"; best_label: string; best_prep: string;
+  best_opportunity: number; text: string;
+}
+export interface ReportPlayer {
+  player_id: number; name: string; shots_per_match: number | null; xg_per_match: number | null;
+  expected_minutes: number | null; confidence?: string; involvement_rate?: number; xg_share_pct: number | null;
+  p_shot?: number; p_shot_on_target?: number; p_goal?: number; p_goal_involvement?: number;
+  top_zone: string | null; reasons: string[];
+}
+export interface ReportTrend {
+  team: ReportSide; metric: string; recent: number; window: number; change_pct: number;
+  direction: "up" | "down" | "stable"; reading: "positiva" | "negativa" | "neutra"; text: string;
+}
+export interface ReportFactor { kind: string; text: string; impact: number }
+export interface ReportRange { mean: number; low: number; high: number }
+export interface ReportConceded {
+  shots_per_match: number; on_target_per_match: number; xga_per_match: number; goals_per_match: number;
+  set_piece_share: number | null;
+}
+export interface ReviewCheck {
+  key: string; group: string; label: string; predicted: string; observed: string;
+  status: "hit" | "miss" | "na"; detail: string;
+}
+export interface ReviewPlayer {
+  player_id: number; name: string; p_involvement: number | null; shots: number; sot: number;
+  goals: number; assists: number; hit: boolean;
+}
+/** Relatório pós-jogo: previsões do pré-jogo confrontadas com o que aconteceu. */
+export interface MatchReview {
+  headline: string; hits: number; total: number; pct: number;
+  final: { home: number; away: number }; xg: { home: number; away: number };
+  checks: ReviewCheck[]; players: { home: ReviewPlayer[]; away: ReviewPlayer[] };
+  right: string[]; wrong: string[]; caveat: string;
+}
+export interface MatchReport {
+  available: boolean;
+  /** ``pre`` = antes da partida; ``post`` = partida encerrada (traz ``review``). */
+  mode?: "pre" | "post";
+  review?: MatchReview;
+  match_id: number;
+  method?: string;
+  notes?: string[];
+  generated_at?: string;
+  teams?: { home: ReportTeam; away: ReportTeam };
+  sample?: { home_matches: number; away_matches: number; league_matches: number };
+  headline?: { text: string; favorite: "home" | "away" | "even"; confidence: "low" | "medium" | "high" };
+  estimates?: {
+    expected_goals: { home: number; away: number; total: number };
+    expected_shots: { home: ReportRange; away: ReportRange };
+    expected_shots_on_target: { home: ReportRange; away: ReportRange };
+    outcome: { home: number; draw: number; away: number };
+    over_2_5: number; btts: number;
+    sensitivity: PredictionScenarios & { focus: ReportSide };
+    method: string;
+  };
+  defensive_weaknesses?: { home: ReportWeakness[]; away: ReportWeakness[] };
+  shots_conceded?: { home: ReportConceded; away: ReportConceded; more: "home" | "away" | "even"; text: string };
+  attack_sides?: { home: ReportLaneBlock; away: ReportLaneBlock };
+  key_players?: { home: ReportPlayer[]; away: ReportPlayer[] };
+  trends?: {
+    home: ReportTrend[]; away: ReportTrend[];
+    h2h: { matches: number; home_wins: number; draws: number; away_wins: number; avg_goals: number; text: string } | null;
+  };
+  factors?: { home: ReportFactor[]; away: ReportFactor[] };
+  conclusion?: { text: string; bullets: string[]; confidence: string; favorite: string };
+}
+export async function getMatchReport(id: number) {
+  return api.get<MatchReport>(`/matches/${id}/report`, { timeout: 60000 }).then((r) => r.data);
+}
+
+// ---------- Comparação de jogadores (mesmos índices da tela do jogador) ----------
+export type CompareTemplate = "auto" | "ATT" | "MID" | "DEF" | "GK";
+export type CompareScope = "league" | "top5";
+export interface CompareMetric {
+  key: string; label: string; unit: string; value: number | null; league_avg: number | null;
+  /** Nota 0–100 da métrica (a mesma que alimenta o componente). */
+  score: number | null; z?: number | null;
+}
+export interface CompareAxis {
+  key: string; label: string; hint: string; weight: number; score: number | null; metrics: CompareMetric[];
+}
+export interface CompareSeason {
+  id: number; name: string; label: string; league_code: string; league_name: string; minutes: number; matches: number;
+}
+export interface ComparePlayer {
+  available: boolean;
+  player_id: number;
+  name: string;
+  reason?: string;
+  position?: string | null;
+  role?: PlayerRole | null;
+  role_label?: string | null;
+  age?: number | null;
+  country?: string | null;
+  team?: { id: number | null; name: string | null; logo_url: string | null };
+  league?: { code: string; name: string };
+  season?: { id: number; name: string; label: string };
+  seasons?: CompareSeason[];
+  minutes?: number; matches?: number; goals?: number; assists?: number;
+  family?: "OFF" | "DEF" | "GK";
+  index_name?: string;
+  axes?: CompareAxis[];
+  overall?: number | null;
+  reliability?: number;
+  context?: string;
+  strengths?: string[];
+  weaknesses?: string[];
+}
+export interface CompareResult {
+  available: boolean;
+  reason?: string;
+  template: { key: "OFF" | "DEF" | "GK"; label: string; axes: { key: string; label: string; hint: string }[] } | null;
+  players: ComparePlayer[];
+  comparison?: {
+    leaders: { axis: string; label: string; player_id: number | null; name: string | null; gap: number }[];
+    lines: string[];
+  };
+  notes?: string[];
+}
+/** ``entries``: jogador[:temporada]. */
+export async function comparePlayers(params: { entries: string; template?: CompareTemplate }) {
+  return api.get<CompareResult>("/compare/players", { params, timeout: 60000 }).then((r) => r.data);
+}
+export interface SimilarPlayer {
+  player_id: number; name: string; position: string | null; age: number | null;
+  team: { id: number | null; name: string | null; logo_url: string | null };
+  league: { code: string; name: string };
+  season_id: number; minutes: number; similarity: number; better_at: string[]; worse_at: string[];
+}
+export interface SimilarResult {
+  available: boolean; reason?: string; player_id?: number; role?: PlayerRole; role_label?: string;
+  scope?: CompareScope; season?: { id: number; label: string }; pool_size?: number; items: SimilarPlayer[]; notes?: string[];
+}
+export async function getSimilarPlayers(params: {
+  player_id: number; season_id?: number; scope?: CompareScope; league?: string; max_age?: number; limit?: number;
+}) {
+  return api.get<SimilarResult>("/compare/similar", { params, timeout: 60000 }).then((r) => r.data);
+}
+  

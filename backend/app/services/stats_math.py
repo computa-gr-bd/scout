@@ -18,6 +18,9 @@ Métodos:
   (``percentile_rank`` / ``z_score`` / ``robust_z``).
 * **Média móvel ponderada** — pesos decrescentes para a forma recente, mantendo o desempenho
   estrutural da temporada em separado (``weighted_mean`` / ``form_trend``).
+* **Placar, 1x2 e faixas** — matriz de placares (Poisson), Over 2,5, ambos marcam e faixa 10–90%
+  de contagens (``score_matrix`` / ``outcome_probs`` / ``quantile_range`` / ``blend_rate``).
+* **Perfil de jogador** — similaridade entre perfis de notas 0-100 (``profile_similarity``).
 * **Análise de sensibilidade** — recalcula a previsão em cenários favorável / base / conservador e
   mede o quanto ela balança (``sensitivity``).
 """
@@ -297,3 +300,84 @@ def sensitivity(compute: Callable[[float, float], float],
         "favorable": round(fav, 4), "base": round(base, 4), "conservative": round(con, 4),
         "spread": round(spread, 4), "level": level, "drivers": drivers,
     }
+
+
+# --------------------------------------------------------------------------- relatório pré-jogo e comparação de jogadores
+PRIOR_MATCHES = 3.0          # "jogos fictícios" que suavizam a força de um time (igual a shot_insights.PRIOR_MATCHES)
+MAX_GOALS = 8
+
+
+def shrunk_ratio(total: float, n_matches: float, baseline_per_match: float, prior: float = PRIOR_MATCHES) -> float:
+    """Razão suavizada de um time contra a média da liga (1,0 = média): ``shrink_rate`` dividido pela média."""
+    if baseline_per_match <= 1e-9:
+        return 1.0
+    return shrink_rate(total, n_matches, baseline_per_match, prior) / baseline_per_match
+
+
+def blend_rate(for_total: float, n_for: float, against_total: float, n_against: float,
+               baseline: float, mult: float = 1.0, prior: float = PRIOR_MATCHES) -> Tuple[float, float, float]:
+    """Taxa esperada de um time contra outro: ``média da liga x ataque x defesa adversária x mando``.
+
+    Devolve ``(taxa, força_do_ataque, fraqueza_da_defesa_adversária)``; as razões já vêm suavizadas.
+    """
+    att = shrunk_ratio(for_total, n_for, baseline, prior)
+    dfn = shrunk_ratio(against_total, n_against, baseline, prior)
+    return max(0.0, baseline * att * dfn * mult), att, dfn
+
+
+def quantile_range(mean: float, alpha: float = 0.0, lo: float = 0.10, hi: float = 0.90,
+                   max_k: int = 80) -> Tuple[int, int]:
+    """Faixa ``[lo, hi]`` (padrão 10%–90%) de uma contagem Poisson (``alpha`` = 0) ou binomial negativa."""
+    if mean <= 0:
+        return 0, 0
+    cum, low, high = 0.0, None, None
+    for k in range(max_k + 1):
+        cum += nb_pmf(k, mean, alpha)
+        if low is None and cum >= lo:
+            low = k
+        if cum >= hi:
+            high = k
+            break
+    return (low or 0), (high if high is not None else max_k)
+
+
+def score_matrix(lam_home: float, lam_away: float, max_goals: int = MAX_GOALS) -> List[List[float]]:
+    """``m[h][a]`` = P(placar h x a): gols independentes (Poisson), renormalizada no corte ``max_goals``."""
+    ph = [poisson_pmf(k, lam_home) for k in range(max_goals + 1)]
+    pa = [poisson_pmf(k, lam_away) for k in range(max_goals + 1)]
+    total = sum(ph) * sum(pa)
+    if total <= 0:
+        return [[0.0] * (max_goals + 1) for _ in range(max_goals + 1)]
+    return [[(h * a) / total for a in pa] for h in ph]
+
+
+def outcome_probs(matrix: Sequence[Sequence[float]], top: int = 3) -> Dict[str, object]:
+    """Vitória/empate/derrota, Over 2,5, ambos marcam e os placares mais prováveis."""
+    home = draw = away = over = btts = 0.0
+    scores: List[Tuple[float, str]] = []
+    for h, row in enumerate(matrix):
+        for a, p in enumerate(row):
+            if h > a:
+                home += p
+            elif h == a:
+                draw += p
+            else:
+                away += p
+            if h + a >= 3:
+                over += p
+            if h > 0 and a > 0:
+                btts += p
+            scores.append((p, f"{h}-{a}"))
+    scores.sort(reverse=True)
+    return {"home": home, "draw": draw, "away": away, "over_2_5": over, "btts": btts,
+            "top_scores": [{"score": s, "p": p} for p, s in scores[:top]]}
+
+
+def profile_similarity(a: Sequence[Optional[float]], b: Sequence[Optional[float]], min_axes: int = 3) -> Optional[float]:
+    """Similaridade 0-100 entre dois vetores de notas 0-100 (100 = perfis iguais), nas dimensões em
+    que os dois têm nota. Menos de ``min_axes`` em comum devolve ``None``."""
+    pairs = [(x, y) for x, y in zip(a, b) if x is not None and y is not None]
+    if len(pairs) < min_axes:
+        return None
+    rms = math.sqrt(sum((x - y) ** 2 for x, y in pairs) / len(pairs))
+    return max(0.0, 100.0 - rms)

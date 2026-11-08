@@ -9,6 +9,7 @@ import TeamPage from "./pages/Team";
 import PlayersPage from "./pages/Players";
 import PlayerPage from "./pages/Player";
 import AnalysisPage from "./pages/Analysis";
+import ComparePage from "./pages/Compare";
 import LigasPage from "./pages/Ligas";
 import ModelsPage from "./pages/Models";
 import AboutPage from "./pages/About";
@@ -163,6 +164,7 @@ function Topbar({ onMenu, menuOpen }: { onMenu: () => void; menuOpen: boolean })
     "/matches": "Partidas",
     "/teams": "Times",
     "/players": "Jogadores",
+    "/compare": "Comparar jogadores",
     "/analysis": "Análise",
     "/ligas": "Ligas",
     "/models": "Modelos",
@@ -236,6 +238,7 @@ function App() {
             <Route path="/teams/:id" element={<TeamPage />} />
             <Route path="/players" element={<PlayersPage />} />
             <Route path="/players/:id" element={<PlayerPage />} />
+            <Route path="/compare" element={<ComparePage />} />
             <Route path="/analysis" element={<AnalysisPage />} />
             <Route path="/analysis/:matchId" element={<AnalysisPage />} />
             <Route path="/ligas" element={<LigasPage />} />

@@ -328,7 +328,8 @@ export default function PlayerPage() {
               <span>Jogos: {stats?.matches_played ?? "—"} · Titular: {stats?.starts ?? "—"} · Minutos: {stats?.minutes_played ?? "—"}</span>
             </div>
           </div>
-          <div className="shrink-0">
+          <div className="shrink-0 flex flex-wrap gap-2">
+            <Link to={`/compare?p=${p.id}`} className="sv-btn sv-btn-primary">Comparar</Link>
             <Link to="/players" className="sv-btn">Voltar à lista</Link>
           </div>
         </div>

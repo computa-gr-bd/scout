@@ -11,6 +11,7 @@ import { PitchStudio } from "../components/PitchStudio";
 import { Pitch3D } from "../components/Pitch3D";
 import { ZoneMap2D } from "../components/ZoneMap2D";
 import { GoalkeeperCompare } from "../components/GoalkeeperCompare";
+import { PreMatchReport } from "../components/PreMatchReport";
 import type { WeaknessDetail, ZoneStatEntry } from "../components/ZoneInfoPanel";
 import { ZONE_GEOMETRY } from "../components/Pitch";
 import {
@@ -320,6 +321,14 @@ export default function AnalysisPage() {
                     </>
                   ) : null}
                 </section>
+
+                <PreMatchReport
+                  matchId={selectedRealMatch.id}
+                  homeName={selectedRealMatch.home_team.name}
+                  awayName={selectedRealMatch.away_team.name}
+                  homeLogo={selectedRealMatch.home_team.logo_url}
+                  awayLogo={selectedRealMatch.away_team.logo_url}
+                />
 
                 <section aria-label="Análise de zonas">
                   <SectionTitle
