@@ -36,10 +36,6 @@ export default function AboutPage() {
     staleTime: 30_000,
     retry: 0,
   });
-  const footballDataStates = status.data?.competitions
-    .filter((item) => item.provider === "football_data") ?? [];
-  const statsBombStates = status.data?.competitions
-    .filter((item) => item.provider === "statsbomb") ?? [];
 
   return (
     <div className="space-y-6">
@@ -62,7 +58,7 @@ export default function AboutPage() {
           <StatCard label="Times" value={counts.data?.teams ?? "—"} />
           <StatCard label="Atletas cadastrados" value={counts.data?.players ?? "—"} />
           <StatCard label="Classificações" value={counts.data?.standings ?? "—"} />
-          <StatCard label="Eventos históricos" value={counts.data?.events ?? "—"} sub="Importação StatsBomb, quando disponível" />
+          <StatCard label="Eventos históricos" value={counts.data?.events ?? "—"} />
         </div>
       )}
 
@@ -133,16 +129,6 @@ export default function AboutPage() {
               <h2 className="font-semibold mb-1">StatsBomb Open Data</h2>
               <p className="text-sv-muted">Conjunto aberto de partidas e eventos selecionados, importado manualmente. É histórico e não cobre automaticamente todas as ligas ou partidas atuais. Ao publicar análises, siga as regras de atribuição da fonte.</p>
             </div>
-          </div>
-          <div className="rounded-lg border border-sv-warn/30 bg-sv-warn/5 p-3 text-sm text-sv-text/90">
-            O provedor atual não entrega xG nem eventos atuais para todas as competições. Quando esses dados faltam, o portal deve apresentá-los como indisponíveis — não como zero ou como uma estimativa real.
-          </div>
-          <div className="text-sm text-sv-muted">
-            As telas de análise exibem resultados, estatísticas e eventos que foram registrados nas fontes conectadas. O portal não apresenta probabilidades ou previsões experimentais como dados de partidas.
-          </div>
-          <div className="text-xs text-sv-muted">
-            Status football-data.org: {footballDataStates.length} recursos registrados · Status StatsBomb: {statsBombStates.length} importações registradas.
-            {" "}OpenLigaDB pode complementar resultados de ligas alemãs; Open-Meteo pode acrescentar contexto climático. Nenhuma dessas fontes está conectada neste portal hoje.
           </div>
         </div>
       </section>

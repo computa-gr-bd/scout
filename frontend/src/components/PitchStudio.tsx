@@ -830,11 +830,6 @@ export function PitchStudio({
           <div className="flex items-center gap-2 flex-wrap">
             <div className="font-semibold tracking-tight text-[15px] truncate">{matchInfo.title}</div>
             <div className="sv-chip">{matchInfo.date}</div>
-            <div className={`sv-chip ${matchInfo.source !== "demo" ? "!border-sv-accent3/50 !text-sv-accent3" : ""}`}>
-              {matchInfo.source === "real"
-                ? `● dados reais · ${matchInfo.dataSourceLabel ?? "fonte"}`
-                : matchInfo.source === "api" ? "● jogo da API · visualização simulada" : "● exemplo simulado"}
-            </div>
           </div>
           <div className="flex items-center gap-3 sm:gap-4 mt-1 flex-wrap">
             <div className="flex items-center gap-2 min-w-0">
@@ -961,14 +956,6 @@ export function PitchStudio({
           </div>
         )}
       </div>
-
-      {matchInfo.source === "real" && (matchInfo.notes?.length ?? 0) > 0 && (
-        <div className="px-3 sm:px-5 py-2 border-b border-sv-border/50 bg-sv-panel2/30 text-[11.5px] text-sv-muted space-y-0.5">
-          {matchInfo.notes!.map((n, i) => (
-            <div key={i} className="flex items-start gap-1.5"><span className="text-sv-accent3">•</span><span>{n}</span></div>
-          ))}
-        </div>
-      )}
 
       {/* Main area + drawer */}
       <div className="flex flex-col lg:flex-row">
@@ -1429,11 +1416,9 @@ export function PitchStudio({
               <>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
                   <div className="flex items-center gap-2 mb-2"><div className="w-3 h-3 rounded-full" style={{ background: HOME_COLOR }} /><div className="text-sm font-semibold">{matchInfo.home} · {matchInfo.formationHome || (matchInfo.source === "real" ? "—" : "4-3-3")}</div></div>
-                  <div className="text-xs text-sv-muted">Anel dourado = jogador com perfil completo clicável</div>
                 </div>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
                   <div className="flex items-center gap-2 mb-2"><div className="w-3 h-3 rounded-full" style={{ background: AWAY_COLOR }} /><div className="text-sm font-semibold">{matchInfo.away} · {matchInfo.formationAway || (matchInfo.source === "real" ? "—" : "4-2-3-1")}</div></div>
-                  <div className="text-xs text-sv-muted">{matchInfo.source === "real" ? "Clique numa camisa com anel dourado para abrir as stats" : <>Clique em <span className="text-white/90 font-medium">#{homeStar?.number ?? "9"}</span> ou <span className="text-white/90 font-medium">#{awayStar?.number ?? "16"}</span> para abrir as stats</>}</div>
                 </div>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
                   <div className="text-sm font-semibold mb-2"><MaterialIcon name="person_search" className="mr-1 align-middle" />Jogadores com ficha completa</div>

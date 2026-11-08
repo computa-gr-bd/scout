@@ -81,7 +81,6 @@ function ComponentBlock({ c, color }: { c: IndexComponent; color: string }) {
         <span className="text-sm font-medium flex-1">{c.label} ({Math.round(c.weight * 100)}%)</span>
         <span className="font-mono text-sm">{c.score == null ? "—" : Math.round(c.score)}</span>
       </div>
-      {c.hint && <div className="text-[11px] text-sv-muted">{c.hint}</div>}
       <div className="space-y-1.5">{c.metrics.map((m) => <MetricRow key={m.key} m={m} />)}</div>
     </div>
   );

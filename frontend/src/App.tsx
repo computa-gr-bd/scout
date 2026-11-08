@@ -22,7 +22,6 @@ function Logo({ onClick }: { onClick?: () => void }) {
       <img src="/scoutvision-logo.png" alt="" className="w-10 h-10 object-contain" />
       <div className="leading-tight">
         <div className="font-semibold text-sv-text tracking-tight">ScoutVision</div>
-        <div className="text-[10px] text-sv-muted uppercase tracking-widest">Análise Pré-Jogo</div>
       </div>
     </Link>
   );

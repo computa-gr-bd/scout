@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
-  listMatches, getMatch, getMatchStudio, getDataStatus,
+  listMatches, getMatch, getMatchStudio,
   listUnderstatLeagues, listUnderstatMatches, getUnderstatLeagueTable,
   type Match, type MatchStudioPayload, type StudioApiShot, type UnderstatTableRow,
 } from "../api/client";
@@ -138,9 +138,6 @@ function MatchSummary({ payload, match }: { payload: MatchStudioPayload; match: 
             </div>
           ))}
         </div>
-        <div className="mt-3 text-[11px] text-sv-muted">
-          Calculado a partir dos {payload.shots.length} chutes reais da partida.
-        </div>
       </div>
     </div>
   );
@@ -175,7 +172,6 @@ function ZoneBreakdown({ payload }: { payload: MatchStudioPayload }) {
             ))}
           </div>
         ))}
-        <div className="text-[11px] text-sv-muted">Posição dos chutes reais (Understat), sem simulação.</div>
       </div>
     </div>
   );
@@ -184,10 +180,6 @@ function ZoneBreakdown({ payload }: { payload: MatchStudioPayload }) {
 // ---------------------------------------------------------------- Página
 
 export default function Dashboard() {
-  const dataStatusQ = useQuery({
-    queryKey: ["data", "status"], queryFn: getDataStatus,
-    staleTime: 60_000, retry: 0,
-  });
   // Mesma regra da tela de Análise: jogos passados só do Understat; futuros de qualquer fonte, sem duplicatas.
   const upcomingQ = useQuery({
     queryKey: ["matches-analysis", "upcoming", "home"],
@@ -269,22 +261,6 @@ export default function Dashboard() {
   }, [tableQs.map((q) => q.dataUpdatedAt).join(","), syncedLeagues]);
   const tablesLoading = leaguesQ.isPending || tableQs.some((q) => q.isPending);
 
-  const states = dataStatusQ.data?.competitions ?? [];
-  const lastOf = (provider: string) =>
-    states.filter((s) => s.provider === provider)
-      .map((s) => s.last_success_at)
-      .filter((v): v is string => v !== null)
-      .sort()
-      .at(-1);
-  const lastUnderstat = lastOf("understat");
-  const lastFootball = lastOf("football_data");
-  const understatStates = states.filter((s) => s.provider === "understat");
-  const understatFailed = understatStates.some((s) => s.status !== "success");
-  const understatStale = !lastUnderstat || Date.now() - new Date(lastUnderstat).getTime() > 24 * 3600_000;
-  const understatNeedsAttention = understatStale || understatFailed;
-  const footballStale = states.filter((s) => s.provider === "football_data").some((s) => s.is_stale || s.status !== "success");
-  const fmtTs = (v?: string) => (v ? new Date(v).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "nunca");
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
@@ -292,17 +268,6 @@ export default function Dashboard() {
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight">ScoutVision — dados e análise de futebol</h1>
           <p className="text-sv-muted mt-1 text-sm">
             Consulte partidas, resultados, clubes e classificações das competições disponíveis.
-          </p>
-          <p className={`mt-1 text-xs ${understatNeedsAttention || footballStale ? "text-sv-warn" : "text-sv-muted"}`}>
-            {dataStatusQ.isError
-              ? "Status da coleta indisponível"
-              : dataStatusQ.isPending
-              ? "Consultando a última coleta…"
-              : <>
-                  Ligas: {fmtTs(lastUnderstat)}
-                  {understatNeedsAttention && <> · {understatFailed ? "última tentativa falhou ou foi parcial" : "sincronizar agora"} · <Link to="/ligas" className="underline">ver status</Link></>}
-                  {" · "}football-data: {fmtTs(lastFootball)}{footballStale && " · pode estar desatualizado"}
-                </>}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -316,7 +281,7 @@ export default function Dashboard() {
       <SectionTitle title="Campo · ScoutVision Studio"
         hint={highlightMatch
           ? (isRandomPick
-              ? "Partida sorteada entre as já disputadas com chutes · lances reais do Understat."
+              ? "Partida sorteada entre as já disputadas."
               : "Partida mais próxima disponível · sem chutes reais ainda, exibe o padrão recente dos times.")
           : "Aguardando uma partida com dados."}
         right={
@@ -377,7 +342,7 @@ export default function Dashboard() {
       </div>
 
       <div>
-        <SectionTitle title="Próximas partidas" hint="Clique em qualquer card para análise completa"
+        <SectionTitle title="Próximas partidas"
           right={<Link to="/matches" className="sv-btn">Ver todas</Link>} />
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
           {upcomingQ.isError
@@ -390,7 +355,7 @@ export default function Dashboard() {
 
       <div className="grid lg:grid-cols-2 gap-4 md:gap-5">
         <div>
-          <SectionTitle title="Resultados recentes" hint="Partidas do Understat, com chutes e xG"
+          <SectionTitle title="Resultados recentes"
             right={<Link to="/matches?scope=recent" className="sv-btn">Ver todas</Link>} />
           <div className="grid md:grid-cols-2 gap-3 md:gap-4">
             {recentQ.isError

@@ -323,7 +323,6 @@ export default function TeamsPage() {
     <div className="space-y-5">
       <SectionTitle
         title="Times"
-        hint={`${teams.length} times carregados · ${comps.length} ligas · estatísticas disponíveis na API`}
       >
         <div className="flex gap-2 flex-wrap">
           <input

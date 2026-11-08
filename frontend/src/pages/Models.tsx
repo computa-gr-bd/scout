@@ -6,14 +6,7 @@ export default function ModelsPage() {
   const q = useQuery({ queryKey: ["models"], queryFn: () => listModels() });
   return (
     <div className="space-y-5">
-      <SectionTitle title="Baselines experimentais" hint="Referências matemáticas embutidas no sistema; não são modelos treinados e validados com os dados atuais." />
-      {!q.isError && q.data?.length ? (
-        <div className="sv-card border-sv-warn/30">
-          <div className="sv-card-inner text-sm text-sv-text/90">
-            As métricas abaixo foram calculadas em uma avaliação com dados e não devem ser interpretadas como garantia de previsão.
-          </div>
-        </div>
-      ) : null}
+      <SectionTitle title="Baselines experimentais" />
       {q.isLoading ? (
         <div className="grid md:grid-cols-2 gap-4">
           {Array.from({ length: 4 }).map((_, i) => <div key={i} className="sv-card h-64 skeleton" />)}
@@ -34,7 +27,6 @@ export default function ModelsPage() {
                   </div>
                   {m.is_active && <Badge kind="warn">Baseline</Badge>}
                 </div>
-                <div className="sv-label">Avaliação sintética de demonstração — não representa desempenho em partidas reais</div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                   <div><div className="sv-stat-k">Acurácia</div><div className="sv-stat-v">{m.accuracy != null ? m.accuracy.toFixed(2) : "—"}</div></div>
                   <div><div className="sv-stat-k">Precisão</div><div className="sv-stat-v">{m.precision != null ? m.precision.toFixed(2) : "—"}</div></div>

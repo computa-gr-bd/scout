@@ -10,7 +10,7 @@ import { Link } from "react-router-dom";
 import { ShotExplorer } from "../components/ShotExplorer";
 import { TeamCompare, type CompareTeam } from "../components/TeamCompare";
 import { XgScatter, type ScatterPoint } from "../components/XgScatter";
-import { Badge, EmptyState, SectionTitle, StatCard, TeamLogo } from "../components/ui";
+import { Badge, EmptyState, SectionTitle, TeamLogo } from "../components/ui";
 import { fmt } from "../lib/shotAnalytics";
 
 // Renomeado: Understat -> Ligas
@@ -148,10 +148,9 @@ function LeagueTable({
         <div>
           <div className="text-sm font-semibold">{q.data?.league}</div>
           <div className="text-xs text-sv-muted">
-            Temporada {q.data?.season} · {rows.length} times · clique no cabeçalho para ordenar e numa linha para ver a forma recente
+            Temporada {q.data?.season}
           </div>
         </div>
-        <Badge kind="accent">understat</Badge>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -792,17 +791,12 @@ export default function UnderstatPage() {
     );
   }
 
-  const syncState = statusQ.data?.leagues?.find((l) => l.resource === current?.key);
-  const partial = syncState?.status === "failed" || (syncState?.status === "partial");
-  const syncError = typeof syncState?.summary?.error === "string" ? syncState.summary.error : null;
-  const teamsCount = statsQ.data?.teams?.length;
   const pickPlayer = (id: number, name: string) => setPlayer({ id, name });
 
   return (
     <div className="space-y-6">
       <SectionTitle
         title="Ligas"
-        hint="xG, chutes e finalizações por partida — dados reais da biblioteca understat"
         right={
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -829,30 +823,6 @@ export default function UnderstatPage() {
           </div>
         }
       />
-
-      {partial && (
-        <div className="sv-card">
-          <div className="sv-card-inner flex items-center gap-3">
-            <Badge kind="warn">sincronização parcial</Badge>
-            <span className="text-sm text-sv-muted">
-              {syncError
-                ? `A última tentativa falhou: ${syncError} Os dados exibidos são os disponíveis no banco.`
-                : "A última execução reportou problemas. Os dados exibidos são os disponíveis no banco."}
-            </span>
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard label="Times" value={teamsCount || "—"} sub={current?.name} />
-        <StatCard label="Ligas sincronizadas" value={syncedLeagues.length} sub={`de ${leagues.length} suportadas`} />
-        <StatCard label="Chutes coletados" value={shots || "—"} sub="temporada atual" />
-        <StatCard
-          label="Última sincronização"
-          value={syncState?.last_success_at ? new Date(syncState.last_success_at).toLocaleDateString("pt-BR") : "—"}
-          sub={syncState?.status ?? "desconhecido"}
-        />
-      </div>
 
       <LeagueTable
         leagueKey={current?.key ?? "epl"}

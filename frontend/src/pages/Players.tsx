@@ -116,7 +116,6 @@ export default function PlayersPage() {
     <div className="space-y-5">
       <SectionTitle
         title="Jogadores"
-        hint={`${qry.data?.length ?? 0} atletas no resultado atual · só times das 5 ligas (${LEAGUES.map((l) => l.code).join(", ")}). Cadastro não significa que existam estatísticas individuais.`}
       >
         <div className="flex gap-2 flex-wrap">
           <input value={q} onChange={(e) => resetAnd(() => setQ(e.target.value))} placeholder="Buscar jogador…" className="sv-btn !py-1.5 md:w-56 text-left" />

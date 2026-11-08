@@ -71,7 +71,7 @@ export default function MatchesPage() {
 
   return (
     <div className="space-y-5">
-      <SectionTitle title="Partidas" hint="Consulte calendário e resultados importados. A disponibilidade varia por competição.">
+      <SectionTitle title="Partidas">
         <div className="flex gap-1 flex-wrap">
           {scopes.map((s) => (
             <button key={s.key}

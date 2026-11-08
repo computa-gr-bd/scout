@@ -191,12 +191,7 @@ export default function AnalysisPage() {
 
   return (
     <div className="space-y-6">
-      <SectionTitle
-        title="Análise de partidas"
-        hint={scope === "upcoming"
-          ? "Calendário real e forma recente, com estimativas experimentais identificadas à parte."
-          : "Eventos reais de partidas encerradas e estimativas baseadas apenas em jogos anteriores."}
-      />
+      <SectionTitle title="Análise de partidas" />
 
       <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrar partidas da análise">
         {([
@@ -242,7 +237,7 @@ export default function AnalysisPage() {
                 <p className="text-xs text-sv-muted">
                   {scope === "upcoming"
                     ? "Próximas partidas das competições sincronizadas."
-                    : "Partidas encerradas da Understat."}
+                    : "Partidas encerradas."}
                 </p>
               </div>
               <div className="max-h-[70vh] space-y-2 overflow-auto">
@@ -397,7 +392,6 @@ export default function AnalysisPage() {
                 <section aria-label="Probabilidades estimadas por jogador">
                   <SectionTitle
                     title="Probabilidades de eventos por jogador"
-                    hint="Cálculos experimentais com eventos reais anteriores; não são resultados observados nem garantias."
                     right={<Badge kind="warn">Poisson/Binomial Negativa + minutos + goleiro · experimental</Badge>}
                   />
                   {insightsQuery.isError ? (
@@ -414,21 +408,6 @@ export default function AnalysisPage() {
                     />
                   ) : (
                     <div className="space-y-4">
-                      <div className="sv-card">
-                        <div className="sv-card-inner space-y-3">
-                          <p className="text-sm text-sv-muted">
-                            Chance estimada de pelo menos um evento na partida. A barra compara o cálculo ajustado
-                            (adversário, minutos esperados e goleiro) à taxa recente do jogador sem esses ajustes; estimativas experimentais, não validadas.
-                            Amostra:{" "}
-                            <strong className="text-sv-text">{insightsQuery.data.sample?.home_matches ?? 0}</strong>{" "}
-                            jogos anteriores de {selectedRealMatch.home_team.name} e{" "}
-                            <strong className="text-sv-text">{insightsQuery.data.sample?.away_matches ?? 0}</strong>{" "}
-                            de {selectedRealMatch.away_team.name}; média da liga baseada em{" "}
-                            <strong className="text-sv-text">{insightsQuery.data.sample?.league_matches ?? 0}</strong>{" "}
-                            jogos.
-                          </p>
-                        </div>
-                      </div>
                       {insightsQuery.data.goalkeepers && (
                         <div className="space-y-2">
                           <div className="text-sm font-semibold">Goleiros titulares</div>
@@ -708,14 +687,6 @@ function PredictionMath({ prediction }: { prediction: PlayerMatchPrediction }) {
   return (
     <div className="space-y-2 text-[11px]">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {scenarios && (
-          <span className="text-sv-muted">
-            Cenários: <strong className="text-sv-text">{pctText(scenarios.conservative)}</strong>
-            {" – "}<strong className="text-sv-text">{pctText(scenarios.base)}</strong>
-            {" – "}<strong className="text-sv-text">{pctText(scenarios.favorable)}</strong>
-            <span className="opacity-70"> (conservador · base · favorável)</span>
-          </span>
-        )}
         {tag && <span className={`rounded-full border px-2 py-0.5 font-semibold ${tag.cls}`}>{tag.text}</span>}
         {form && form.trend !== "stable" && (
           <span className={form.trend === "up" ? "text-emerald-300" : "text-rose-300"}>
@@ -745,24 +716,9 @@ function PredictionMath({ prediction }: { prediction: PlayerMatchPrediction }) {
                 Esperado: <strong className="text-sv-text">{distribution.expected.toFixed(2)}</strong> por jogo ·
                 2 ou mais: <strong className="text-sv-text">{pctText(distribution.p_at_least_2)}</strong>
               </div>
-              <div>
-                {distribution.model === "negative_binomial"
-                  ? `Binomial Negativa (irregularidade ${distribution.dispersion.toFixed(2)}): jogos sem chute e jogos com muitos.`
-                  : "Poisson: eventos raros e independentes."}
-              </div>
               {conversion && (
                 <div>
                   Conversão suavizada: {pctText(conversion.p_on_target)} no alvo · {pctText(conversion.p_goal_given_sot)} de gol por chute no alvo
-                </div>
-              )}
-              {scenarios && (
-                <div>
-                  Pesa mais: amostra do jogador ({scenarios.drivers.amostra.toFixed(0)} p.p.) · contexto ({scenarios.drivers.contexto.toFixed(0)} p.p.)
-                </div>
-              )}
-              {form && (
-                <div>
-                  xG por jogo: temporada {form.structural.toFixed(2)} · recente (pesos 5-4-3-2-1) {form.recent.toFixed(2)}
                 </div>
               )}
             </div>

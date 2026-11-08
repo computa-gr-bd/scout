@@ -188,9 +188,6 @@ function SquadCard({ squad, pending, season }: { squad: SquadEntry[]; pending: b
       <div className="sv-card-inner">
         <SectionTitle
           title="Elenco"
-          hint={withStats > 0
-            ? `${withStats} de ${squad.length} atletas com dados da temporada · jogos, gols e xG da Understat${season ? ` (${season})` : ""}`
-            : `${squad.length} atletas cadastrados; estatísticas individuais podem não estar disponíveis`}
           right={withStats > 0 ? (
             <div className="flex gap-1" role="group" aria-label="Ordenar elenco">
               {([["posicao", "Posição"], ["gols", "Gols"], ["xg", "xG"]] as const).map(([key, label]) => (
@@ -459,12 +456,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
           <StatCard label="Ataque (xG/90)" value={xg90 != null ? xg90.toFixed(2) : "—"} accent="sv-accent" sub={`Chutes/90 ${shots90 != null ? shots90.toFixed(1) : "—"}`} />
           <StatCard label="Defesa (xGA/90)" value={xga90 != null ? xga90.toFixed(2) : "—"} accent="sv-danger" sub={`Sofridos/90 ${conceded90 != null ? conceded90.toFixed(2) : "—"}`} />
         </div>
-        {profile ? (
-          <p className="text-[11.5px] text-sv-muted">
-            xG e zonas calculados dos chutes reais da Understat · {profile.sample?.matches ?? 0} jogos{seasonLabel ? ` · ${seasonLabel}` : ""}
-            {ps?.xg_diff_per_90 != null ? ` · saldo de xG ${ps.xg_diff_per_90 > 0 ? "+" : ""}${ps.xg_diff_per_90.toFixed(2)}/jogo` : ""}
-          </p>
-        ) : profileQ.isPending ? null : (
+        {!profile && !profileQ.isPending && (
           <p className="text-[11.5px] text-sv-muted">
             Sem chutes da Understat para este time ainda. Sincronize a liga na aba Understat para liberar xG, zonas e gols por jogador.
           </p>
@@ -507,7 +499,6 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
                       </div>
                       <div className="mt-1 text-[11px] text-sv-muted">
                         por jogo · {metric.matches} jogos
-                        {metric.sources.length > 0 ? ` · ${metric.sources.join(", ")}` : ""}
                       </div>
                     </div>
                   );
@@ -535,11 +526,6 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
                             <tr key={goalkeeper.player_id} className="border-b border-sv-border/40 last:border-0">
                               <td className="py-2 font-medium">
                                 <div>{goalkeeper.name}</div>
-                                {goalkeeper.sources.length > 0 && (
-                                  <div className="text-[10px] font-normal text-sv-muted">
-                                    {goalkeeper.sources.join(", ")}
-                                  </div>
-                                )}
                               </td>
                               <td className="text-right font-mono">{goalkeeper.appearances}</td>
                               <td className="text-right font-mono">{formatDefensiveValue(goalkeeper.saves)}</td>
@@ -550,9 +536,6 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
                         </tbody>
                       </table>
                     </div>
-                    <p className="mt-2 text-[11px] text-sv-muted">
-                      Valores somados por temporada. Chutes enfrentados = chutes no alvo (defesas + gols sofridos) quando a fonte não informa o número.
-                    </p>
                   </>
                 )}
               </div>
@@ -565,7 +548,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
       <div className="grid lg:grid-cols-2 items-start gap-5">
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Próximos confrontos" hint="Só jogos deste time" />
+            <SectionTitle title="Próximos confrontos" />
             <div className="space-y-2">
               {upcomingQ.isPending ? (
                 Array.from({ length: 3 }).map((_, i) => <div key={i} className="sv-card h-14 skeleton" />)
@@ -577,7 +560,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
         </div>
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Resultados recentes" hint="Últimos jogos deste time" />
+            <SectionTitle title="Resultados recentes" />
             <div className="space-y-2">
               {recentQ.isPending ? (
                 Array.from({ length: 3 }).map((_, i) => <div key={i} className="sv-card h-14 skeleton" />)
