@@ -270,10 +270,12 @@ def get_team_defensive_stats(
         if not any(_is_goalkeeper(position) for position in positions):
             continue
         values, sources = _source_values(stats.supplemental_stats, GOALKEEPER_FIELDS)
-        # Colunas do próprio registro quando o JSON da fonte não traz o campo.
+        # Colunas do próprio registro quando o JSON da fonte não traz o campo, mas apenas
+        # quando o valor real do banco é significativo (0 é tratado como ausente para campos
+        # que o provedor não enviou). Isso preserva a fonte do provedor como autoridade.
         for field in GOALKEEPER_FIELDS:
             column_value = getattr(stats, field, None)
-            if field not in values and column_value is not None:
+            if field not in values and column_value not in (None, 0):
                 values[field] = float(column_value)
                 sources[field] = "banco"
         # Reserva que só constou no banco de reservas (tudo zerado): não conta como jogo.
@@ -283,14 +285,6 @@ def get_team_defensive_stats(
             or any(values.get(field) for field in GOALKEEPER_FIELDS)
         ):
             continue
-        # Chutes enfrentados: a fonte costuma mandar 0. Chute no alvo enfrentado = defesas + gols
-        # sofridos, então calculamos quando o valor informado está ausente ou zerado.
-        if not values.get("shots_faced"):
-            saves_value = values.get("saves")
-            conceded_value = values.get("goals_conceded")
-            if saves_value is not None or conceded_value is not None:
-                values["shots_faced"] = (saves_value or 0.0) + (conceded_value or 0.0)
-                sources["shots_faced"] = "calculado"
         if not values:
             continue
         aggregate = goalkeeper_totals.setdefault(player.id, {

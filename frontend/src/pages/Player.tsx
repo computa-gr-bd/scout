@@ -176,7 +176,7 @@ export default function PlayerPage() {
   const specialRole = role === "GK" || role === "DEF";
   // Estatísticas complementares: FBref/SoccerData quando trouxe o jogador; senão (bloco vazio ou tudo
   // zerado) os totais das partidas gravadas no banco (ESPN). Goleiros não usam este painel.
-  const seasonTotals = indexQ.data?.season_totals ?? {};
+  const seasonTotals = useMemo(() => indexQ.data?.season_totals ?? {}, [indexQ.data?.season_totals]);
   const supplementalMetrics = useMemo(() => {
     if (role === "GK") return [] as Array<{ key: string; label: string; value: number }>;
     const providerLooksEmpty = !soccerdataStats || ["tackles", "interceptions", "recoveries", "shots", "fouls"]
