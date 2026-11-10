@@ -87,6 +87,12 @@ export function ZoneMap2D({
     <div ref={wrapRef} className="relative">
       <Pitch2D
         title={title}
+        header={singleTeam ? (
+          <div className="mb-2 flex items-center justify-between text-[11px] text-sv-muted">
+            <span>◀ {homeName} defende (vermelho = fraqueza)</span>
+            <span>{homeName} ataca (verde = oportunidade) ▶</span>
+          </div>
+        ) : undefined}
         homeWeakness={homeWeakness}
         awayWeakness={awayWeakness}
         opportunityZones={drawn}

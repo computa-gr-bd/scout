@@ -427,6 +427,7 @@ export function ShotExplorer({
       <div className="sv-card overflow-hidden">
         <div className="flex items-center justify-between border-b border-sv-border px-4 py-3">
           <div className="text-sm font-semibold">Finalizações ({filtered.length})</div>
+          <span className="text-[11px] text-sv-muted">clique numa linha para destacar no campo</span>
         </div>
         {filtered.length === 0 ? (
           <div className="px-4 py-6 text-sm text-sv-muted">Nenhum chute com esses filtros.</div>

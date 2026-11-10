@@ -177,7 +177,8 @@ function SimilarSection({ base, canAdd, onAdd, taken }: {
     <section className="space-y-3" aria-label="Substitutos semelhantes">
       <SectionTitle
         title="Substitutos e alternativas"
-        hint={`Jogadores da mesma função com perfil mais parecido com ${base.name} (${base.season?.label ?? ""})`}
+        hint={`Jogadores da mesma função com perfil mais parecido com ${base.name} (${base.season?.label ?? ""}), nos componentes do ${base.index_name ?? "índice"}`}
+        right={<Badge kind="warn">Similaridade dos componentes · experimental</Badge>}
       />
       <div className="sv-card">
         <div className="sv-card-inner space-y-3">
@@ -305,6 +306,7 @@ export default function ComparePage() {
     <div className="space-y-6">
       <SectionTitle
         title="Comparar jogadores"
+        hint="Mesmos índices e métricas da tela do jogador: cada componente é a nota 0–100 do índice da função"
         right={<Badge kind="accent">Índices ScoutVision</Badge>}
       />
 
@@ -503,6 +505,7 @@ export default function ComparePage() {
                   </tbody>
                 </table>
               </div>
+              {data.notes?.map((n, i) => <p key={i} className="text-[11.5px] text-sv-muted">{n}</p>)}
             </div>
           </section>
 

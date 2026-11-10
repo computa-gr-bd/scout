@@ -11,6 +11,7 @@ import { PitchStudio } from "../components/PitchStudio";
 import { Pitch3D } from "../components/Pitch3D";
 import { ZoneMap2D } from "../components/ZoneMap2D";
 import { GoalkeeperCompare } from "../components/GoalkeeperCompare";
+import { PreMatchReport } from "../components/PreMatchReport";
 import type { WeaknessDetail, ZoneStatEntry } from "../components/ZoneInfoPanel";
 import { ZONE_GEOMETRY } from "../components/Pitch";
 import {
@@ -236,7 +237,7 @@ export default function AnalysisPage() {
                 <h2 className="font-semibold">Partidas</h2>
                 <p className="text-xs text-sv-muted">
                   {scope === "upcoming"
-                    ? "Próximas partidas das competições."
+                    ? "Próximas partidas das competições sincronizadas."
                     : "Partidas encerradas."}
                 </p>
               </div>
@@ -293,7 +294,7 @@ export default function AnalysisPage() {
                 <section aria-label="ScoutVision Studio">
                   <SectionTitle
                     title="Campo · ScoutVision Studio"
-                    hint={`${selectedRealMatch.home_team.name} vs ${selectedRealMatch.away_team.name}`}
+                    hint={`${selectedRealMatch.home_team.name} vs ${selectedRealMatch.away_team.name} · mapa, chutes, gols e posições`}
                   />
                   {studioQuery.isError ? (
                     <EmptyState
@@ -316,9 +317,18 @@ export default function AnalysisPage() {
                   ) : null}
                 </section>
 
+                <PreMatchReport
+                  matchId={selectedRealMatch.id}
+                  homeName={selectedRealMatch.home_team.name}
+                  awayName={selectedRealMatch.away_team.name}
+                  homeLogo={selectedRealMatch.home_team.logo_url}
+                  awayLogo={selectedRealMatch.away_team.logo_url}
+                />
+
                 <section aria-label="Análise de zonas">
                   <SectionTitle
                     title="Análise de zonas · vulnerabilidades defensivas"
+                    hint="Fraquezas por zona e oportunidades ofensivas · clique numa zona para ver as estatísticas"
                     right={
                       <div className="flex gap-1">
                         <button
@@ -383,10 +393,16 @@ export default function AnalysisPage() {
                       opportunityZones={zoneEntries}
                     />
                   )}
+                  {insights?.notes?.length ? (
+                    <p className="mt-2 text-[11.5px] text-sv-muted">{insights.notes.slice(0, 2).join(" ")}</p>
+                  ) : null}
                 </section>
 
                 <section aria-label="Probabilidades estimadas por jogador">
-                  <SectionTitle title="Probabilidades de eventos por jogador" />
+                  <SectionTitle
+                    title="Probabilidades de eventos por jogador"
+                    right={<Badge kind="warn">Poisson/Binomial Negativa + minutos + goleiro · experimental</Badge>}
+                  />
                   {insightsQuery.isError ? (
                     <EmptyState
                       title="Não foi possível calcular as estimativas"
@@ -455,7 +471,12 @@ export default function AnalysisPage() {
                 <div className="grid gap-5 lg:grid-cols-2">
                   <section className="sv-card min-w-0">
                     <div className="sv-card-inner">
-                      <SectionTitle title="Dispersão Oportunidade × Frequência" />
+                      <SectionTitle
+                        title="Dispersão Oportunidade × Frequência"
+                        hint={scatterHasRates
+                          ? "Cada bolha = um jogador · X = chutes por jogo · Y = probabilidade estimada · tamanho = oportunidade contra a defesa"
+                          : "Cada bolha = um jogador · X = % dos chutes em zonas de ataque · Y = probabilidade estimada"}
+                      />
                       {insightsQuery.isPending ? (
                         <div className="h-80 skeleton rounded-lg" />
                       ) : scatterData.length === 0 ? (
@@ -559,6 +580,7 @@ export default function AnalysisPage() {
                   <div className="sv-card-inner">
                     <SectionTitle
                       title="Mapa de calor de oportunidade · jogador × zona"
+                      hint="Linhas: principais jogadores · colunas: zonas de ataque · mais claro = maior oportunidade estimada"
                     />
                     {insightsQuery.isPending ? (
                       <div className="h-48 skeleton rounded-lg" />
@@ -657,16 +679,24 @@ function OutcomeSummary({ predictions, target }: { predictions: PlayerMatchPredi
   );
 }
 
+const SENSITIVITY_LABEL: Record<string, { text: string; cls: string }> = {
+  stable: { text: "Estável", cls: "border-emerald-400/40 bg-emerald-500/10 text-emerald-300" },
+  moderate: { text: "Sensibilidade moderada", cls: "border-amber-400/40 bg-amber-500/10 text-amber-300" },
+  sensitive: { text: "Sensível", cls: "border-rose-400/40 bg-rose-500/10 text-rose-300" },
+};
+
 const pctText = (value: number) => `${Math.round(value * 100)}%`;
 
 /** Distribuição (0/1/2/3+), cenários e tendência de uma estimativa — recolhido para não poluir o card. */
 function PredictionMath({ prediction }: { prediction: PlayerMatchPrediction }) {
   const { distribution, scenarios, form, conversion } = prediction;
   if (!distribution && !scenarios && !form) return null;
+  const tag = scenarios ? SENSITIVITY_LABEL[scenarios.level] : null;
   const labels = ["0", "1", "2", "3+"];
   return (
     <div className="space-y-2 text-[11px]">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {tag && <span className={`rounded-full border px-2 py-0.5 font-semibold ${tag.cls}`}>{tag.text}</span>}
         {form && form.trend !== "stable" && (
           <span className={form.trend === "up" ? "text-emerald-300" : "text-rose-300"}>
             {form.trend === "up" ? "▲" : "▼"} forma recente {form.delta_pct > 0 ? "+" : ""}{form.delta_pct.toFixed(0)}% vs. temporada

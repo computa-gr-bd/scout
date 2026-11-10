@@ -176,7 +176,7 @@ export default function PlayerPage() {
   const specialRole = role === "GK" || role === "DEF";
   // Estatísticas complementares: FBref/SoccerData quando trouxe o jogador; senão (bloco vazio ou tudo
   // zerado) os totais das partidas gravadas no banco (ESPN). Goleiros não usam este painel.
-  const seasonTotals = indexQ.data?.season_totals ?? {};
+  const seasonTotals = useMemo(() => indexQ.data?.season_totals ?? {}, [indexQ.data?.season_totals]);
   const supplementalMetrics = useMemo(() => {
     if (role === "GK") return [] as Array<{ key: string; label: string; value: number }>;
     const providerLooksEmpty = !soccerdataStats || ["tackles", "interceptions", "recoveries", "shots", "fouls"]
@@ -328,7 +328,8 @@ export default function PlayerPage() {
               <span>Jogos: {stats?.matches_played ?? "—"} · Titular: {stats?.starts ?? "—"} · Minutos: {stats?.minutes_played ?? "—"}</span>
             </div>
           </div>
-          <div className="shrink-0">
+          <div className="shrink-0 flex flex-wrap gap-2">
+            <Link to={`/compare?p=${p.id}`} className="sv-btn sv-btn-primary">Comparar</Link>
             <Link to="/players" className="sv-btn">Voltar à lista</Link>
           </div>
         </div>
@@ -414,6 +415,10 @@ export default function PlayerPage() {
                   <Empty text="Sem estatísticas individuais para este jogador nas fontes conectadas." />
                 )}
               </div>
+              <div className="text-[11px] text-sv-muted mt-1">
+                Normalizado vs. máximos típicos por 90 min.
+                {avg ? ` Média da liga: ${avg.n_players} jogadores de linha com ≥ ${avg.min_minutes} min.` : ""}
+              </div>
             </Panel>
 
             {/* ---------------------------------------------- rosca / índice */}
@@ -452,6 +457,9 @@ export default function PlayerPage() {
               ) : (
                 <div className="h-52"><Empty text="Sem minutos jogados registrados para calcular o índice." /></div>
               )}
+              <div className="text-[11px] text-sv-muted mt-2">
+                Índice 0–100 calculado com os dados disponíveis (Understat / football-data); não é um modelo treinado.
+              </div>
             </Panel>
           </div>
 
@@ -521,7 +529,7 @@ export default function PlayerPage() {
             </Panel>
 
             {/* ---------------------------------------------- evolução */}
-            <Panel title="Evolução recente">
+            <Panel title="Evolução recente" right={<span className="text-[11px] text-sv-muted">xG × gols acumulados</span>}>
               <div className="h-52">
                 {evolution.length ? (
                   <ResponsiveContainer>
@@ -656,6 +664,9 @@ export default function PlayerPage() {
                       <div className="sv-bar"><span style={{ width: `${clamp(z.offensive_strength * 100)}%` }} /></div>
                     </div>
                   ))}
+                </div>
+                <div className="text-[11px] text-sv-muted mt-3">
+                  Zonas calculadas a partir dos chutes reais do Understat (a fonte não informa toques/passes por zona).
                 </div>
               </>
             )}

@@ -1393,10 +1393,12 @@ export function PitchStudio({
             ) : view === "heatmap" ? (
               <>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="flex items-center gap-2 mb-2.5"><div className="w-3 h-3 rounded-sm" style={{ background: heatColor2(0.7, "home") }} /><div className="text-sm font-semibold">{matchInfo.home} · {matchInfo.source === "real" ? "Finalizações" : "Ocupação"}</div></div>
+                  <div className="flex items-center gap-2 mb-2.5"><div className="w-3 h-3 rounded-sm" style={{ background: heatColor2(0.7, "home") }} /><div className="text-sm font-semibold">{matchInfo.home} · {matchInfo.source === "real" ? "Finalizações (xG)" : "Ocupação"}</div></div>
+                  <div className="text-xs text-sv-muted leading-relaxed">Distribuição espacial das finalizações registradas.</div>
                 </div>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="flex items-center gap-2 mb-2.5"><div className="w-3 h-3 rounded-sm" style={{ background: heatColor2(0.7, "away") }} /><div className="text-sm font-semibold">{matchInfo.away} · {matchInfo.source === "real" ? "Finalizações" : "Ocupação"}</div></div>
+                  <div className="flex items-center gap-2 mb-2.5"><div className="w-3 h-3 rounded-sm" style={{ background: heatColor2(0.7, "away") }} /><div className="text-sm font-semibold">{matchInfo.away} · {matchInfo.source === "real" ? "Finalizações (xG)" : "Ocupação"}</div></div>
+                  <div className="text-xs text-sv-muted leading-relaxed">Distribuição espacial das finalizações registradas.</div>
                 </div>
                 <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
                   <div className="text-sm font-semibold mb-2.5">Legenda</div>

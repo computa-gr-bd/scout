@@ -282,7 +282,7 @@ export default function Dashboard() {
         hint={highlightMatch
           ? (isRandomPick
               ? "Partida sorteada entre as já disputadas."
-              : "Partida mais próxima disponível.")
+              : "Partida mais próxima disponível · sem chutes reais ainda, exibe o padrão recente dos times.")
           : "Aguardando uma partida com dados."}
         right={
           <div className="flex gap-2">
