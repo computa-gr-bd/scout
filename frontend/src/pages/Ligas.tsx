@@ -352,7 +352,6 @@ function Leaders({
             );
           })}
         </ol>
-        {onPick && <div className="mt-2 text-[11px] text-sv-muted">Clique num jogador para ver o mapa de chutes.</div>}
       </div>
     </div>
   );
@@ -464,7 +463,6 @@ function PlayerShotsModal({ playerId, name, onClose }: { playerId: number; name:
       <div className="px-4 py-3 border-b border-sv-border flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-semibold truncate">{q.data?.player ?? name}</div>
-          <div className="text-xs text-sv-muted">Todas as finalizações coletadas · ataque sempre para a direita</div>
         </div>
         <button className="sv-btn" onClick={onClose}>Fechar</button>
       </div>

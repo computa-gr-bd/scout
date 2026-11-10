@@ -471,7 +471,6 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
               ? [
                 defensiveStatsQ.data.competition_code,
                 defensiveStatsQ.data.season_name,
-                `${defensiveStatsQ.data.matches_with_stats} jogos com estatísticas coletivas`,
               ].filter(Boolean).join(" · ")
               : "Dados reais de defesa e goleiros, quando disponíveis no banco"}
           />
@@ -595,7 +594,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
           <div className="sv-card-inner">
             {profile?.matches?.length ? (
               <>
-                <SectionTitle title="Forma recente" hint="xG a favor × xG contra nos últimos jogos · passe o mouse para ver o placar" />
+                <SectionTitle title="Forma recente" />
                 <FormXgChart matches={profile.matches} />
               </>
             ) : (
@@ -629,7 +628,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
         </div>
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Ranking de fraquezas" hint="Maior = mais vulnerável · xG sofrido por zona contra a média da liga" />
+            <SectionTitle title="Ranking de fraquezas" />
             {profileQ.isPending ? (
               <div className="space-y-3">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-8 skeleton rounded-lg" />)}</div>
             ) : (
@@ -642,7 +641,6 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
       <div>
         <SectionTitle
           title="Zonas do time · fraquezas e oportunidades"
-          hint="Vermelho = onde o time mais sofre · verde = onde seus jogadores mais criam perigo · clique numa zona para ver os números"
         />
         {profileQ.isPending ? (
           <div className="sv-card h-[420px] skeleton" />

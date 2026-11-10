@@ -47,13 +47,11 @@ function GoalkeeperBox({ team, logo, gk }: { team: string; logo?: string | null;
             <Stat label="Gols sofridos/90" value={fmt(gk.ga_p90, 2)} />
             <Stat label="Fator de gol" value={factor == null ? "—" : `x${factor.toFixed(2)}`} hint="Multiplicador aplicado à chance de gol de quem o enfrenta" />
           </div>
-          {factor != null && (
+          {factor != null && (factor <= 0.96 || factor >= 1.04) && (
             <p className={`text-[11px] leading-snug ${tone || "text-sv-muted"}`}>
               {factor <= 0.96
                 ? "Evita gols acima da média: reduz a chance de gol dos atacantes adversários."
-                : factor >= 1.04
-                  ? "Defende abaixo da média: aumenta a chance de gol dos atacantes adversários."
-                  : "Desempenho próximo da média da liga: sem ajuste relevante."}
+                : "Defende abaixo da média: aumenta a chance de gol dos atacantes adversários."}
             </p>
           )}
         </>

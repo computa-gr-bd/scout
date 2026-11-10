@@ -128,9 +128,6 @@ export function TeamCompare({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-sv-border px-4 py-3">
         <div>
           <div className="text-sm font-semibold">Comparar times · últimas {limit} partidas</div>
-          <div className="text-xs text-sv-muted">
-            Cada time ataca um lado do campo: o primeiro para a direita, o segundo para a esquerda
-          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {teamSelect(a?.id ?? null, b?.id ?? null, setIdA, "Time da direita")}
@@ -222,7 +219,7 @@ export function TeamCompare({
             )}
 
             <div>
-              <div className="sv-label mb-3">Resumo das finalizações (total das partidas consideradas)</div>
+              <div className="sv-label mb-3">Resumo das finalizações</div>
               <CompareTable
                 teams={[a.name, b.name]}
                 sums={sums}
