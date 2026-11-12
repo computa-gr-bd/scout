@@ -665,9 +665,6 @@ export default function PlayerPage() {
                     </div>
                   ))}
                 </div>
-                <div className="text-[11px] text-sv-muted mt-3">
-                  Zonas calculadas a partir dos chutes reais do Understat (a fonte não informa toques/passes por zona).
-                </div>
               </>
             )}
           </Panel>

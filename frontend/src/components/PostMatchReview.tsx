@@ -156,11 +156,6 @@ export function PostMatchReview({ review, names, homeLogo, awayLogo, notes }: {
           </div>
         </section>
       </div>
-
-      <div className="space-y-0.5 text-[11.5px] text-sv-muted">
-        <p>{review.caveat}</p>
-        {notes?.map((n, i) => <p key={i}>{n}</p>)}
-      </div>
     </>
   );
 }

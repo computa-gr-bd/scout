@@ -265,7 +265,6 @@ export function PreMatchReport({ matchId, homeName, awayName, homeLogo, awayLogo
           : `${homeName} x ${awayName} · fragilidades, chutes cedidos, lados do campo, jogadores-chave e estimativa de gols`}
         right={
           <>
-            <Badge kind="warn">{isPost ? "Previsão × resultado · experimental" : "Poisson + Binomial Negativa · experimental"}</Badge>
             {r?.available && (
               <button type="button" className="sv-btn !py-1 text-[11.5px]" onClick={copy}>
                 {copied ? "Copiado!" : "Copiar resumo"}
@@ -417,11 +416,6 @@ export function PreMatchReport({ matchId, homeName, awayName, homeLogo, awayLogo
             <ul className="list-disc space-y-1.5 pl-5 text-sm">
               {(r.conclusion?.bullets ?? []).map((b, i) => <li key={i}>{b}</li>)}
             </ul>
-            {r.notes?.length ? (
-              <div className="space-y-0.5 border-t border-sv-border pt-2 text-[11.5px] text-sv-muted">
-                {r.notes.map((n, i) => <p key={i}>{n}</p>)}
-              </div>
-            ) : null}
           </Card>
         </>
       )}

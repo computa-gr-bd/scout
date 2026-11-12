@@ -399,10 +399,7 @@ export default function AnalysisPage() {
                 </section>
 
                 <section aria-label="Probabilidades estimadas por jogador">
-                  <SectionTitle
-                    title="Probabilidades de eventos por jogador"
-                    right={<Badge kind="warn">Poisson/Binomial Negativa + minutos + goleiro · experimental</Badge>}
-                  />
+                  <SectionTitle title="Probabilidades de eventos por jogador" />
                   {insightsQuery.isError ? (
                     <EmptyState
                       title="Não foi possível calcular as estimativas"
