@@ -1,4 +1,4 @@
-import { Component, Suspense, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { Component, Suspense, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { PerformanceMonitor } from "@react-three/drei";
 import * as THREE from "three";
@@ -13,7 +13,7 @@ export { preloadRealisticModels };
 export type { ShotResult };
 export type { CamMode };
 
-const CAM_LABEL: Record<CamMode, string> = { auto: "Auto", back: "Atrás", side: "Lateral", goal: "Gol", air: "Aérea" };
+const CAM_LABEL: Record<CamMode, string> = { auto: "Auto", back: "Atrás", side: "Lateral", goal: "Gol", air: "Aérea", free: "Livre" };
 
 /* ------------------------------ Câmera lenta ------------------------------ */
 /** Mapeia o progresso linear (tempo real) para o tempo da cena, desacelerando em volta do contato. */
@@ -70,6 +70,7 @@ const RESULT_LABEL: Record<ShotResult, { text: string; tone: string }> = {
 export function RealisticReplay3D({
   goalLoc, shotOrigin, team = "home", result = "goal", teamColor, foeColor = "#e2e8f0", ownKit, foeKit, progress, penalty = false, header = false,
   leftFooted = false, shirtNumber, info, seed = 1, corner = false, freeKick = false, progressRef, fullscreen = false, onToggleFullscreen, onReady, onClose,
+  playing = false, onTogglePlay, onSeek, durationSec,
 }: {
   goalLoc?: { x: number; y: number };
   shotOrigin: { x: number; y: number };
@@ -99,10 +100,21 @@ export function RealisticReplay3D({
   /** Chamado quando os modelos terminaram de carregar (o replay só começa a andar depois disso). */
   onReady?: () => void;
   onClose?: () => void;
+  /** Controle do relógio (modo Livre): estado de reprodução, pausar/continuar, ir para um ponto (0..1) e duração total em segundos. */
+  playing?: boolean;
+  onTogglePlay?: () => void;
+  onSeek?: (p: number) => void;
+  durationSec?: number;
 }) {
   const [camMode, setCamMode] = useState<CamMode>("auto");
   const [slow, setSlow] = useState(true);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [follow, setFollow] = useState(false);          // modo Livre: o ponto de interesse acompanha a bola
+  const [hint, setHint] = useState(false);
+  const [scrub, setScrub] = useState<number | null>(null); // posição enquanto arrasta a linha do tempo
+  const resumeRef = useRef(false);
+  const progRef = useRef(progress);
+  progRef.current = progress;
   const [dpr, setDpr] = useState(1.5);                // cai para 1 se o aparelho não aguentar 60 fps
 
   const gx = goalLoc?.x, gy = goalLoc?.y, ox = shotOrigin.x, oy = shotOrigin.y;
@@ -115,6 +127,31 @@ export function RealisticReplay3D({
   // O tempo da cena é lido por ref dentro do useFrame: a cena 3D não re-renderiza no React a cada frame.
   const qRef = useRef(q);
   if (!progressRef) qRef.current = q;
+
+  const free = camMode === "free";
+  const canScrub = !!onSeek;
+
+  // dica de controles ao entrar no modo livre (some sozinha)
+  useEffect(() => {
+    if (!free) { setHint(false); return; }
+    setHint(true);
+    const t = window.setTimeout(() => setHint(false), 6500);
+    return () => window.clearTimeout(t);
+  }, [free]);
+
+  // atalhos no modo livre: espaço pausa/continua, setas voltam/avançam um pouco
+  useEffect(() => {
+    if (!free || !canScrub) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(el.tagName)) return;
+      if (e.code === "Space") { e.preventDefault(); onTogglePlay?.(); }
+      else if (e.code === "ArrowLeft") { e.preventDefault(); onSeek?.(clamp01(progRef.current - 0.02)); }
+      else if (e.code === "ArrowRight") { e.preventDefault(); onSeek?.(clamp01(progRef.current + 0.02)); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [free, canScrub, onTogglePlay, onSeek]);
 
   const label = RESULT_LABEL[plan.result];
   const showResult = q > plan.TE + 0.03;
@@ -136,7 +173,7 @@ export function RealisticReplay3D({
         <ModelBoundary onError={() => { setStatus("error"); onReady?.(); }}>
           <Suspense fallback={null}>
             <ProScene
-              plan={plan} qRef={qRef} teamColor={teamColor} foeColor={foeColor} ownKit={ownKit} foeKit={foeKit} camMode={camMode} number={shirtNumber} name={info?.player}
+              plan={plan} qRef={qRef} teamColor={teamColor} foeColor={foeColor} ownKit={ownKit} foeKit={foeKit} camMode={camMode} follow={follow} number={shirtNumber} name={info?.player}
               onReady={() => { setStatus("ready"); onReady?.(); }}
             />
           </Suspense>
@@ -178,7 +215,7 @@ export function RealisticReplay3D({
         </div>
       )}
 
-      <div className="goal-replay-tag" aria-hidden="true">REPLAY · 3D{inSlow ? " · CÂMERA LENTA" : ""}</div>
+      {!(free && canScrub) && <div className="goal-replay-tag" aria-hidden="true">REPLAY · 3D{inSlow ? " · CÂMERA LENTA" : ""}</div>}
 
       {/* seleção de câmera */}
       <div className="absolute left-2.5 top-2.5 z-[5] flex max-w-[calc(100%-200px)] flex-wrap items-center gap-1">
@@ -190,7 +227,7 @@ export function RealisticReplay3D({
             onClick={() => setCamMode(m)}
             className={`rounded-full border px-2 py-[3px] text-[10px] font-bold uppercase tracking-wide backdrop-blur transition ${camMode === m ? "border-emerald-300/70 bg-emerald-500/80 text-white" : "border-white/25 bg-slate-900/70 text-slate-200 hover:bg-slate-700/80"}`}
           >
-            {CAM_LABEL[m]}
+            {m === "free" && <MaterialIcon name="3d_rotation" className="mr-0.5 align-middle text-[13px]" />}{CAM_LABEL[m]}
           </button>
         ))}
         <button
@@ -206,7 +243,7 @@ export function RealisticReplay3D({
 
       {/* tarja de transmissão */}
       {showLower && info && (
-        <div className="pointer-events-none absolute bottom-9 left-3 right-3 z-[4] flex items-end justify-between gap-2" aria-hidden="true">
+        <div className={`pointer-events-none absolute left-3 right-3 z-[4] flex items-end justify-between gap-2 ${free && canScrub ? "bottom-[62px]" : "bottom-9"}`} aria-hidden="true">
           <div className="flex min-w-0 items-stretch overflow-hidden rounded-md border border-white/15 bg-slate-950/80 shadow-lg backdrop-blur">
             <div className="w-1.5 shrink-0" style={{ background: teamColor }} />
             <div className="min-w-0 px-2.5 py-1.5">
@@ -231,6 +268,44 @@ export function RealisticReplay3D({
           aria-hidden="true"
         >
           {title}
+        </div>
+      )}
+
+      {/* modo Livre: dica de controles + barra de reprodução (pausar, arrastar a linha do tempo, voltar) */}
+      {free && hint && (
+        <div className="pointer-events-none absolute left-1/2 top-12 z-[6] -translate-x-1/2 rounded-lg border border-white/20 bg-slate-950/80 px-3 py-1.5 text-center text-[11px] font-semibold text-slate-100 shadow-xl backdrop-blur" role="status">
+          Arraste para girar · Scroll ou pinça para zoom · Botão direito (ou 2 dedos) para mover
+        </div>
+      )}
+      {free && canScrub && (
+        <div className={`absolute bottom-2.5 left-2.5 z-[6] flex items-center gap-1.5 rounded-xl border border-white/15 bg-slate-950/80 px-2 py-1.5 shadow-xl backdrop-blur ${fullscreen ? "right-[215px]" : "right-2.5"}`}>
+          <button type="button" onClick={() => onSeek?.(clamp01(progress - 0.02))} title="Voltar um pouco (←)" aria-label="Voltar um pouco" className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-white/20 bg-slate-800/80 text-slate-100 transition hover:bg-slate-600/80">
+            <MaterialIcon name="fast_rewind" className="text-[16px]" />
+          </button>
+          <button type="button" onClick={onTogglePlay} title={playing ? "Pausar (espaço)" : progress >= 1 ? "Repetir (espaço)" : "Continuar (espaço)"} aria-label={playing ? "Pausar" : "Continuar"} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-500 text-white transition hover:bg-emerald-400">
+            <MaterialIcon name={playing ? "pause" : progress >= 1 ? "replay" : "play_arrow"} className="text-[18px]" />
+          </button>
+          <button type="button" onClick={() => onSeek?.(clamp01(progress + 0.02))} title="Avançar um pouco (→)" aria-label="Avançar um pouco" className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-white/20 bg-slate-800/80 text-slate-100 transition hover:bg-slate-600/80">
+            <MaterialIcon name="fast_forward" className="text-[16px]" />
+          </button>
+          <input
+            type="range" min={0} max={1000} step={1} value={Math.round((scrub ?? progress) * 1000)}
+            aria-label="Linha do tempo do lance"
+            className="mx-1 h-1.5 min-w-0 flex-1 cursor-pointer accent-emerald-400"
+            onPointerDown={() => { resumeRef.current = playing; if (playing) onTogglePlay?.(); }}
+            onChange={(e) => { const v = Number(e.target.value) / 1000; setScrub(v); onSeek?.(v); }}
+            onPointerUp={() => { setScrub(null); if (resumeRef.current && progRef.current < 1) onTogglePlay?.(); resumeRef.current = false; }}
+            onBlur={() => setScrub(null)}
+          />
+          <span className="hidden w-[74px] shrink-0 text-right text-[10.5px] font-semibold tabular-nums text-slate-300 sm:inline">
+            {durationSec ? `${((scrub ?? progress) * durationSec).toFixed(1)}s / ${durationSec.toFixed(1)}s` : `${Math.round((scrub ?? progress) * 100)}%`}
+          </span>
+          <button
+            type="button" aria-pressed={follow} onClick={() => setFollow((f) => !f)} title="A câmera acompanha a bola"
+            className={`shrink-0 rounded-full border px-2 py-[3px] text-[10px] font-bold uppercase tracking-wide transition ${follow ? "border-emerald-300/70 bg-emerald-500/80 text-white" : "border-white/25 bg-slate-800/80 text-slate-200 hover:bg-slate-600/80"}`}
+          >
+            <MaterialIcon name="my_location" className="mr-0.5 align-middle text-[13px]" />Seguir bola
+          </button>
         </div>
       )}
 

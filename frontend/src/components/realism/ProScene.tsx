@@ -7,7 +7,7 @@ import { choreoDefender, choreoExtra, choreoKeeper, choreoKicker, choreoTaker, n
 import { CLIP_DUR } from "./clipCatalog";
 import { COMMON_CLIPS, MODEL_URLS, clipUrl, type ClipKey } from "./modelMeta";
 import type { Plan } from "./plan";
-import { BallWithTrail, Env, useBallAndCamera, type CamMode } from "./shared";
+import { BallWithTrail, Env, FreeCamera, useBallAndCamera, type CamMode } from "./shared";
 import { preloadStadium } from "./StadiumModel";
 
 /** Começa a baixar o essencial antes do replay (chamado quando o modo 3D é escolhido). As demais animações vêm por lance. */
@@ -21,11 +21,11 @@ export function preloadRealisticModels() {
 const KEEPER: KitColors = { shirt: "#f59e0b", shorts: "#111827", socks: "#111827" };
 
 /** Cena com os modelos reais (Mixamo): jogadores com esqueleto e animações de captura de movimento. */
-export const ProScene = memo(function ProScene({ plan, qRef, teamColor, foeColor, ownKit, foeKit, camMode, number, name, onReady }: {
+export const ProScene = memo(function ProScene({ plan, qRef, teamColor, foeColor, ownKit, foeKit, camMode, follow = false, number, name, onReady }: {
   plan: Plan; qRef: MutableRefObject<number>; teamColor: string; foeColor: string;
   /** Uniformes completos (camisa, calção, meia). Sem eles, usa só `teamColor`/`foeColor`. */
   ownKit?: KitColors; foeKit?: KitColors;
-  camMode: CamMode; number?: number; name?: string;
+  camMode: CamMode; /** Só no modo livre: o ponto de interesse acompanha a bola. */ follow?: boolean; number?: number; name?: string;
   onReady?: () => void;
 }) {
   const urls = useMemo(() => plan.clips.map(clipUrl), [plan]);
@@ -97,6 +97,7 @@ export const ProScene = memo(function ProScene({ plan, qRef, teamColor, foeColor
   return (
     <>
       <Env impactRef={impact} exciteRef={excite} />
+      {camMode === "free" && <FreeCamera ballRef={ball} follow={follow} />}
       <primitive object={actors.k.outer} />
       {actors.t && <primitive object={actors.t.outer} />}
       <primitive object={actors.g.outer} />

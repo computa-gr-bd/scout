@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
+import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
-import { BALL_R, GL, lerp, smooth, v3 } from "./common";
+import { BALL_R, GL, clamp, lerp, smooth, v3 } from "./common";
 import { ballAt, type Plan } from "./plan";
 import type { NetImpact } from "./Stadium";
 import { StadiumModel } from "./StadiumModel";
 
-export type CamMode = "auto" | "back" | "side" | "goal" | "air";
+export type CamMode = "auto" | "back" | "side" | "goal" | "air" | "free";
 
 /* ------------------------------ Bola -------------------------------------- */
 /** Bola 3D (modelo GLB): centralizada e escalada para o raio BALL_R (um pouco maior que a real, para ler melhor). */
@@ -193,7 +194,7 @@ export function useBallAndCamera({ plan, qRef, camMode, kPos, getHold }: {
     ball: new THREE.Vector3(), prev: new THREE.Vector3(), hand: new THREE.Vector3(), dv: new THREE.Vector3(),
     axis: new THREE.Vector3(), quat: new THREE.Quaternion(),
     shot: { pos: new THREE.Vector3(), look: new THREE.Vector3(), fov: 40, key: -1, k: 4 } as CamShot,
-    lookCur: new THREE.Vector3(0, 1, GL), lastKey: -999, lastQ: 0,
+    lookCur: new THREE.Vector3(0, 1, GL), lastKey: -999, lastQ: 0, freeInit: false,
   }), []);
 
   useFrame((_, delta) => {
@@ -233,6 +234,13 @@ export function useBallAndCamera({ plan, qRef, camMode, kPos, getHold }: {
 
     // câmera
     const cam = camera as THREE.PerspectiveCamera;
+    if (camMode === "free") {
+      // modo livre: quem manda é o OrbitControls (FreeCamera). Só ajusta o campo de visão uma vez ao entrar.
+      if (!tmp.freeInit) { tmp.freeInit = true; cam.fov = 45; cam.updateProjectionMatrix(); }
+      tmp.lastKey = -999;               // ao sair do modo livre, a câmera de transmissão assume sem "voar" até a posição
+      return;
+    }
+    tmp.freeInit = false;
     directCamera(camMode, qq, plan, kPos.current, tmp.ball, tmp.shot);
     const shot = tmp.shot;
     const key = shot.key + (camMode === "auto" ? 0 : 1000);
@@ -248,6 +256,47 @@ export function useBallAndCamera({ plan, qRef, camMode, kPos, getHold }: {
   });
 
   return { ball, impact, excite };
+}
+
+/**
+ * Câmera livre: arrastar gira em volta do ponto de interesse, scroll/pinça aproxima e afasta,
+ * botão direito (ou dois dedos) move a vista. Parte de onde a câmera de transmissão estava.
+ * Com `follow`, o ponto de interesse acompanha a bola (a câmera anda junto, mantendo o ângulo escolhido).
+ */
+export function FreeCamera({ ballRef, follow }: { ballRef: RefObject<THREE.Group>; follow: boolean }) {
+  const { camera } = useThree();
+  const controls = useThree((st) => st.controls) as unknown as { target: THREE.Vector3; update: () => void } | null;
+  const tmp = useMemo(() => ({ fwd: new THREE.Vector3(), d: new THREE.Vector3() }), []);
+
+  // ponto de interesse inicial: à frente da câmera, na distância da bola (mantém o enquadramento atual)
+  useEffect(() => {
+    if (!controls) return;
+    const cam = camera as THREE.PerspectiveCamera;
+    cam.getWorldDirection(tmp.fwd);
+    const bp = ballRef.current?.position;
+    const dist = clamp(bp ? cam.position.distanceTo(bp) : 8, 3, 25);
+    controls.target.copy(cam.position).addScaledVector(tmp.fwd, dist);
+    controls.target.y = Math.max(0.2, controls.target.y);
+    controls.update();
+  }, [controls, camera, ballRef, tmp]);
+
+  useFrame(() => {
+    if (!controls) return;
+    const b = ballRef.current;
+    if (follow && b) {
+      tmp.d.copy(b.position).sub(controls.target);
+      if (tmp.d.lengthSq() > 1e-6) { controls.target.add(tmp.d); camera.position.add(tmp.d); }
+    }
+    if (controls.target.y < 0.1) controls.target.y = 0.1;     // nunca olha para baixo do gramado
+    if (camera.position.y < 0.15) camera.position.y = 0.15;
+  });
+
+  return (
+    <OrbitControls
+      makeDefault enableDamping dampingFactor={0.09} rotateSpeed={0.75} zoomSpeed={0.9} panSpeed={0.8}
+      minDistance={1.2} maxDistance={90} maxPolarAngle={Math.PI / 2 - 0.02} screenSpacePanning
+    />
+  );
 }
 
 export function BallWithTrail({ ballRef, plan, qRef, model }: { ballRef: RefObject<THREE.Group>; plan: Plan; qRef: MutableRefObject<number>; model: THREE.Object3D }) {

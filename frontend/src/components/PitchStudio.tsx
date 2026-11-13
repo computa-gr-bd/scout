@@ -745,6 +745,14 @@ export function PitchStudio({
     setStarted(false);
     setPlaying(false);
   };
+  /** Vai para um ponto do lance (0..1): usado pela barra do modo Livre no replay 3D. */
+  const seekReplay = (p: number) => {
+    const c = Math.min(1, Math.max(0, p));
+    const total = (current?.duration || 1.8) * 1000 * replayFactor(replayMode, current);
+    progressRef.current = c * total; liveProgressRef.current = c;
+    setProgress(c);
+    if (c < 1) clearGoalPulse();
+  };
   const togglePlayback = () => {
     if (!started || progressRef.current >= (current?.duration ?? 1.8) * 1000 * replayFactor(replayMode, current)) startPlayback();
     else setPlaying((wasPlaying) => !wasPlaying);
@@ -991,6 +999,10 @@ export function PitchStudio({
                     xg: current.xg,
                   }}
                   progress={progress}
+                  playing={playing}
+                  onTogglePlay={togglePlayback}
+                  onSeek={seekReplay}
+                  durationSec={(current.duration || 1.8) * replayFactor(replayMode, current)}
                   onClose={closeReplay}
                 />
               </Suspense>
