@@ -43,3 +43,11 @@ def test_outfield_player_never_fills_goal_slot():
     xi = [_p(f"d{i}", "CD", i) for i in range(4)] + [_p(f"m{i}", "CM", i + 10) for i in range(3)] \
         + [_p(f"f{i}", "F", i + 20) for i in range(4)]
     assert not [e for e in _place({"home": xi, "away": []}, "home") if e["line"] == "GK"]
+
+
+def test_unrecognized_starter_with_goalkeeper_evidence_goes_to_goal():
+    """Goleiro sem posição cadastrada, mas com defesas/escalações 'G' no banco."""
+    keeper = _p("Dahmen", None, 31)
+    keeper["gk_evidence"] = 12
+    placed = _place({"home": _xi(keeper), "away": []}, "home")
+    assert next(e for e in placed if e["line"] == "GK")["player_name"] == "Dahmen"

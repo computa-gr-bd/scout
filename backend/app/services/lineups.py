@@ -137,6 +137,58 @@ def _stats_by_player(db: Session, player_ids: List[int]) -> Dict[int, Dict[str, 
     return out
 
 
+def _goalkeeper_evidence(db: Session, team_id: int, player_ids: List[int]) -> Dict[int, int]:
+    """Quantos jogos cada jogador teve como GOLEIRO, por fontes independentes do cadastro.
+
+    ``Player.position`` costuma vir vazio para goleiros (o Understat só grava a posição em
+    ``recent_form`` e o ESPN usa "G"), e sem isso o provável XI saía sem goleiro. Aqui vale
+    qualquer sinal de que o jogador jogou no gol por ESTE time:
+
+    1. escalações (``lineup``) cuja posição naquele jogo é de goleiro;
+    2. estatísticas por partida (``player_match_statistics``) com posição de goleiro ou defesas;
+    3. agregados já derivados (``supplemental_stats``: ``derived.gk_matches`` / ``soccerdata.gk_sota``).
+
+    Titular pesa 2, reserva 1. Devolve ``{player_id: pontos}`` só para quem tem evidência.
+    """
+    from app.db.models import PlayerMatchStatistics, PlayerStatistics
+
+    score: Dict[int, int] = {}
+
+    def add(pid: Optional[int], n: int = 1) -> None:
+        if pid:
+            score[pid] = score.get(pid, 0) + n
+
+    for pid, pos, starter in db.execute(
+        select(Lineup.player_id, Lineup.position, Lineup.is_starter)
+        .where(Lineup.team_id == team_id, Lineup.position.isnot(None))
+    ).all():
+        if _line_of(pos) == "GK":
+            add(pid, 2 if starter else 1)
+
+    for pid, pos, saves, starter in db.execute(
+        select(PlayerMatchStatistics.player_id, PlayerMatchStatistics.position,
+               PlayerMatchStatistics.saves, PlayerMatchStatistics.is_starter)
+        .where(PlayerMatchStatistics.team_id == team_id)
+    ).all():
+        if _line_of(pos) == "GK" or (saves or 0) > 0:
+            add(pid, 2 if starter else 1)
+
+    if player_ids:
+        for pid, supplemental in db.execute(
+            select(PlayerStatistics.player_id, PlayerStatistics.supplemental_stats)
+            .where(PlayerStatistics.player_id.in_(player_ids))
+        ).all():
+            if not isinstance(supplemental, dict):
+                continue
+            derived = supplemental.get("derived") or {}
+            provider = supplemental.get("soccerdata") or {}
+            games = int(derived.get("gk_matches") or 0) if isinstance(derived, dict) else 0
+            if games <= 0 and isinstance(provider, dict) and (provider.get("gk_sota") or 0) > 0:
+                games = 1
+            add(pid, games)
+    return score
+
+
 def official_lineups(db: Session, match: Match) -> Dict[str, List[Dict[str, Any]]]:
     """Escalação oficial gravada no banco (vazia quando nunca foi importada).
 
@@ -150,7 +202,12 @@ def official_lineups(db: Session, match: Match) -> Dict[str, List[Dict[str, Any]
         .where(Lineup.match_id == match.id)
         .order_by(desc(Lineup.is_starter), Lineup.shirt_number, Lineup.id)
     ).all()
-    stats = _stats_by_player(db, [lu.player_id for lu in rows if lu.player_id])
+    ids = [lu.player_id for lu in rows if lu.player_id]
+    stats = _stats_by_player(db, ids)
+    gk_score = {
+        team_id: _goalkeeper_evidence(db, team_id, ids)
+        for team_id in {lu.team_id for lu in rows}
+    }
     for lu in rows:
         side = "home" if lu.team_id == match.home_team_id else "away"
         player = db.get(Player, lu.player_id)
@@ -161,6 +218,7 @@ def official_lineups(db: Session, match: Match) -> Dict[str, List[Dict[str, Any]
             "position": lu.position,
             "player_position": player.position if player else None,
             "stats_position": stats.get(lu.player_id, {}).get("position"),
+            "gk_evidence": gk_score.get(lu.team_id, {}).get(lu.player_id, 0),
             "shirt_number": lu.shirt_number,
             "minutes_played": lu.minutes_played,
         })
@@ -172,11 +230,14 @@ _GK_SHIRTS = (12, 13, 21, 22, 23, 24, 25, 30, 31, 40, 41)
 
 def _starter_line(p: Dict[str, Any]) -> Optional[str]:
     """Linha do titular: posição do jogo; se não reconhecida, cadastro e estatísticas."""
-    return (
+    line = (
         _line_of(p.get("position"))
         or _line_of(p.get("player_position"))
         or _line_of(p.get("stats_position"))
     )
+    if line is None and (p.get("gk_evidence") or 0) > 0:
+        return "GK"
+    return line
 
 
 def _place(official: Dict[str, List[Dict[str, Any]]], side: str) -> List[Dict[str, Any]]:
@@ -248,12 +309,17 @@ def estimated_lineup(db: Session, team_id: int,
 
     played_ids = played_ids or set()
     stats = _stats_by_player(db, [p.id for p in squad])
+    gk_evidence = _goalkeeper_evidence(db, team_id, [p.id for p in squad])
 
     def minutes_of(p: Player) -> int:
         return stats.get(p.id, {}).get("minutes", 0)
 
     def line_of_player(p: Player) -> Optional[str]:
-        return _line_of(p.position) or _line_of(stats.get(p.id, {}).get("position"))
+        line = _line_of(p.position) or _line_of(stats.get(p.id, {}).get("position"))
+        # Sem posição cadastrada, mas com jogos de goleiro comprovados -> é o goleiro.
+        if line is None and gk_evidence.get(p.id, 0) > 0:
+            return "GK"
+        return line
 
     def rank(p: Player):
         return (0 if p.id in played_ids else 1, -minutes_of(p), (p.last_name or "").lower())
@@ -265,7 +331,23 @@ def estimated_lineup(db: Session, team_id: int,
         (by_line[line] if line else unknown).append(p)
     for players in by_line.values():
         players.sort(key=rank)
+    # Goleiro titular = quem mais jogou no gol (evidência), depois minutos.
+    by_line["GK"].sort(key=lambda p: (0 if p.id in played_ids else 1,
+                                      -gk_evidence.get(p.id, 0), -minutes_of(p),
+                                      (p.last_name or "").lower()))
     unknown.sort(key=rank)
+
+    # Goleiro que jogou pelo time mas não está no elenco sincronizado (player.team_id
+    # diferente/vazio): entra como candidato se o time ficaria sem goleiro.
+    if not by_line["GK"]:
+        squad_ids = {p.id for p in squad}
+        outside = [pid for pid in gk_evidence if pid not in squad_ids]
+        if outside:
+            best = db.scalars(select(Player).where(Player.id.in_(outside))).all()
+            best.sort(key=lambda p: -gk_evidence.get(p.id, 0))
+            if best:
+                by_line["GK"].append(best[0])
+                stats.setdefault(best[0].id, {"minutes": 0, "position": None})
 
     taken: set = set()
     buckets: Dict[str, List[Player]] = {line: [] for line in _CAPACITY}
