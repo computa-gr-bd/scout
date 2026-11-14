@@ -44,26 +44,42 @@ _LINE_BY_KEYWORD = [
 ]
 
 
-_UNDERSTAT_CODES = {"gk": "GK", "d": "DEF", "m": "MID", "f": "ATT", "fw": "ATT"}
+# Abreviações curtas (Understat, ESPN, StatsBomb) -> linha do 4-3-3.
+# ESPN manda "G", "CD-L", "CD-R", "LB", "DM", "CM-L", "AM", "LW", "CF-R", "F"...
+# Sem "G"/"CD"/"LW"/"RW" na tabela o goleiro virava "órfão" e acabava na zaga,
+# empurrando um zagueiro para o gol.
+_TOKEN_LINE = {
+    # goleiro
+    "gk": "GK", "g": "GK", "goalkeeper": "GK", "goalie": "GK", "keeper": "GK",
+    # defesa
+    "d": "DEF", "df": "DEF", "def": "DEF", "cd": "DEF", "cb": "DEF", "lb": "DEF", "rb": "DEF",
+    "lwb": "DEF", "rwb": "DEF", "wb": "DEF", "sw": "DEF",
+    # meio
+    "m": "MID", "mf": "MID", "mid": "MID", "dm": "MID", "cdm": "MID", "cm": "MID", "cam": "MID",
+    "am": "MID", "lm": "MID", "rm": "MID",
+    # ataque
+    "f": "ATT", "fw": "ATT", "cf": "ATT", "st": "ATT", "ss": "ATT", "lw": "ATT", "rw": "ATT",
+    "lf": "ATT", "rf": "ATT",
+}
+# Sufixos de lado/estado que não dizem a linha: "CD-L", "CM-R", "S" (reserva do Understat).
+_NOISE_TOKENS = {"l", "r", "c", "s", "sub"}
 
 
 def _line_of(position: Optional[str]) -> Optional[str]:
     """Classifica a posição textual numa das 4 linhas do 4-3-3.
 
-    Expressões com espaço casam como frase; abreviações curtas casam por
-    palavra inteira, para "am" não casar dentro de outra palavra.
+    1) Abreviações (Understat "D M S", ESPN "CD-L"/"G"/"LW"): a primeira sigla
+       significativa define a linha.
+    2) Expressões por extenso ("Left Back", "Center Defensive Midfield"): casam por
+       frase/palavra inteira, na ordem GK > DEF > MID > ATT.
     """
     if not position:
         return None
     text = position.lower().strip()
-    # Understat: "GK", "D", "M", "F" e "S" (reserva), combináveis ("D M S").
-    # A primeira letra que não é "S" é a função principal do jogador.
     tokens = re.findall(r"[a-z]+", text)
-    if tokens and all(t in _UNDERSTAT_CODES or t == "s" for t in tokens):
-        for t in tokens:
-            if t in _UNDERSTAT_CODES:
-                return _UNDERSTAT_CODES[t]
-        return None
+    meaningful = [t for t in tokens if t not in _NOISE_TOKENS]
+    if meaningful and all(t in _TOKEN_LINE for t in meaningful):
+        return _TOKEN_LINE[meaningful[0]]
     for line, keywords in _LINE_BY_KEYWORD:
         for keyword in keywords:
             if " " in keyword:
@@ -122,39 +138,83 @@ def _stats_by_player(db: Session, player_ids: List[int]) -> Dict[int, Dict[str, 
 
 
 def official_lineups(db: Session, match: Match) -> Dict[str, List[Dict[str, Any]]]:
-    """Escalação oficial gravada no banco (vazia quando nunca foi importada)."""
+    """Escalação oficial gravada no banco (vazia quando nunca foi importada).
+
+    Além da posição do próprio jogo (``position``), devolve posições de reserva
+    (``player_position`` do cadastro e ``stats_position`` das estatísticas) para
+    classificar quem veio sem posição reconhecível — principalmente o goleiro.
+    """
     out: Dict[str, List[Dict[str, Any]]] = {"home": [], "away": []}
     rows = db.scalars(
         select(Lineup)
         .where(Lineup.match_id == match.id)
         .order_by(desc(Lineup.is_starter), Lineup.shirt_number, Lineup.id)
     ).all()
+    stats = _stats_by_player(db, [lu.player_id for lu in rows if lu.player_id])
     for lu in rows:
         side = "home" if lu.team_id == match.home_team_id else "away"
+        player = db.get(Player, lu.player_id)
         out[side].append({
             "player_id": lu.player_id,
-            "player_name": _display_name(db.get(Player, lu.player_id)),
+            "player_name": _display_name(player),
             "is_starter": bool(lu.is_starter),
             "position": lu.position,
+            "player_position": player.position if player else None,
+            "stats_position": stats.get(lu.player_id, {}).get("position"),
             "shirt_number": lu.shirt_number,
             "minutes_played": lu.minutes_played,
         })
     return out
 
 
+_GK_SHIRTS = (12, 13, 21, 22, 23, 24, 25, 30, 31, 40, 41)
+
+
+def _starter_line(p: Dict[str, Any]) -> Optional[str]:
+    """Linha do titular: posição do jogo; se não reconhecida, cadastro e estatísticas."""
+    return (
+        _line_of(p.get("position"))
+        or _line_of(p.get("player_position"))
+        or _line_of(p.get("stats_position"))
+    )
+
+
 def _place(official: Dict[str, List[Dict[str, Any]]], side: str) -> List[Dict[str, Any]]:
-    """Distribui os titulares oficiais nas coordenadas 4-3-3 pela posição declarada."""
+    """Distribui os titulares oficiais nas coordenadas 4-3-3 pela posição declarada.
+
+    O goleiro só ocupa a vaga de goleiro, e jogador de linha nunca é colocado no gol:
+    antes, quem não tinha posição reconhecida caía em DEF/MID/ATT/GK nessa ordem, então
+    o goleiro "sem posição" ia para a zaga e um zagueiro sobrava para o gol.
+    """
     starters = [p for p in official[side] if p["is_starter"]]
     buckets: Dict[str, List[Dict[str, Any]]] = {line: [] for line in _CAPACITY}
     orphans: List[Dict[str, Any]] = []
     for p in starters:
-        line = _line_of(p.get("position"))
+        line = _starter_line(p)
         if line and len(buckets[line]) < _CAPACITY[line]:
             buckets[line].append(p)
         else:
             orphans.append(p)
+
+    # Sem goleiro identificado: tenta pela camisa (1 e numerações típicas de goleiro),
+    # mas só entre quem não tem posição reconhecida.
+    if not buckets["GK"]:
+        unknown = [p for p in orphans if _starter_line(p) is None]
+        pick = next((p for p in unknown if p.get("shirt_number") == 1), None)
+        if pick is None:
+            free_outfield = sum(_CAPACITY[l] - len(buckets[l]) for l in ("DEF", "MID", "ATT"))
+            if len(orphans) > free_outfield:
+                pick = next((p for p in unknown if p.get("shirt_number") in _GK_SHIRTS), None)
+        if pick is not None:
+            buckets["GK"].append(pick)
+            orphans.remove(pick)
+
+    # Sobras de linha (ex.: 4-2-3-1 com 4 meias): ocupam a vaga livre mais próxima, nunca o gol.
     for p in orphans:
-        for line in ("DEF", "MID", "ATT", "GK"):
+        preferred = _starter_line(p)
+        order = [preferred] if preferred and preferred != "GK" else []
+        order += [l for l in ("DEF", "MID", "ATT") if l not in order]
+        for line in order:
             if len(buckets[line]) < _CAPACITY[line]:
                 buckets[line].append(p)
                 break

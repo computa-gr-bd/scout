@@ -6,6 +6,7 @@ import { JerseyGlyph, JerseyDefs, JerseyBadge, BallGlyph } from "./Jersey";
 import { TeamLogo } from "./ui";
 import { resolveMatchKits } from "../lib/kits";
 import { MaterialIcon } from "./MaterialIcon";
+import { HeatmapPanel } from "./HeatmapPanel";
 
 // Replay 3D realista (animação estilo transmissão): carregado sob demanda, só quando o modo é usado.
 const RealisticReplay3D = lazy(() => import("./RealisticReplay3D").then((m) => ({ default: m.RealisticReplay3D })));
@@ -464,36 +465,6 @@ function GloveGlyph({ x, y, dir, size = 7, scale = 1 }: { x: number; y: number; 
   );
 }
 
-/** Interpolação de um colormap por stops (t em 0..1). */
-function rampColor(stops: [number, number, number][], t: number) {
-  const v = Math.max(0, Math.min(1, t));
-  const n = stops.length - 1;
-  const pos = v * n;
-  const i = Math.min(n - 1, Math.floor(pos));
-  const f = pos - i;
-  const a = stops[i], b = stops[i + 1];
-  return [
-    Math.round(a[0] + (b[0] - a[0]) * f),
-    Math.round(a[1] + (b[1] - a[1]) * f),
-    Math.round(a[2] + (b[2] - a[2]) * f),
-  ] as [number, number, number];
-}
-
-// Rampas "sérias" (viridis-like / inferno-like) — sem cores infantis.
-const RAMP_HOME: [number, number, number][] = [
-  [13, 27, 62], [26, 74, 132], [30, 132, 156], [56, 180, 140], [144, 214, 96],
-];
-const RAMP_AWAY: [number, number, number][] = [
-  [58, 12, 60], [126, 25, 92], [199, 62, 74], [232, 120, 58], [250, 190, 88],
-];
-
-/** Cor do mapa de calor (versão profissional, com rampa multi-stop). */
-function heatColor2(value: number, team: "home" | "away" = "home") {
-  const v = Math.max(0, Math.min(1, value));
-  const [r, g, b] = rampColor(team === "home" ? RAMP_HOME : RAMP_AWAY, v);
-  return `rgba(${r},${g},${b},${0.08 + v * 0.8})`;
-}
-
 type StatTab = "shot" | "pass" | "drib" | "def";
 
 /** Categoria de finalização para o mapa de chutes. */
@@ -808,13 +779,6 @@ export function PitchStudio({
   const ballShadowY = planBall ? planBall.y : ballGroundY;
   const assistFrom = current?.assistant?.from ? { x: current.assistant.from.x, y: current.assistant.from.y } : null;
 
-  const heatPts = useMemo(() => {
-    const pts: { pt: HeatPoint; team: "home" | "away" }[] = [];
-    if (heatTeam === "home" || heatTeam === "both") ds.heatmapHome.forEach(p => pts.push({ pt: p, team: "home" }));
-    if (heatTeam === "away" || heatTeam === "both") ds.heatmapAway.forEach(p => pts.push({ pt: p, team: "away" }));
-    return pts;
-  }, [heatTeam, ds]);
-
   // Jogadores com detalhes clicáveis
   const allPlayers = useMemo(() => {
     const merge = (list: typeof ds.startingHome, team: "home" | "away") =>
@@ -969,7 +933,9 @@ export function PitchStudio({
       <div className="flex flex-col lg:flex-row">
         {/* Pitch canvas */}
         <div className={`flex-1 p-3 md:p-5 transition-all ${selectedPlayer ? "lg:mr-0" : ""}`}>
-          {started && replayMode === "real" && current ? (
+          {view === "heatmap" ? (
+            <HeatmapPanel dataset={ds} team={heatTeam} homeColor={HOME_COLOR} awayColor={AWAY_COLOR} />
+          ) : started && replayMode === "real" && current ? (
             <div ref={stageRef} className={`goal-replay-stage${inFs ? " is-fs" : ""}${fsFallback ? " is-fs-fallback" : ""}`}>
               <Suspense fallback={<div className="goal-replay-3d goal-replay-real flex items-center justify-center text-xs text-sv-muted">Carregando replay 3D…</div>}>
                 <RealisticReplay3D
@@ -1046,20 +1012,6 @@ export function PitchStudio({
                   <stop offset="0%" stopColor="rgba(255,255,255,0.98)" />
                   <stop offset="100%" stopColor="rgba(226,232,240,0.9)" />
                 </linearGradient>
-                <radialGradient id="heatGradHome" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor="rgba(46,132,160,0.92)" />
-                  <stop offset="42%" stopColor="rgba(30,110,150,0.62)" />
-                  <stop offset="72%" stopColor="rgba(26,74,132,0.28)" />
-                  <stop offset="100%" stopColor="rgba(13,27,62,0)" />
-                </radialGradient>
-                <radialGradient id="heatGradAway" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor="rgba(232,120,58,0.92)" />
-                  <stop offset="42%" stopColor="rgba(199,62,74,0.62)" />
-                  <stop offset="72%" stopColor="rgba(126,25,92,0.28)" />
-                  <stop offset="100%" stopColor="rgba(58,12,60,0)" />
-                </radialGradient>
-                <filter id="blurHeat" x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur in="SourceGraphic" stdDeviation="1.15" /></filter>
-                <filter id="blurHeat2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur in="SourceGraphic" stdDeviation="0.55" /></filter>
                 <filter id="softGlow"><feGaussianBlur stdDeviation="0.28" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
               </defs>
 
@@ -1068,26 +1020,6 @@ export function PitchStudio({
               {Array.from({ length: 12 }).map((_, i) => (
                 <rect key={`stripe-${i}`} x={(100 / 12) * i} y="0" width={100 / 12} height="100"
                       fill={i % 2 === 0 ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.045)"} />
-              ))}
-
-              {/* Heatmap blobs (blend aditivo p/ interseções mais densas) */}
-              {view === "heatmap" && (
-                <g style={{ mixBlendMode: "screen" }}>
-                  {heatPts.map((h, i) => {
-                    const size = 9 + h.pt.intensity * 15;
-                    return (
-                      <ellipse key={`h-${i}`} cx={h.pt.x} cy={h.pt.y} rx={size * 1.42} ry={size * 0.98}
-                               filter="url(#blurHeat)" opacity={0.9}
-                               fill={h.team === "home" ? "url(#heatGradHome)" : "url(#heatGradAway)"} />
-                    );
-                  })}
-                </g>
-              )}
-              {view === "heatmap" && heatPts.map((h, i) => (
-                <g key={`hd-${i}`} opacity={0.55}>
-                  <circle cx={h.pt.x} cy={h.pt.y} r={0.5} fill="#ffffff" />
-                  <circle cx={h.pt.x} cy={h.pt.y} r={1.0} fill="none" stroke="#ffffff" strokeWidth={0.12} />
-                </g>
               ))}
 
               {/* Markings */}
@@ -1399,60 +1331,40 @@ export function PitchStudio({
           )}
 
           {/* Progress + info grid */}
-          <div className={`mt-4 grid grid-cols-1 ${isShotView && current && !current.goalLoc ? "lg:grid-cols-2" : "lg:grid-cols-3"} gap-3`}>
-            {isShotView && current ? (
-              <ShotDetail shot={current} />
-            ) : view === "heatmap" ? (
-              <>
-                <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="flex items-center gap-2 mb-2.5"><div className="w-3 h-3 rounded-sm" style={{ background: heatColor2(0.7, "home") }} /><div className="text-sm font-semibold">{matchInfo.home} · {matchInfo.source === "real" ? "Finalizações (xG)" : "Ocupação"}</div></div>
-                  <div className="text-xs text-sv-muted leading-relaxed">Distribuição espacial das finalizações registradas.</div>
-                </div>
-                <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="flex items-center gap-2 mb-2.5"><div className="w-3 h-3 rounded-sm" style={{ background: heatColor2(0.7, "away") }} /><div className="text-sm font-semibold">{matchInfo.away} · {matchInfo.source === "real" ? "Finalizações (xG)" : "Ocupação"}</div></div>
-                  <div className="text-xs text-sv-muted leading-relaxed">Distribuição espacial das finalizações registradas.</div>
-                </div>
-                <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="text-sm font-semibold mb-2.5">Legenda</div>
-                  <div className="space-y-1.5 text-[11px]">
-                    {[1, 0.75, 0.5, 0.25].map((v) => (
-                      <div key={v} className="flex items-center gap-2">
-                        <div className="w-10 h-3 rounded-sm" style={{ background: `linear-gradient(90deg, ${heatColor2(v, "home")}, ${heatColor2(v, "away")})` }} />
-                        <span className="text-sv-muted">{">"} {Math.round(v * 100)}% intensidade</span>
-                      </div>
-                    ))}
+          {view !== "heatmap" && (
+            <div className={`mt-4 grid grid-cols-1 ${isShotView && current && !current.goalLoc ? "lg:grid-cols-2" : "lg:grid-cols-3"} gap-3`}>
+              {isShotView && current ? (
+                <ShotDetail shot={current} />
+              ) : (
+                <>
+                  <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
+                    <div className="flex items-center gap-2 mb-2"><div className="w-3 h-3 rounded-full" style={{ background: HOME_COLOR }} /><div className="text-sm font-semibold">{matchInfo.home} · {matchInfo.formationHome || (matchInfo.source === "real" ? "—" : "4-3-3")}</div></div>
                   </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="flex items-center gap-2 mb-2"><div className="w-3 h-3 rounded-full" style={{ background: HOME_COLOR }} /><div className="text-sm font-semibold">{matchInfo.home} · {matchInfo.formationHome || (matchInfo.source === "real" ? "—" : "4-3-3")}</div></div>
-                </div>
-                <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="flex items-center gap-2 mb-2"><div className="w-3 h-3 rounded-full" style={{ background: AWAY_COLOR }} /><div className="text-sm font-semibold">{matchInfo.away} · {matchInfo.formationAway || (matchInfo.source === "real" ? "—" : "4-2-3-1")}</div></div>
-                </div>
-                <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
-                  <div className="text-sm font-semibold mb-2"><MaterialIcon name="person_search" className="mr-1 align-middle" />Jogadores com ficha completa</div>
-                  <div className="space-y-1.5">
-                    {Object.values(ds.players).slice(0, matchInfo.source === "real" ? 6 : 4).map((pd) => (
-                      <button key={pd.id} onClick={() => { setView("positions"); setSelectedPlayer(pd); setStatTab("shot"); }}
-                        className="w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md hover:bg-sv-panel transition text-left">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <JerseyBadge number={pd.number} color={pd.team === "home" ? HOME_COLOR : AWAY_COLOR} size={26} />
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium truncate">{pd.nick || pd.name}</div>
-                            <div className="text-[10px] text-sv-muted truncate">{pd.position}</div>
+                  <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
+                    <div className="flex items-center gap-2 mb-2"><div className="w-3 h-3 rounded-full" style={{ background: AWAY_COLOR }} /><div className="text-sm font-semibold">{matchInfo.away} · {matchInfo.formationAway || (matchInfo.source === "real" ? "—" : "4-2-3-1")}</div></div>
+                  </div>
+                  <div className="rounded-xl border border-sv-border bg-sv-panel2/60 p-3.5">
+                    <div className="text-sm font-semibold mb-2"><MaterialIcon name="person_search" className="mr-1 align-middle" />Jogadores com ficha completa</div>
+                    <div className="space-y-1.5">
+                      {Object.values(ds.players).slice(0, matchInfo.source === "real" ? 6 : 4).map((pd) => (
+                        <button key={pd.id} onClick={() => { setView("positions"); setSelectedPlayer(pd); setStatTab("shot"); }}
+                          className="w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md hover:bg-sv-panel transition text-left">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <JerseyBadge number={pd.number} color={pd.team === "home" ? HOME_COLOR : AWAY_COLOR} size={26} />
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium truncate">{pd.nick || pd.name}</div>
+                              <div className="text-[10px] text-sv-muted truncate">{pd.position}</div>
+                            </div>
                           </div>
-                        </div>
-                        <div className="font-bold text-emerald-400 text-sm whitespace-nowrap">{pd.real ? `${pd.stats.goals}G · xG ${pd.stats.xG.toFixed(2)}` : pd.rating.toFixed(1)}</div>
-                      </button>
-                    ))}
+                          <div className="font-bold text-emerald-400 text-sm whitespace-nowrap">{pd.real ? `${pd.stats.goals}G · xG ${pd.stats.xG.toFixed(2)}` : pd.rating.toFixed(1)}</div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              </>
-            )}
-          </div>
+                </>
+              )}
+            </div>
+          )}
 
           {isShotView && (
             <div className="mt-4 flex items-center gap-3">

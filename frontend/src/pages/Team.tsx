@@ -66,7 +66,7 @@ const SQUAD_GROUPS: { key: SquadGroupKey; label: string }[] = [
 
 function groupOfFootballData(position: string | null | undefined): SquadGroupKey {
   const p = (position || "").toUpperCase();
-  if (p.includes("GOAL") || p === "GK") return "gk";
+  if (p.includes("GOAL") || p.includes("KEEP") || p === "GK" || p === "G") return "gk";
   if (p.includes("DEF") || p === "DF") return "def";
   if (p.includes("MID") || p === "MF") return "mid";
   return "att";
@@ -518,7 +518,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
                             <th className="text-right py-2 font-medium">J</th>
                             <th className="text-right py-2 font-medium">Defesas</th>
                             <th className="text-right py-2 font-medium">Gols sofridos</th>
-                            <th className="text-right py-2 font-medium">Chutes enfrentados</th>
+                            <th className="text-right py-2 font-medium" title="Chutes no alvo enfrentados (defesas + gols sofridos)">Chutes no alvo enfrentados</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -536,6 +536,11 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
                         </tbody>
                       </table>
                     </div>
+                    {defensiveStatsQ.data.goalkeepers.some((g) => g.sources.some((src) => src.startsWith("calculado"))) && (
+                      <p className="mt-2 text-[11px] text-sv-muted">
+                        Chutes no alvo enfrentados = defesas + gols sofridos, calculados quando a fonte não informa esse total.
+                      </p>
+                    )}
                   </>
                 )}
               </div>

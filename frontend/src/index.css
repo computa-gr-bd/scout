@@ -267,3 +267,13 @@
 .recharts-tooltip-wrapper .recharts-tooltip-label {
   color: #e5e7eb !important;
 }
+
+/* Mapa de calor: entrada suave dos cards ao alternar equipes */
+@keyframes svHeatFade {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+.sv-heat-fade { animation: svHeatFade 0.35s ease both; }
+@media (prefers-reduced-motion: reduce) {
+  .sv-heat-fade { animation: none; }
+}

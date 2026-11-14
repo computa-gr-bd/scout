@@ -278,6 +278,17 @@ def get_team_defensive_stats(
             if field not in values and column_value not in (None, 0):
                 values[field] = float(column_value)
                 sources[field] = "banco"
+        # Chutes enfrentados: o ESPN não envia `shotsFaced` e o banco grava 0 por padrão,
+        # então a coluna aparecia sempre zerada. Quando a fonte não informa (ou informa 0)
+        # mas há defesas/gols sofridos, calcula pelos chutes NO ALVO enfrentados:
+        # defesas + gols sofridos. É estimativa declarada (fonte "calculado"), jamais
+        # sobrescreve um valor real positivo vindo do provedor.
+        if not values.get("shots_faced"):
+            saves_v = values.get("saves")
+            conceded_v = values.get("goals_conceded")
+            if saves_v is not None or conceded_v is not None:
+                values["shots_faced"] = (saves_v or 0.0) + (conceded_v or 0.0)
+                sources["shots_faced"] = "calculado (defesas + gols sofridos)"
         # Reserva que só constou no banco de reservas (tudo zerado): não conta como jogo.
         if not (
             stats.is_starter
