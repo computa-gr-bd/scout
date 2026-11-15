@@ -7,81 +7,13 @@ import {
   type Match, type MatchStudioPayload, type StudioApiShot, type UnderstatTableRow,
 } from "../api/client";
 import { payloadToDataset } from "../api/studioReal";
-import { Badge, EmptyState, SectionTitle, TeamLogo } from "../components/ui";
+import { EmptyState, ErrorState, LeagueLogo, Panel, Skeleton, TeamLogo } from "../components/ui";
+import { MatchRow, MatchRowsSkeleton } from "../components/MatchRow";
 import { PitchStudio } from "../components/PitchStudio";
 import { MaterialIcon } from "../components/MaterialIcon";
 
-const HOME_COLOR = "#4f7cff";
-const AWAY_COLOR = "#e1534e";
-
-function formatDate(s: string) {
-  const d = new Date(s);
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", weekday: "short" })
-    + " · " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-}
-
-const STATUS_PT: Record<string, string> = {
-  upcoming: "Agendado",
-  scheduled: "Agendado",
-  timed: "Agendado",
-  live: "Ao vivo",
-  in_play: "Ao vivo",
-  finished: "Encerrado",
-};
-function statusPt(s?: string) {
-  if (!s) return "—";
-  return STATUS_PT[s.toLowerCase()] || s;
-}
-
-/** "Serie A · Rodada 9" — a rodada só aparece quando a fonte informa (Understat não informa). */
-function roundLabel(m: Match) {
-  const comp = m.competition_name || "Liga ScoutVision";
-  return m.matchday ? `${comp} · Rodada ${m.matchday}` : comp;
-}
-
-function MatchCard({ m, highlight }: { m: Match; highlight?: boolean }) {
-  // Abreviação só quando acrescenta algo (evita "Frosinone / Frosinone").
-  const sub = (t: Match["home_team"]) => (t.short_name && t.short_name !== t.name ? t.short_name : "");
-  return (
-    <Link to={`/analysis/${m.id}`} className={[
-      "sv-card block transition",
-      highlight ? "sv-ring hover:-translate-y-0.5" : "hover:bg-sv-panel2",
-    ].join(" ")}>
-      <div className="sv-card-inner">
-        <div className="flex items-center justify-between mb-3">
-          <div className="sv-chip">{roundLabel(m)}</div>
-          <Badge kind={m.status === "finished" ? "default" : "accent"}>{statusPt(m.status)}</Badge>
-        </div>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} className="w-8 h-8 sm:w-10 sm:h-10 shrink-0" />
-            <div className="min-w-0">
-              <div className="font-semibold text-[13px] sm:text-sm truncate">{m.home_team.name}</div>
-              <div className="text-[11px] sm:text-xs text-sv-muted truncate">{sub(m.home_team)}</div>
-            </div>
-          </div>
-          <div className="text-center min-w-0">
-            {m.status === "finished" ? (
-              <div className="font-mono text-lg sm:text-xl font-bold tabular-nums">{m.home_score} — {m.away_score}</div>
-            ) : (
-              <div className="text-[11px] sm:text-xs text-sv-accent3 font-medium">{formatDate(m.kickoff_time)}</div>
-            )}
-            <div className="text-[10px] text-sv-muted mt-1 truncate max-w-[120px]">
-              {m.status === "finished" ? new Date(m.kickoff_time).toLocaleDateString("pt-BR") : (m.stadium_name || "")}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 min-w-0 justify-end">
-            <div className="min-w-0 text-right">
-              <div className="font-semibold text-[13px] sm:text-sm truncate">{m.away_team.name}</div>
-              <div className="text-[11px] sm:text-xs text-sv-muted truncate">{sub(m.away_team)}</div>
-            </div>
-            <TeamLogo name={m.away_team.name} src={m.away_team.logo_url} className="w-8 h-8 sm:w-10 sm:h-10 shrink-0" />
-          </div>
-        </div>
-      </div>
-    </Link>
-  );
-}
+const HOME_COLOR = "rgb(var(--sv-info))";
+const AWAY_COLOR = "rgb(var(--sv-away))";
 
 // ---------------------------------------------------------------- Resumo e zonas (dados reais dos chutes)
 
@@ -116,29 +48,47 @@ function teamTotals(shots: StudioApiShot[], team: "home" | "away") {
 function MatchSummary({ payload, match }: { payload: MatchStudioPayload; match: Match }) {
   const home = teamTotals(payload.shots, "home");
   const away = teamTotals(payload.shots, "away");
-  const rows: Array<[string, string, string]> = [
-    ["Gols", String(match.status === "finished" ? match.home_score : home.goals), String(match.status === "finished" ? match.away_score : away.goals)],
-    ["xG", home.xg?.toFixed(2) ?? "—", away.xg?.toFixed(2) ?? "—"],
-    ["Chutes", String(home.shots), String(away.shots)],
-    ["No alvo", String(home.onTarget), String(away.onTarget)],
+  const finished = match.status === "finished";
+  const rows: Array<{ label: string; h: number | null; a: number | null; digits: number }> = [
+    { label: "Gols", h: finished ? match.home_score : home.goals, a: finished ? match.away_score : away.goals, digits: 0 },
+    { label: "xG", h: home.xg, a: away.xg, digits: 2 },
+    { label: "Chutes", h: home.shots, a: away.shots, digits: 0 },
+    { label: "No alvo", h: home.onTarget, a: away.onTarget, digits: 0 },
   ];
   return (
-    <div className="sv-card">
-      <div className="sv-card-inner">
-        <div className="text-sm font-semibold mb-3">Resumo da partida</div>
-        <div className="grid grid-cols-[1fr_auto_1fr] gap-y-2 items-center text-sm">
-          <div className="font-semibold truncate flex items-center gap-1.5 min-w-0" style={{ color: HOME_COLOR }}><TeamLogo name={match.home_team.name} src={match.home_team.logo_url} className="w-5 h-5" /><span className="truncate">{match.home_team.name}</span></div>
-          <div />
-          <div className="font-semibold truncate flex items-center justify-end gap-1.5 min-w-0" style={{ color: AWAY_COLOR }}><span className="truncate">{match.away_team.name}</span><TeamLogo name={match.away_team.name} src={match.away_team.logo_url} className="w-5 h-5" /></div>
-          {rows.map(([label, h, a]) => (
-            <div key={label} className="contents">
-              <div className="font-mono tabular-nums text-base">{h}</div>
-              <div className="text-xs text-sv-muted px-3 text-center">{label}</div>
-              <div className="font-mono tabular-nums text-base text-right">{a}</div>
-            </div>
-          ))}
+    <div className="space-y-3">
+      <div className="grid grid-cols-[1fr_auto_1fr] gap-3 items-center">
+        <div className="flex items-center gap-2 min-w-0 font-semibold text-sm">
+          <span className="w-1 h-4 rounded-sm shrink-0" style={{ background: HOME_COLOR }} aria-hidden="true" />
+          <TeamLogo name={match.home_team.name} src={match.home_team.logo_url} className="w-5 h-5" />
+          <span className="truncate">{match.home_team.name}</span>
+        </div>
+        <span className="text-[11px] text-sv-faint">vs</span>
+        <div className="flex items-center justify-end gap-2 min-w-0 font-semibold text-sm">
+          <span className="truncate">{match.away_team.name}</span>
+          <TeamLogo name={match.away_team.name} src={match.away_team.logo_url} className="w-5 h-5" />
+          <span className="w-1 h-4 rounded-sm shrink-0" style={{ background: AWAY_COLOR }} aria-hidden="true" />
         </div>
       </div>
+      {rows.map(({ label, h, a, digits }) => {
+        const hv = h ?? 0, av = a ?? 0;
+        const total = hv + av;
+        const hp = total > 0 ? (hv / total) * 100 : 50;
+        const fmt = (v: number | null) => (v == null ? "—" : v.toFixed(digits));
+        return (
+          <div key={label}>
+            <div className="flex items-baseline justify-between text-sm">
+              <span className="sv-num font-semibold text-base">{fmt(h)}</span>
+              <span className="text-xs text-sv-muted">{label}</span>
+              <span className="sv-num font-semibold text-base">{fmt(a)}</span>
+            </div>
+            <div className="mt-1 flex h-1.5 gap-0.5" aria-hidden="true">
+              <div className="rounded-sm" style={{ width: `${hp}%`, background: HOME_COLOR, opacity: total > 0 ? 1 : 0.25 }} />
+              <div className="rounded-sm flex-1" style={{ background: AWAY_COLOR, opacity: total > 0 ? 1 : 0.25 }} />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -157,25 +107,56 @@ function ZoneBreakdown({ payload }: { payload: MatchStudioPayload }) {
   });
   const max = Math.max(1, ...data.flatMap((d) => [d.home.n, d.away.n]));
   return (
-    <div className="sv-card">
-      <div className="sv-card-inner space-y-4">
-        {data.map((d) => (
-          <div key={d.zone}>
-            <div className="text-xs font-semibold mb-1.5">{ZONE_LABEL[d.zone]}</div>
-            {([["home", HOME_COLOR, d.home], ["away", AWAY_COLOR, d.away]] as const).map(([side, color, v]) => (
-              <div key={side} className="flex items-center gap-2 mb-1">
-                <div className="h-2 rounded-full" style={{ width: `${Math.max(v.n ? 6 : 0, (v.n / max) * 100)}%`, background: color, opacity: 0.85 }} />
-                <div className="text-[11px] text-sv-muted whitespace-nowrap font-mono tabular-nums">
-                  {v.n} · xG {v.xg.toFixed(2)}
-                </div>
+    <div className="space-y-3.5">
+      {data.map((d) => (
+        <div key={d.zone}>
+          <div className="text-xs font-medium mb-1">{ZONE_LABEL[d.zone]}</div>
+          {([["home", HOME_COLOR, d.home], ["away", AWAY_COLOR, d.away]] as const).map(([side, color, v]) => (
+            <div key={side} className="flex items-center gap-2 mb-1">
+              <div className="flex-1 h-1.5 rounded-sm bg-sv-panel3 overflow-hidden">
+                <div className="h-full rounded-sm" style={{ width: `${(v.n / max) * 100}%`, background: color }} />
               </div>
-            ))}
-          </div>
-        ))}
-      </div>
+              <div className="w-24 text-right text-[11px] text-sv-muted whitespace-nowrap sv-num">
+                <span className="text-sv-text font-semibold">{v.n}</span> · xG {v.xg.toFixed(2)}
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
+
+/** Líder de uma métrica entre as tabelas reais das ligas. */
+function Leader({ label, row, value, tone }: {
+  label: string; row?: UnderstatTableRow & { league: string }; value: string; tone: "good" | "warn" | "info";
+}) {
+  const color = tone === "good" ? "text-sv-accent3" : tone === "warn" ? "text-sv-warn" : "text-sv-info";
+  return (
+    <div className="px-4 py-3 min-w-0">
+      <div className="sv-label">{label}</div>
+      {row ? (
+        <Link to={`/teams/${row.team_id}`} className="mt-1.5 flex items-center gap-2.5 min-w-0 group">
+          <TeamLogo name={row.team} src={row.logo_url} className="w-8 h-8" />
+          <span className="min-w-0 leading-tight">
+            <span className="block text-sm font-semibold truncate group-hover:text-sv-accent3 transition-colors">{row.team}</span>
+            <span className="block text-[11px] text-sv-muted truncate">{row.league}</span>
+          </span>
+          <span className={`ml-auto sv-display text-2xl ${color}`}>{value}</span>
+        </Link>
+      ) : <div className="mt-2 text-sm text-sv-faint">—</div>}
+    </div>
+  );
+}
+
+const SHORTCUTS: { to: string; label: string; hint: string; icon: string }[] = [
+  { to: "/analysis", label: "Estúdio de análise", hint: "Chutes, zonas e confrontos pré-jogo", icon: "query_stats" },
+  { to: "/compare", label: "Comparar jogadores", hint: "Radar por posição e liga", icon: "compare_arrows" },
+  { to: "/players", label: "Jogadores", hint: "Busca nas cinco ligas", icon: "person_search" },
+  { to: "/teams", label: "Times", hint: "Perfil e forma dos clubes", icon: "groups" },
+  { to: "/ligas", label: "Ligas", hint: "Classificações e sincronização", icon: "emoji_events" },
+  { to: "/models", label: "Modelos", hint: "Como as estimativas são feitas", icon: "function" },
+];
 
 // ---------------------------------------------------------------- Página
 
@@ -248,160 +229,220 @@ export default function Dashboard() {
       };
     }),
   });
-  const topTeams = useMemo(() => {
+  const allRows = useMemo(() => {
     const rows: Array<UnderstatTableRow & { league: string }> = [];
     tableQs.forEach((q, i) => {
       for (const r of q.data?.table ?? []) rows.push({ ...r, league: syncedLeagues[i]?.name ?? "" });
     });
-    return rows
-      .filter((r) => r.matches_played >= 3)
-      .sort((a, b) => b.points_per_game - a.points_per_game || b.xg - a.xg)
-      .slice(0, 8);
+    return rows.filter((r) => r.matches_played >= 3);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableQs.map((q) => q.dataUpdatedAt).join(","), syncedLeagues]);
+  const topTeams = useMemo(
+    () => [...allRows].sort((a, b) => b.points_per_game - a.points_per_game || b.xg - a.xg).slice(0, 8),
+    [allRows],
+  );
+  // Destaques estatísticos (calculados das mesmas tabelas reais).
+  const bestAttack = useMemo(
+    () => [...allRows].sort((a, b) => b.xg / b.matches_played - a.xg / a.matches_played)[0],
+    [allRows],
+  );
+  const bestDefense = useMemo(
+    () => [...allRows].sort((a, b) => a.xga / a.matches_played - b.xga / b.matches_played)[0],
+    [allRows],
+  );
+  const bestPpg = topTeams[0];
   const tablesLoading = leaguesQ.isPending || tableQs.some((q) => q.isPending);
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">ScoutVision — dados e análise de futebol</h1>
-          <p className="text-sv-muted mt-1 text-sm">
-            Consulte partidas, resultados, clubes e classificações das competições disponíveis.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link to="/analysis" className="sv-btn-primary">
-            <span><MaterialIcon name="search" className="mr-1 align-middle" />Abrir estúdio de análise</span>
-          </Link>
-          <Link to="/matches" className="sv-btn">Todas as partidas</Link>
-        </div>
-      </div>
+  const matchesFailed = upcomingQ.isError || recentQ.isError;
 
-      <SectionTitle title="Campo · ScoutVision Studio"
-        hint={highlightMatch
-          ? (isRandomPick
-              ? "Partida sorteada entre as já disputadas."
-              : "Partida mais próxima disponível · sem chutes reais ainda, exibe o padrão recente dos times.")
-          : "Aguardando uma partida com dados."}
+  return (
+    <div className="space-y-5">
+      {/* Estúdio */}
+      <Panel
+        title="Estúdio de campo"
         right={
-          <div className="flex gap-2">
+          <>
             {pool.length > 1 && (
-              <button className="sv-btn !py-1.5 text-[12px]" onClick={() => setSeed(Math.random())}>
-                <MaterialIcon name="shuffle" className="mr-1 align-middle" />Sortear outra
+              <button type="button" className="sv-btn !py-1 text-[12px]" onClick={() => setSeed(Math.random())}>
+                <MaterialIcon name="shuffle" />Sortear outra
               </button>
             )}
-            <Link to={highlightMatch ? `/analysis/${highlightMatch.id}` : "/analysis"} className="sv-btn-primary !py-1.5 text-[12px]">
-              Abrir estúdio completo →
+            <Link to={highlightMatch ? `/analysis/${highlightMatch.id}` : "/analysis"} className="sv-btn-primary !py-1 text-[12px]">
+              Abrir estúdio completo
             </Link>
-          </div>
-        } />
-      {!highlightMatch
-        ? <EmptyState
-            title={upcomingQ.isError || recentQ.isError ? "Não foi possível consultar as partidas" : "Nenhuma partida disponível"}
-            description={upcomingQ.isError || recentQ.isError
-              ? "A API está indisponível. Confira a conexão e tente novamente."
-              : "Sincronize o Understat para trazer partidas e chutes reais."} />
-        : studioDataset
-          ? <PitchStudio dataset={studioDataset} />
-          : studioQ.isError
-            ? <EmptyState title="Não foi possível carregar os lances" description="Tente sortear outra partida ou abra o estúdio completo." />
-            : <EmptyState title="Carregando lances da partida…" />}
+          </>
+        }
+        bodyClassName="p-3 sm:p-4"
+      >
+        <p className="text-xs text-sv-muted mb-3">
+          {highlightMatch
+            ? (isRandomPick
+                ? "Partida sorteada entre as já disputadas, com lances reais."
+                : "Partida mais próxima disponível · sem chutes reais ainda, exibe o padrão recente dos times.")
+            : "Aguardando uma partida com dados."}
+        </p>
+        {!highlightMatch
+          ? (matchesFailed
+              ? <ErrorState title="Não foi possível consultar as partidas"
+                  description="A API está indisponível. Confira a conexão e tente novamente."
+                  onRetry={() => { upcomingQ.refetch(); recentQ.refetch(); }} />
+              : (upcomingQ.isPending || recentQ.isPending)
+                ? <Skeleton className="h-[320px] w-full" />
+                : <EmptyState title="Nenhuma partida disponível" description="Sincronize o Understat para trazer partidas e chutes reais." />)
+          : studioDataset
+            ? <PitchStudio dataset={studioDataset} />
+            : studioQ.isError
+              ? <ErrorState title="Não foi possível carregar os lances"
+                  description="Tente sortear outra partida ou abra o estúdio completo." onRetry={() => studioQ.refetch()} />
+              : <Skeleton className="h-[320px] w-full" />}
+      </Panel>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-5">
-        <div className="xl:col-span-2 space-y-5">
-          <SectionTitle title="Partida em destaque"
-            hint={highlightMatch ? (isRandomPick ? "Sorteada entre as já disputadas" : "Partida mais próxima disponível") : ""}
-            right={highlightMatch
-              ? <Link to={`/analysis/${highlightMatch.id}`} className="sv-btn">Análise completa →</Link>
-              : undefined} />
+        {/* Partida em destaque: confronto + resumo + zonas num único painel */}
+        <Panel className="xl:col-span-2" title="Partida em destaque"
+          right={highlightMatch ? <Link to={`/analysis/${highlightMatch.id}`} className="sv-btn !py-1 text-[12px]">Análise completa</Link> : undefined}>
           {highlightMatch ? (
             <>
-              <MatchCard m={highlightMatch} highlight />
-              {studioQ.data && hasShots
-                ? <MatchSummary payload={studioQ.data} match={highlightMatch} />
-                : <EmptyState title={studioQ.isPending ? "Carregando resumo…" : "Sem chutes coletados nesta partida"}
-                    description={studioQ.isPending ? "" : "Quando a fonte publicar os chutes, o resumo (xG, chutes, no alvo) aparece aqui."} />}
+              <div className="border-b border-sv-border/60">
+                <MatchRow m={highlightMatch} showDate />
+              </div>
+              {studioQ.data && hasShots ? (
+                <div className="grid md:grid-cols-2 md:divide-x divide-sv-border">
+                  <div className="p-4"><div className="sv-label mb-3">Resumo da partida</div><MatchSummary payload={studioQ.data} match={highlightMatch} /></div>
+                  <div className="p-4 border-t md:border-t-0 border-sv-border"><div className="sv-label mb-3">Chutes por zona</div><ZoneBreakdown payload={studioQ.data} /></div>
+                </div>
+              ) : studioQ.isPending ? (
+                <div className="p-4 grid md:grid-cols-2 gap-4"><Skeleton className="h-28" /><Skeleton className="h-28" /></div>
+              ) : (
+                <div className="p-4"><EmptyState title="Sem chutes coletados nesta partida"
+                  description="Quando a fonte publicar os chutes, o resumo (xG, chutes, no alvo) e a análise por zonas aparecem aqui." /></div>
+              )}
             </>
           ) : (
-            <EmptyState
-              title={upcomingQ.isError || recentQ.isError ? "Não foi possível consultar as partidas" : "Nenhuma partida em destaque"}
-              description={upcomingQ.isError || recentQ.isError
-                ? "A API está indisponível. Confira a conexão e tente novamente."
-                : "A API ainda não retornou partidas para as competições sincronizadas."} />
-          )}
-        </div>
-
-        <div className="space-y-5">
-          <SectionTitle title="Chutes por zona" hint="Da partida em destaque" />
-          {studioQ.data && hasShots
-            ? <ZoneBreakdown payload={studioQ.data} />
-            : <EmptyState title={studioQ.isPending ? "Carregando…" : "Sem chutes para analisar"}
-                description={studioQ.isPending ? "" : "A análise por zonas usa a posição real de cada chute."} />}
-        </div>
-      </div>
-
-      <div>
-        <SectionTitle title="Próximas partidas"
-          right={<Link to="/matches" className="sv-btn">Ver todas</Link>} />
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-          {upcomingQ.isError
-            ? <EmptyState title="Falha ao carregar próximas partidas" description="Confira a conexão com a API." />
-            : upcoming.length
-              ? upcoming.slice(0, 6).map((m) => <MatchCard key={m.id} m={m} />)
-              : <EmptyState title="Nenhuma próxima partida sincronizada" />}
-        </div>
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-4 md:gap-5">
-        <div>
-          <SectionTitle title="Resultados recentes"
-            right={<Link to="/matches?scope=recent" className="sv-btn">Ver todas</Link>} />
-          <div className="grid md:grid-cols-2 gap-3 md:gap-4">
-            {recentQ.isError
-              ? <EmptyState title="Falha ao carregar resultados recentes" description="Confira a conexão com a API." />
-              : recent.length
-                ? recent.slice(0, 4).map((m) => <MatchCard key={m.id} m={m} />)
-                : <EmptyState title="Nenhum resultado sincronizado"
-                    description="Use Sincronizar agora na tela Ligas para trazer os jogos já disputados." />}
-          </div>
-        </div>
-        <div>
-          <SectionTitle title="Principais times" hint="Melhor aproveitamento entre as ligas do Ligas"
-            right={<Link to="/ligas" className="sv-btn">Ver tabelas</Link>} />
-          <div className="sv-card">
-            <div className="sv-table-wrap">
-              <table className="sv-table">
-                <thead><tr><th>Time</th><th className="text-right">Pts/jogo</th><th className="text-right">xG/90</th><th className="text-right">xGA/90</th></tr></thead>
-                <tbody>
-                  {topTeams.map((r) => (
-                    <tr key={`${r.season_id}-${r.team_id}`}>
-                      <td>
-                        <Link to={`/teams/${r.team_id}`} className="flex items-center gap-2 hover:text-sv-accent3">
-                          <TeamLogo name={r.team} src={r.logo_url} className="w-7 h-7" />
-                          <span>
-                            <span className="font-medium block leading-tight">{r.team}</span>
-                            <span className="text-[10px] text-sv-muted">{r.league}</span>
-                          </span>
-                        </Link>
-                      </td>
-                      <td className="text-right font-mono">{r.points_per_game.toFixed(2)}</td>
-                      <td className="text-right font-mono text-sv-accent3">{(r.xg / r.matches_played).toFixed(2)}</td>
-                      <td className="text-right font-mono text-sv-warn">{(r.xga / r.matches_played).toFixed(2)}</td>
-                    </tr>
-                  ))}
-                  {!topTeams.length && (
-                    <tr><td colSpan={4} className="text-sm text-sv-muted py-4">
-                      {tablesLoading ? "Carregando tabelas…" : (
-                        <>Nenhuma liga do Ligas sincronizada. <Link to="/ligas" className="underline">Sincronizar agora</Link></>
-                      )}
-                    </td></tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="p-4">
+              {upcomingQ.isPending || recentQ.isPending
+                ? <Skeleton className="h-24" />
+                : <EmptyState title={matchesFailed ? "Não foi possível consultar as partidas" : "Nenhuma partida em destaque"}
+                    description={matchesFailed ? "A API está indisponível. Confira a conexão e tente novamente."
+                      : "A API ainda não retornou partidas para as competições sincronizadas."} />}
             </div>
+          )}
+        </Panel>
+
+        {/* Próximas partidas */}
+        <Panel title="Próximas partidas" right={<Link to="/matches" className="text-xs text-sv-accent3 hover:underline">Ver todas</Link>}>
+          {upcomingQ.isPending ? <MatchRowsSkeleton rows={5} />
+            : upcomingQ.isError ? <div className="p-3"><ErrorState title="Falha ao carregar próximas partidas" onRetry={() => upcomingQ.refetch()} /></div>
+            : upcoming.length ? (
+              <div className="divide-y divide-sv-border/60">
+                {upcoming.slice(0, 6).map((m) => <MatchRow key={m.id} m={m} showDate showCompetition={false} />)}
+              </div>
+            ) : <div className="p-3"><EmptyState title="Nenhuma próxima partida sincronizada" /></div>}
+        </Panel>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-5">
+        {/* Equipes em evidência */}
+        <Panel className="xl:col-span-2" title="Equipes em evidência"
+          right={<Link to="/ligas" className="text-xs text-sv-accent3 hover:underline">Ver tabelas</Link>}>
+          <div className="grid sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-sv-border border-b border-sv-border">
+            <Leader label="Melhor ataque (xG/jogo)" tone="good" row={bestAttack}
+                    value={bestAttack ? (bestAttack.xg / bestAttack.matches_played).toFixed(2) : "—"} />
+            <Leader label="Melhor defesa (xGA/jogo)" tone="info" row={bestDefense}
+                    value={bestDefense ? (bestDefense.xga / bestDefense.matches_played).toFixed(2) : "—"} />
+            <Leader label="Melhor aproveitamento" tone="warn" row={bestPpg}
+                    value={bestPpg ? `${bestPpg.points_per_game.toFixed(2)}` : "—"} />
           </div>
-        </div>
+          <div className="sv-table-wrap">
+            <table className="sv-table">
+              <caption className="sr-only">Principais times por pontos por jogo entre as ligas sincronizadas</caption>
+              <thead><tr>
+                <th scope="col" className="w-8">#</th><th scope="col">Time</th>
+                <th scope="col" className="text-right">Pts/jogo</th><th scope="col" className="text-right">xG/jogo</th><th scope="col" className="text-right">xGA/jogo</th>
+              </tr></thead>
+              <tbody>
+                {topTeams.map((r, i) => (
+                  <tr key={`${r.season_id}-${r.team_id}`}>
+                    <td className="sv-num text-sv-muted">{i + 1}</td>
+                    <td>
+                      <Link to={`/teams/${r.team_id}`} className="flex items-center gap-2.5 hover:text-sv-accent3 transition-colors">
+                        <TeamLogo name={r.team} src={r.logo_url} className="w-6 h-6" />
+                        <span className="leading-tight min-w-0">
+                          <span className="font-medium block truncate">{r.team}</span>
+                          <span className="text-[11px] text-sv-muted">{r.league}</span>
+                        </span>
+                      </Link>
+                    </td>
+                    <td className="text-right sv-num font-semibold">{r.points_per_game.toFixed(2)}</td>
+                    <td className="text-right sv-num text-sv-accent3">{(r.xg / r.matches_played).toFixed(2)}</td>
+                    <td className="text-right sv-num text-sv-warn">{(r.xga / r.matches_played).toFixed(2)}</td>
+                  </tr>
+                ))}
+                {!topTeams.length && (
+                  <tr><td colSpan={5} className="text-sm text-sv-muted py-4">
+                    {tablesLoading ? "Carregando tabelas…" : (
+                      <>Nenhuma liga sincronizada. <Link to="/ligas" className="underline">Sincronizar agora</Link></>
+                    )}
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+
+        {/* Resultados recentes */}
+        <Panel title="Resultados recentes" right={<Link to="/matches?scope=recent" className="text-xs text-sv-accent3 hover:underline">Ver todos</Link>}>
+          {recentQ.isPending ? <MatchRowsSkeleton rows={5} />
+            : recentQ.isError ? <div className="p-3"><ErrorState title="Falha ao carregar resultados recentes" onRetry={() => recentQ.refetch()} /></div>
+            : recent.length ? (
+              <div className="divide-y divide-sv-border/60">
+                {recent.slice(0, 6).map((m) => <MatchRow key={m.id} m={m} showDate showCompetition={false} />)}
+              </div>
+            ) : <div className="p-3"><EmptyState title="Nenhum resultado sincronizado"
+                description="Use Sincronizar agora na tela Ligas para trazer os jogos já disputados." /></div>}
+        </Panel>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5">
+        {/* Competições disponíveis */}
+        <Panel title="Competições disponíveis" right={<Link to="/ligas" className="text-xs text-sv-accent3 hover:underline">Gerenciar</Link>}>
+          {leaguesQ.isPending ? <div className="p-3 space-y-2"><Skeleton className="h-9" /><Skeleton className="h-9" /><Skeleton className="h-9" /></div>
+            : leaguesQ.isError ? <div className="p-3"><ErrorState title="Falha ao carregar as competições" onRetry={() => leaguesQ.refetch()} /></div>
+            : syncedLeagues.length ? (
+              <ul className="divide-y divide-sv-border/60">
+                {syncedLeagues.map((l) => (
+                  <li key={l.key}>
+                    <Link to="/ligas" className="sv-row-link px-4 py-2 flex items-center gap-3">
+                      <LeagueLogo code={l.code} name={l.name} className="w-11 h-11" />
+                      <span className="min-w-0 flex-1 leading-tight">
+                        <span className="block text-sm font-medium truncate">{l.name}</span>
+                        <span className="block text-[11px] text-sv-muted truncate">{l.country}</span>
+                      </span>
+                      <span className="text-xs text-sv-muted shrink-0">{l.seasons.find((s) => s.current)?.name ?? l.seasons[0]?.name}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : <div className="p-3"><EmptyState title="Nenhuma competição sincronizada"
+                description="Abra a tela Ligas para sincronizar as competições." /></div>}
+        </Panel>
+
+        {/* Atalhos */}
+        <Panel title="Atalhos">
+          <ul className="grid sm:grid-cols-2 divide-y sm:divide-y-0 divide-sv-border/60">
+            {SHORTCUTS.map((sc, i) => (
+              <li key={sc.to} className={i % 2 === 1 ? "sm:border-l sm:border-sv-border/60" : ""}>
+                <Link to={sc.to} className="sv-row-link px-4 py-3 flex items-center gap-3 sm:border-b sm:border-sv-border/60">
+                  <MaterialIcon name={sc.icon} className="text-sv-accent3 !text-[20px]" />
+                  <span className="leading-tight min-w-0">
+                    <span className="block text-sm font-medium">{sc.label}</span>
+                    <span className="block text-[11px] text-sv-muted truncate">{sc.hint}</span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Panel>
       </div>
     </div>
   );

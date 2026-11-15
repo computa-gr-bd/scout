@@ -30,7 +30,7 @@ function TeamMatchRow({ m, teamId, showResult }: { m: Match; teamId: number; sho
     : result === "D" ? "bg-sv-danger/15 text-sv-danger border-sv-danger/40"
     : "bg-sv-panel2 text-sv-muted border-sv-border";
   return (
-    <Link to={`/analysis/${m.id}`} className="sv-card block hover:bg-sv-panel2 transition">
+    <Link to={`/analysis/${m.id}`} className="sv-card block sv-row-link">
       <div className="px-3 sm:px-4 py-2.5 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} className="w-7 h-7 shrink-0" />
@@ -420,16 +420,15 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
     <div className="space-y-6">
       {t.data ? (
         <>
-          <Link to="/teams" className="sv-chip hover:bg-sv-panel2 transition inline-flex">← Times</Link>
           <div className="sv-card sv-ring">
-            <div className="sv-card-inner flex flex-col md:flex-row items-start md:items-center gap-4">
-              <TeamLogo name={t.data.name} src={t.data.logo_url} className="w-16 h-16 shrink-0" />
+            <div className="sv-card-inner flex flex-col md:flex-row md:items-center gap-4 md:gap-6 pt-5">
+              <TeamLogo name={t.data.name} src={t.data.logo_url} className="w-20 h-20 shrink-0" />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h1 className="text-2xl font-bold tracking-tight">{t.data.name}</h1>
+                <h2 className="sv-display text-3xl leading-tight tracking-tight">{t.data.name}</h2>
+                <div className="flex items-center gap-2 flex-wrap mt-1.5">
                   {t.data.code && <Badge>{t.data.code}</Badge>}
                   {t.data.country && <Badge kind="accent">{t.data.country}</Badge>}
-                  {myStanding && <Badge kind="warn">{myStanding.position}º · {myStanding.points} pts</Badge>}
+                  {seasonLabel && <Badge>{seasonLabel}</Badge>}
                 </div>
                 {(() => {
                   const stadium = (t.data as any).stadium;
@@ -440,10 +439,22 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
                       : null,
                   ].filter(Boolean);
                   return parts.length ? (
-                    <div className="text-sm text-sv-muted mt-1">{parts.join(" · ")}</div>
+                    <div className="text-sm text-sv-muted mt-2">{parts.join(" · ")}</div>
                   ) : null;
                 })()}
               </div>
+              {myStanding && (
+                <div className="shrink-0 flex items-stretch gap-px rounded-lg overflow-hidden border border-sv-border bg-sv-border" aria-label="Classificação">
+                  <div className="bg-sv-bg px-4 py-2 text-center">
+                    <div className="sv-label">Posição</div>
+                    <div className="sv-display text-3xl leading-8 text-sv-accent3">{myStanding.position}º</div>
+                  </div>
+                  <div className="bg-sv-bg px-4 py-2 text-center">
+                    <div className="sv-label">Pontos</div>
+                    <div className="sv-display text-3xl leading-8">{myStanding.points}</div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </>

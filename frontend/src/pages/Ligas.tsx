@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getUnderstatLeagueTable, getUnderstatMatchShots, getUnderstatPlayerShots, getUnderstatStats,
@@ -10,7 +10,7 @@ import { Link } from "react-router-dom";
 import { ShotExplorer } from "../components/ShotExplorer";
 import { TeamCompare, type CompareTeam } from "../components/TeamCompare";
 import { XgScatter, type ScatterPoint } from "../components/XgScatter";
-import { Badge, EmptyState, SectionTitle, TeamLogo } from "../components/ui";
+import { Badge, EmptyState, ErrorState, LeagueLogo, SectionTitle, TeamLogo } from "../components/ui";
 import { fmt } from "../lib/shotAnalytics";
 
 // Renomeado: Understat -> Ligas
@@ -29,7 +29,7 @@ function LoadingCard({ lines = 4 }: { lines?: number }) {
     <div className="sv-card">
       <div className="sv-card-inner space-y-3">
         {Array.from({ length: lines }).map((_, i) => (
-          <div key={i} className="h-4 rounded skeleton" style={{ width: `${90 - i * 9}%` }} />
+          <div key={i} className="h-4 skeleton" style={{ width: `${90 - i * 9}%` }} />
         ))}
       </div>
     </div>
@@ -37,10 +37,18 @@ function LoadingCard({ lines = 4 }: { lines?: number }) {
 }
 
 function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  // Esc fecha; o scroll do fundo fica travado enquanto o modal está aberto.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+  }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 overflow-auto bg-black/70 p-3 sm:p-6" onClick={onClose}>
-      <div className="mx-auto max-w-[1200px]" onClick={(e) => e.stopPropagation()}>
-        <div className="sv-card">{children}</div>
+    <div className="fixed inset-0 z-50 overflow-auto bg-black/75 p-3 sm:p-6" onClick={onClose}>
+      <div className="mx-auto max-w-[1200px]" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className="sv-card shadow-pop">{children}</div>
       </div>
     </div>
   );
@@ -144,7 +152,7 @@ function LeagueTable({
 
   return (
     <div className="sv-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-sv-border flex items-center justify-between gap-3">
+      <div className="px-4 py-3 border-b border-sv-border bg-sv-panel2/40 flex items-center justify-between gap-3">
         <div>
           <div className="text-sm font-semibold">{q.data?.league}</div>
           <div className="text-xs text-sv-muted">
@@ -155,11 +163,12 @@ function LeagueTable({
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-sv-muted text-[11px]">
+            <tr className="text-sv-muted text-[11px] bg-sv-panel2/30 border-b border-sv-border">
               {COLUMNS.map((c) => (
-                <th key={c.key} title={c.hint}
-                  className={`px-2 py-2 font-medium whitespace-nowrap ${c.align === "left" ? "text-left px-3" : "text-center"}`}>
-                  <button onClick={() => toggle(c.key)} className="hover:text-white">
+                <th key={c.key} title={c.hint} scope="col"
+                  aria-sort={sort.key === c.key ? (sort.dir === 1 ? "ascending" : "descending") : "none"}
+                  className={`px-2 py-2 font-medium whitespace-nowrap ${c.align === "left" ? "text-left px-3" : "text-center"} ${c.key === "team" ? "sticky left-0 z-[1] bg-sv-panel" : ""} ${sort.key === c.key ? "text-sv-accent3" : ""}`}>
+                  <button onClick={() => toggle(c.key)} className="hover:text-sv-text transition-colors">
                     {c.label}{sort.key === c.key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
                   </button>
                 </th>
@@ -174,9 +183,9 @@ function LeagueTable({
               const finishing = r.goals_for - (r.xg ?? 0);
               return (
                 <tr key={r.team_id} onClick={() => onSelectTeam(r)}
-                  className={`cursor-pointer border-t border-sv-border/60 hover:bg-sv-panel2/60 ${selectedTeamId === r.team_id ? "bg-sv-panel2" : ""}`}>
+                  className={`group cursor-pointer border-t border-sv-border/60 hover:bg-sv-panel2/60 transition-colors ${selectedTeamId === r.team_id ? "bg-sv-panel3/60 shadow-[inset_3px_0_0_rgb(var(--sv-accent3))]" : ""}`}>
                   <td className="px-3 py-2 text-sv-muted tabular-nums">{r.position}</td>
-                  <td className="px-3 py-2">
+                  <td className={`px-3 py-2 sticky left-0 z-[1] ${selectedTeamId === r.team_id ? "bg-sv-panel3" : "bg-sv-panel group-hover:bg-sv-panel2"}`}>
                     <div className="flex items-center gap-2 min-w-0">
                       <TeamLogo name={r.team} src={r.logo_url} className="w-6 h-6" />
                       <span className="truncate whitespace-nowrap">{r.team}</span>
@@ -211,9 +220,9 @@ function LeagueTable({
 // ---------------------------------------------------------------- Forma recente
 
 const RESULT_PT: Record<string, { label: string; cls: string }> = {
-  W: { label: "V", cls: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" },
-  D: { label: "E", cls: "bg-slate-500/20 text-slate-300 border-slate-500/40" },
-  L: { label: "D", cls: "bg-rose-500/20 text-rose-300 border-rose-500/40" },
+  W: { label: "V", cls: "bg-sv-accent/20 text-sv-accent3 border-sv-accent3/40" },
+  D: { label: "E", cls: "bg-sv-panel3 text-sv-muted border-sv-border-strong" },
+  L: { label: "D", cls: "bg-sv-danger/15 text-sv-danger border-sv-danger/40" },
 };
 
 function TeamFormPanel({
@@ -231,8 +240,8 @@ function TeamFormPanel({
   const maxXg = Math.max(1, ...matches.flatMap((m) => [m.xg_for, m.xg_against]));
 
   return (
-    <div className="sv-card">
-      <div className="px-4 py-3 border-b border-sv-border flex items-center justify-between gap-3">
+    <div className="sv-card overflow-hidden">
+      <div className="px-4 py-3 border-b border-sv-border bg-sv-panel2/40 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <TeamLogo name={team.name} src={team.logo_url} className="w-6 h-6" />
           <div className="min-w-0">
@@ -265,7 +274,7 @@ function TeamFormPanel({
               {matches.map((m) => {
                 const res = m.result ? RESULT_PT[m.result] : null;
                 return (
-                  <div key={m.match_id} className="rounded-xl border border-sv-border p-3">
+                  <div key={m.match_id} className="rounded-xl border border-sv-border bg-sv-bg p-3">
                     <div className="mb-1 flex items-center justify-between">
                       <span className={`rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${res?.cls ?? ""}`}>{res?.label ?? "—"}</span>
                       <span className="text-[11px] text-sv-muted">{m.home ? "casa" : "fora"}</span>
@@ -279,12 +288,12 @@ function TeamFormPanel({
                       <div className="space-y-1">
                         <div className="flex items-center gap-2 text-[11px]">
                           <span className="w-8 text-sv-muted">xG</span>
-                          <div className="h-1.5 flex-1 rounded-full bg-white/10"><div className="h-full rounded-full bg-sv-accent3" style={{ width: `${(m.xg_for / maxXg) * 100}%` }} /></div>
+                          <div className="h-1.5 flex-1 rounded-full bg-sv-panel3"><div className="h-full rounded-full bg-sv-accent3" style={{ width: `${(m.xg_for / maxXg) * 100}%` }} /></div>
                           <span className="w-8 text-right tabular-nums">{m.xg_for.toFixed(2)}</span>
                         </div>
                         <div className="flex items-center gap-2 text-[11px]">
                           <span className="w-8 text-sv-muted">xGA</span>
-                          <div className="h-1.5 flex-1 rounded-full bg-white/10"><div className="h-full rounded-full bg-sv-warn" style={{ width: `${(m.xg_against / maxXg) * 100}%` }} /></div>
+                          <div className="h-1.5 flex-1 rounded-full bg-sv-panel3"><div className="h-full rounded-full bg-sv-warn" style={{ width: `${(m.xg_against / maxXg) * 100}%` }} /></div>
                           <span className="w-8 text-right tabular-nums">{m.xg_against.toFixed(2)}</span>
                         </div>
                         <div className="text-[11px] text-sv-muted">Chutes {m.shots_for}–{m.shots_against}</div>
@@ -317,18 +326,16 @@ function Leaders({
 }) {
   if (!rows.length) {
     return (
-      <div className="sv-card">
-        <div className="sv-card-inner">
-          <div className="sv-label mb-2">{title}</div>
-          <div className="text-sm text-sv-muted">Sem dados.</div>
-        </div>
+      <div className="sv-card overflow-hidden">
+        <div className="sv-panel-head"><h3 className="sv-panel-title">{title}</h3></div>
+        <div className="sv-card-inner text-sm text-sv-muted">Sem dados.</div>
       </div>
     );
   }
   return (
-    <div className="sv-card">
+    <div className="sv-card overflow-hidden">
+      <div className="sv-panel-head"><h3 className="sv-panel-title">{title}</h3></div>
       <div className="sv-card-inner">
-        <div className="sv-label mb-3">{title}</div>
         <ol className="space-y-1">
           {rows.map((r, i) => {
             const clickable = !!onPick && r.player_id != null;
@@ -337,7 +344,7 @@ function Leaders({
                 <button disabled={!clickable}
                   className="flex w-full items-center gap-3 rounded-lg px-1.5 py-1 text-left text-sm enabled:hover:bg-sv-panel2/60"
                   onClick={() => clickable && onPick!(r.player_id as number, r.player ?? "Jogador")}>
-                  <span className="w-5 text-sv-muted tabular-nums">{i + 1}</span>
+                  <span className={`w-5 tabular-nums ${i === 0 ? "text-sv-accent3 font-semibold" : "text-sv-muted"}`}>{i + 1}</span>
                   <TeamLogo name={r.team ?? undefined} src={r.team ? logos?.[r.team] : undefined} className="h-6 w-6" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate">{r.player ?? "—"}</div>
@@ -412,7 +419,7 @@ function PerformancePanel({
                 <span className="truncate">{r.label}{r.sub ? <span className="ml-1.5 text-[11px] text-sv-muted">{r.sub}</span> : null}</span>
               </span>
               <span className="shrink-0 font-mono text-xs tabular-nums text-sv-muted">
-                {r.y} vs {r.x.toFixed(1)} <b className="text-white">{signed(r.y - r.x)}</b>
+                {r.y} vs {r.x.toFixed(1)} <b className="text-sv-text">{signed(r.y - r.x)}</b>
               </span>
             </button>
           </li>
@@ -422,18 +429,18 @@ function PerformancePanel({
   );
 
   return (
-    <div className="sv-card">
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-sv-border">
+    <div className="sv-card overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-sv-border bg-sv-panel2/40">
         <div>
           <div className="text-sm font-semibold">Desempenho vs. esperado</div>
           <div className="text-xs text-sv-muted">
             {mode === "players" ? "Jogadores com ao menos 8 chutes na temporada" : "Todos os times da temporada"}
           </div>
         </div>
-        <div className="flex gap-1.5">
+        <div className="sv-seg" role="group" aria-label="Tipo de comparação">
           {tabs.map((t) => (
-            <button key={t.key} onClick={() => setMode(t.key)}
-              className={`sv-btn !px-3 !py-1 text-[12px] ${mode === t.key ? "!border-sv-accent3 !bg-sv-accent text-white" : ""}`}>
+            <button key={t.key} type="button" onClick={() => setMode(t.key)} aria-pressed={mode === t.key}
+              className="sv-seg-item !px-2.5 !py-1 text-[12px]">
               {t.label}
             </button>
           ))}
@@ -461,7 +468,7 @@ function PlayerShotsModal({ playerId, name, onClose }: { playerId: number; name:
   });
   return (
     <Modal onClose={onClose}>
-      <div className="px-4 py-3 border-b border-sv-border flex items-center justify-between gap-3">
+      <div className="px-4 py-3 border-b border-sv-border bg-sv-panel2/40 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-semibold truncate">{q.data?.player ?? name}</div>
           <div className="text-xs text-sv-muted">Todas as finalizações coletadas · ataque sempre para a direita</div>
@@ -525,8 +532,8 @@ function MatchList({ leagueKey, seasonId }: { leagueKey: string; seasonId?: numb
 
   return (
     <>
-      <div className="sv-card">
-        <div className="px-4 py-3 border-b border-sv-border flex flex-wrap items-center justify-between gap-2">
+      <div className="sv-card overflow-hidden">
+        <div className="px-4 py-3 border-b border-sv-border bg-sv-panel2/40 flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm font-semibold">Partidas ({matches.length})</div>
           <input className="sv-input" placeholder="Buscar time" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Buscar time" />
         </div>
@@ -613,7 +620,7 @@ function MatchList({ leagueKey, seasonId }: { leagueKey: string; seasonId?: numb
 
       {selected && (
         <Modal onClose={() => setSelected(null)}>
-          <div className="px-4 py-3 border-b border-sv-border flex items-center justify-between gap-3">
+          <div className="px-4 py-3 border-b border-sv-border bg-sv-panel2/40 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm font-semibold min-w-0">
                 <TeamLogo name={homeName} src={selected.home_team?.logo_url} className="h-6 w-6" />
@@ -769,10 +776,10 @@ export default function UnderstatPage() {
   }
   if (leaguesQ.isError) {
     return (
-      <EmptyState
+      <ErrorState
         title="Erro ao consultar as ligas Understat"
         description="A API não respondeu. Verifique se o backend está disponível."
-        action={<button className="sv-btn" onClick={() => leaguesQ.refetch()}>Tentar novamente</button>}
+        onRetry={() => leaguesQ.refetch()}
       />
     );
   }
@@ -795,12 +802,24 @@ export default function UnderstatPage() {
 
   return (
     <div className="space-y-6">
-      <SectionTitle
-        title="Ligas"
-        right={
+      <section className="sv-card sv-ring" aria-label="Competição selecionada">
+        <div className="sv-card-inner pt-5 flex flex-col xl:flex-row xl:items-center gap-4">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <LeagueLogo code={current?.code} name={current?.name} className="w-16 h-16 text-2xl" />
+            <div className="min-w-0 leading-tight">
+              <h2 className="sv-display text-2xl truncate">{current?.name ?? "Ligas"}</h2>
+              <p className="text-sm text-sv-muted truncate">
+                {[current?.country,
+                  current?.seasons?.find((x) => x.id === selectedSeason)?.name ? `Temporada ${current?.seasons?.find((x) => x.id === selectedSeason)?.name}` : null,
+                  shots > 0 ? `${shots.toLocaleString("pt-BR")} chutes sincronizados` : null,
+                ].filter(Boolean).join(" · ")}
+              </p>
+            </div>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <select
               className="sv-input"
+              aria-label="Liga"
               value={current?.key ?? ""}
               onChange={(e) => { setLeagueKey(e.target.value); setSeasonId(""); setFormTeam(null); }}
             >
@@ -812,6 +831,7 @@ export default function UnderstatPage() {
             </select>
             <select
               className="sv-input"
+              aria-label="Temporada"
               value={seasonId === "" ? String(current?.seasons?.[0]?.id ?? "") : String(seasonId)}
               onChange={(e) => { setSeasonId(e.target.value ? Number(e.target.value) : ""); setFormTeam(null); }}
             >
@@ -821,8 +841,8 @@ export default function UnderstatPage() {
             </select>
             <FastSyncButton season={current?.seasons?.[0] ? Number(current.seasons[0].name) || 2026 : 2026} />
           </div>
-        }
-      />
+        </div>
+      </section>
 
       <LeagueTable
         leagueKey={current?.key ?? "epl"}

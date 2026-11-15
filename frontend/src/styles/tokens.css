@@ -1,0 +1,87 @@
+/*
+ * ScoutVision — Design tokens
+ * Fonte única da verdade visual. O Tailwind (tailwind.config.js) e o index.css
+ * apenas consomem estas variáveis; nenhum componente deve usar cores/raios soltos.
+ * Cores em canais RGB ("r g b") para funcionar com opacidade: rgb(var(--sv-accent) / .4)
+ */
+:root {
+  color-scheme: dark;
+
+  /* ---- Cores: superfícies (azul-marinho → grafite azulado) ---- */
+  --sv-bg: 7 11 20;          /* fundo da aplicação */
+  --sv-panel: 13 20 34;      /* superfície 1: cards, sidebar */
+  --sv-panel2: 20 30 50;     /* superfície 2: hover, campos, cabeçalhos de tabela */
+  --sv-panel3: 28 40 64;     /* superfície 3: seleção, estados pressionados */
+  --sv-border: 32 45 70;     /* bordas discretas */
+  --sv-border-strong: 50 68 100;
+
+  /* ---- Cores: texto ---- */
+  --sv-text: 230 236 245;
+  --sv-muted: 139 152 176;   /* ≥ 6:1 sobre --sv-bg */
+  --sv-faint: 95 110 138;
+
+  /* ---- Cores: destaque (verde esportivo) ---- */
+  --sv-accent: 21 138 79;    /* botões / preenchimentos (texto branco ≥ 4.4:1) */
+  --sv-accent2: 27 154 88;   /* hover do destaque */
+  --sv-accent3: 91 229 143;  /* texto/ícone de destaque sobre fundo escuro */
+
+  /* ---- Cores: semânticas ---- */
+  --sv-danger: 239 91 87;
+  --sv-warn: 240 177 60;
+  --sv-info: 96 140 255;     /* mandante nos gráficos */
+  --sv-away: 239 91 87;      /* visitante nos gráficos */
+
+  /* ---- Campo (mantido para os gráficos de campo) ---- */
+  --sv-pitch: 30 123 75;
+  --sv-pitch-dark: 20 94 56;
+
+  /* ---- Tipografia ---- */
+  --sv-font-body: "Barlow", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --sv-font-display: "Barlow Condensed", "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --sv-font-num: "Barlow Semi Condensed", "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --sv-text-xs: 0.75rem;
+  --sv-text-sm: 0.875rem;
+  --sv-text-base: 0.9375rem;
+  --sv-text-lg: 1.0625rem;
+  --sv-text-xl: 1.25rem;
+  --sv-text-2xl: 1.625rem;
+
+  /* ---- Espaçamentos (escala de 4px) ---- */
+  --sv-s-1: 4px;
+  --sv-s-2: 8px;
+  --sv-s-3: 12px;
+  --sv-s-4: 16px;
+  --sv-s-5: 20px;
+  --sv-s-6: 24px;
+  --sv-s-8: 32px;
+
+  /* ---- Raios (moderados e consistentes) ---- */
+  --sv-r-sm: 4px;   /* chips, badges, inputs pequenos */
+  --sv-r-md: 6px;   /* botões, campos, linhas */
+  --sv-r-lg: 8px;   /* cards e painéis */
+  --sv-r-xl: 10px;  /* modais e superfícies sobrepostas */
+
+  /* ---- Sombras (só para elementos sobrepostos) ---- */
+  --sv-shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(var(--sv-border) / 1);
+  --sv-shadow-focus: 0 0 0 2px rgb(var(--sv-bg)), 0 0 0 4px rgb(var(--sv-accent3));
+
+  /* ---- Estados de interação ---- */
+  --sv-hover: rgb(var(--sv-panel2) / 1);
+  --sv-selected: rgb(var(--sv-accent) / 0.14);
+  --sv-focus-ring: rgb(var(--sv-accent3) / 1);
+
+  /* ---- Movimento (discreto, funcional) ---- */
+  --sv-ease: cubic-bezier(0.2, 0, 0, 1);
+  --sv-dur-fast: 120ms;
+  --sv-dur: 180ms;
+
+  /* ---- Layout ---- */
+  --sv-sidebar-w: 216px;
+  --sv-header-h: 56px;
+
+  /*
+   * Breakpoints (espelhados em tailwind.config.js → theme.screens; variáveis CSS
+   * não funcionam em @media, então ficam aqui só como referência):
+   * sm 640 · md 768 · lg 1024 · xl 1280 · 2xl 1536
+   */
+}

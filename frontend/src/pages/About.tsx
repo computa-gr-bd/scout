@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { getDataStatus, getStatsCounts } from "../api/client";
-import { Badge, SectionTitle, StatCard } from "../components/ui";
+import { Badge, ErrorState, Panel, Skeleton } from "../components/ui";
 
 function formatTimestamp(value: string | null) {
   if (!value) return "Sem coleta bem-sucedida registrada";
@@ -37,101 +37,118 @@ export default function AboutPage() {
     retry: 0,
   });
 
+  const countCells: [string, number | undefined][] = [
+    ["Partidas", counts.data?.matches],
+    ["Times", counts.data?.teams],
+    ["Atletas cadastrados", counts.data?.players],
+    ["Classificações", counts.data?.standings],
+    ["Eventos históricos", counts.data?.events],
+  ];
+
+  const steps: { to: string; label: string; text: string }[] = [
+    { to: "/matches", label: "Partidas", text: "Use as abas para consultar próximos jogos, resultados recentes ou a lista completa. Horários e placares vêm da fonte conectada." },
+    { to: "/teams", label: "Times", text: "Consulte clubes, partidas e classificações importadas. Indicadores avançados aparecem apenas quando existem dados para calculá-los." },
+    { to: "/players", label: "Jogadores", text: "Veja os atletas presentes nos elencos recebidos. O cadastro de um atleta não significa que existam estatísticas individuais disponíveis." },
+    { to: "/analysis", label: "Análise", text: "Consulte lances registrados para partidas com cobertura de eventos. Quando a fonte não fornece finalizações, elas são indicadas como indisponíveis." },
+    { to: "/models", label: "Modelos", text: "Probabilidades e avaliações experimentais estão desativadas; o portal apresenta apenas dados observados." },
+  ];
+
+  const sources: { name: string; text: string }[] = [
+    { name: "football-data.org", text: "É usado para calendário, resultados, clubes, elencos e classificações nas competições disponíveis na conta. Não fornece, neste projeto, xG, eventos detalhados ou estatísticas avançadas individuais." },
+    { name: "Understat", text: "Fornece xG, xGA, chutes e estatísticas de times e jogadores nas ligas e temporadas sincronizadas. A cobertura varia; métricas ausentes são mostradas como indisponíveis." },
+    { name: "StatsBomb Open Data", text: "Conjunto aberto de partidas e eventos selecionados, importado manualmente. É histórico e não cobre automaticamente todas as ligas ou partidas atuais. Ao publicar análises, siga as regras de atribuição da fonte." },
+  ];
+
   return (
-    <div className="space-y-6">
-      <div>
-        <div className="sv-label">Sobre o portal</div>
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">O que é o ScoutVision</h1>
-        <p className="text-sv-muted mt-2 max-w-3xl">
-          Um portal para consultar partidas, clubes, elencos e classificações de competições
-          disponíveis nas fontes conectadas. A cobertura depende dos dados publicados por cada
-          provedor; o portal não é uma fonte oficial de ligas ou clubes.
-        </p>
-      </div>
+    <div className="space-y-5">
+      <p className="max-w-3xl text-sv-muted">
+        Um portal para consultar partidas, clubes, elencos e classificações de competições
+        disponíveis nas fontes conectadas. A cobertura depende dos dados publicados por cada
+        provedor; o portal não é uma fonte oficial de ligas ou clubes.
+      </p>
 
-      <SectionTitle title="Dados atualmente armazenados" hint="Contagens consultadas diretamente na API do portal." />
-      {counts.isError ? (
-        <div className="sv-card p-4 text-sm text-sv-danger">Não foi possível consultar as contagens agora.</div>
-      ) : (
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-          <StatCard label="Partidas" value={counts.data?.matches ?? "—"} />
-          <StatCard label="Times" value={counts.data?.teams ?? "—"} />
-          <StatCard label="Atletas cadastrados" value={counts.data?.players ?? "—"} />
-          <StatCard label="Classificações" value={counts.data?.standings ?? "—"} />
-          <StatCard label="Eventos históricos" value={counts.data?.events ?? "—"} />
-        </div>
-      )}
+      {/* Dados armazenados: um único bloco com divisórias */}
+      <section aria-label="Dados atualmente armazenados">
+        <div className="mb-1.5 px-1 text-sm font-semibold text-sv-text/90">Dados atualmente armazenados</div>
+        {counts.isError ? (
+          <ErrorState title="Não foi possível consultar as contagens agora." description="Confira a conexão com a API." onRetry={() => counts.refetch()} />
+        ) : (
+          <div className="sv-card overflow-hidden grid grid-cols-2 md:grid-cols-5 gap-px bg-sv-border">
+            {countCells.map(([label, value]) => (
+              <div key={label} className="bg-sv-panel px-4 py-3">
+                <div className="sv-label">{label}</div>
+                {counts.isPending ? <Skeleton className="h-7 w-14 mt-1" /> : (
+                  <div className="sv-display text-[28px] leading-8">{value != null ? value.toLocaleString("pt-BR") : "—"}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="mt-1.5 px-1 text-xs text-sv-muted">Contagens consultadas diretamente na API do portal.</p>
+      </section>
 
-      <section className="sv-card">
-        <div className="sv-card-inner space-y-4">
-          <SectionTitle
-            title="Fontes e última coleta"
-            hint={`Intervalo informado pela API: ${status.data?.sync_interval_hours ?? "—"} horas. O horário indica a última coleta registrada, não garante a próxima execução.`}
-          />
+      <div className="grid xl:grid-cols-5 gap-4 md:gap-5">
+        <Panel className="xl:col-span-3" title="Fontes e última coleta"
+               right={<span className="text-xs text-sv-muted">Intervalo: {status.data?.sync_interval_hours ?? "—"} h</span>}>
           {status.isError ? (
-            <div className="text-sm text-sv-danger">Não foi possível consultar o status das fontes. Verifique se a API e o banco estão acessíveis.</div>
+            <div className="p-4"><ErrorState title="Não foi possível consultar o status das fontes"
+              description="Verifique se a API e o banco estão acessíveis." onRetry={() => status.refetch()} /></div>
           ) : status.isPending ? (
-            <div className="text-sm text-sv-muted">Consultando o status das fontes…</div>
+            <div className="p-4 space-y-2"><Skeleton className="h-9" /><Skeleton className="h-9" /><Skeleton className="h-9" /></div>
           ) : status.data.competitions.length === 0 ? (
-            <div className="text-sm text-sv-muted">Ainda não há coletas registradas.</div>
+            <div className="p-4 text-sm text-sv-muted">Ainda não há coletas registradas.</div>
           ) : (
-            <div className="space-y-2">
+            <ul className="divide-y divide-sv-border/60">
               {status.data.competitions.map((item) => {
                 const state = collectionStatus(item.status);
                 return (
-                  <div key={`${item.provider}-${item.resource}`} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-sv-border/50 pb-2 last:border-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium">{providerName(item.provider)}</span>
+                  <li key={`${item.provider}-${item.resource}`} className="px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      <span className="font-medium text-sm">{providerName(item.provider)}</span>
                       <span className="sv-chip">{item.resource}</span>
                       <Badge kind={state.kind}>{state.label}</Badge>
                       {item.is_stale && <Badge kind="warn">Dados possivelmente desatualizados</Badge>}
                     </div>
-                    <span className="text-xs text-sv-muted">{formatTimestamp(item.last_success_at)}</span>
-                  </div>
+                    <span className="text-xs text-sv-muted sv-num">{formatTimestamp(item.last_success_at)}</span>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
-        </div>
-      </section>
+          <p className="px-4 py-2.5 border-t border-sv-border text-xs text-sv-muted">
+            O horário indica a última coleta registrada, não garante a próxima execução.
+          </p>
+        </Panel>
 
-      <section className="sv-card">
-        <div className="sv-card-inner space-y-4">
-          <SectionTitle title="Como usar" hint="Um caminho rápido pelas áreas do portal." />
-          <ol className="space-y-4 text-sm">
-            <li><strong>1. Partidas:</strong> use as abas para consultar próximos jogos, resultados recentes ou a lista completa. Horários e placares vêm da fonte conectada.</li>
-            <li><strong>2. Times:</strong> consulte clubes, partidas e classificações importadas. Indicadores avançados aparecem apenas quando existem dados para calculá-los.</li>
-            <li><strong>3. Jogadores:</strong> veja os atletas presentes nos elencos recebidos. O cadastro de um atleta não significa que existam estatísticas individuais disponíveis.</li>
-            <li><strong>4. Análise:</strong> consulte lances registrados para partidas com cobertura de eventos. Quando a fonte não fornece finalizações, elas são indicadas como indisponíveis.</li>
-            <li><strong>5. Modelos:</strong> probabilidades e avaliações experimentais estão desativadas; o portal apresenta apenas dados observados.</li>
+        <Panel className="xl:col-span-2" title="Como usar">
+          <ol className="divide-y divide-sv-border/60">
+            {steps.map((st, i) => (
+              <li key={st.to}>
+                <Link to={st.to} className="sv-row-link px-4 py-3 flex gap-3">
+                  <span className="sv-display text-xl w-6 shrink-0 text-sv-accent3 leading-6">{i + 1}</span>
+                  <span className="text-sm leading-snug"><strong className="font-semibold">{st.label}:</strong> <span className="text-sv-muted">{st.text}</span></span>
+                </Link>
+              </li>
+            ))}
           </ol>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 p-4 border-t border-sv-border">
             <Link to="/matches" className="sv-btn-primary">Consultar partidas</Link>
             <Link to="/teams" className="sv-btn">Ver times</Link>
             <Link to="/players" className="sv-btn">Ver jogadores</Link>
           </div>
-        </div>
-      </section>
+        </Panel>
+      </div>
 
-      <section className="sv-card">
-        <div className="sv-card-inner space-y-4">
-          <SectionTitle title="O que os dados permitem — e o que não permitem" />
-          <div className="grid md:grid-cols-3 gap-4 text-sm">
-            <div>
-              <h2 className="font-semibold mb-1">football-data.org</h2>
-              <p className="text-sv-muted">É usado para calendário, resultados, clubes, elencos e classificações nas competições disponíveis na conta. Não fornece, neste projeto, xG, eventos detalhados ou estatísticas avançadas individuais.</p>
+      <Panel title="O que os dados permitem — e o que não permitem">
+        <div className="grid md:grid-cols-3 md:divide-x divide-y md:divide-y-0 divide-sv-border">
+          {sources.map((src) => (
+            <div key={src.name} className="p-4">
+              <h3 className="sv-display text-xl mb-1.5">{src.name}</h3>
+              <p className="text-sm text-sv-muted">{src.text}</p>
             </div>
-            <div>
-              <h2 className="font-semibold mb-1">Understat</h2>
-              <p className="text-sv-muted">Fornece xG, xGA, chutes e estatísticas de times e jogadores nas ligas e temporadas sincronizadas. A cobertura varia; métricas ausentes são mostradas como indisponíveis.</p>
-            </div>
-            <div>
-              <h2 className="font-semibold mb-1">StatsBomb Open Data</h2>
-              <p className="text-sv-muted">Conjunto aberto de partidas e eventos selecionados, importado manualmente. É histórico e não cobre automaticamente todas as ligas ou partidas atuais. Ao publicar análises, siga as regras de atribuição da fonte.</p>
-            </div>
-          </div>
+          ))}
         </div>
-      </section>
+      </Panel>
     </div>
   );
 }

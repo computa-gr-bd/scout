@@ -5,7 +5,7 @@ import {
   comparePlayers, getSimilarPlayers, listPlayers,
   type ComparePlayer, type CompareScope, type CompareTemplate, type Player,
 } from "../api/client";
-import { Badge, EmptyState, SectionTitle, TeamLogo } from "../components/ui";
+import { Badge, EmptyState, ErrorState, Skeleton, TeamLogo } from "../components/ui";
 import { PolarCompare } from "../components/PolarCompare";
 import { positionLabel } from "../lib/positionLabel";
 
@@ -50,10 +50,10 @@ const serialize = (sel: Selection[]) => sel.map((s) => (s.season ? `${s.id}:${s.
 
 function scoreColor(score: number | null | undefined): string {
   if (score == null) return "text-sv-muted";
-  if (score >= 75) return "text-emerald-300";
-  if (score >= 55) return "text-sv-accent3";
+  if (score >= 75) return "text-sv-accent3";
+  if (score >= 55) return "text-sv-info";
   if (score >= 40) return "text-sv-text";
-  return "text-rose-300";
+  return "text-sv-danger";
 }
 
 /* ------------------------------------------------------------------ busca de jogador */
@@ -129,7 +129,7 @@ function AddedPlayer({ player, color, selection, onSeason, onRemove, index }: {
             <div className="skeleton h-9" />
           )}
         </div>
-        <button type="button" aria-label={`Remover jogador ${index + 1}`} onClick={onRemove} className="rounded px-1.5 text-lg leading-none text-rose-300 hover:bg-sv-panel">×</button>
+        <button type="button" aria-label={`Remover jogador ${index + 1}`} onClick={onRemove} className="rounded px-1.5 text-lg leading-none text-sv-danger hover:bg-sv-panel">×</button>
       </div>
       {player?.available && player.seasons && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
@@ -149,7 +149,7 @@ function AddedPlayer({ player, color, selection, onSeason, onRemove, index }: {
       {player?.available && player.context && (
         <p className="mt-1.5 text-[11px] text-sv-muted">{player.context}</p>
       )}
-      {player && !player.available && <p className="mt-2 text-xs text-amber-300">{player.reason ?? "Sem dados para comparar."}</p>}
+      {player && !player.available && <p className="mt-2 text-xs text-sv-warn">{player.reason ?? "Sem dados para comparar."}</p>}
     </div>
   );
 }
@@ -174,12 +174,16 @@ function SimilarSection({ base, canAdd, onAdd, taken }: {
     retry: 0,
   });
   return (
-    <section className="space-y-3" aria-label="Substitutos semelhantes">
-      <SectionTitle
-        title="Substitutos e alternativas"
-        hint={`Jogadores da mesma função com perfil mais parecido com ${base.name} (${base.season?.label ?? ""}), nos componentes do ${base.index_name ?? "índice"}`}
-      />
-      <div className="sv-card">
+    <section aria-label="Substitutos semelhantes">
+      <div className="sv-card overflow-hidden">
+        <div className="sv-panel-head !h-auto min-h-11 py-2">
+          <div className="min-w-0">
+            <h3 className="sv-panel-title">Substitutos e alternativas</h3>
+            <p className="text-xs text-sv-muted truncate">
+              {`Mesma função, perfil mais parecido com ${base.name} (${base.season?.label ?? ""}), nos componentes do ${base.index_name ?? "índice"}`}
+            </p>
+          </div>
+        </div>
         <div className="sv-card-inner space-y-3">
           <div className="flex flex-wrap items-end gap-3 text-xs">
             <label className="space-y-1">
@@ -204,13 +208,13 @@ function SimilarSection({ base, canAdd, onAdd, taken }: {
                 <option value="25">Até 25 anos</option>
               </select>
             </label>
-            <button type="button" className="sv-btn sv-btn-primary" onClick={() => setEnabled(true)}>Buscar semelhantes</button>
+            <button type="button" className="sv-btn-primary" onClick={() => setEnabled(true)}>Buscar semelhantes</button>
           </div>
 
           {enabled && (query.isPending ? (
-            <div className="skeleton h-32" />
+            <Skeleton className="h-32 w-full" />
           ) : query.isError ? (
-            <EmptyState title="Não foi possível buscar" description="A API não respondeu. Tente novamente." />
+            <ErrorState title="Não foi possível buscar" description="A API não respondeu. Tente novamente." onRetry={() => query.refetch()} />
           ) : !query.data?.available ? (
             <EmptyState title="Sem resultado" description={query.data?.reason ?? "Dados insuficientes."} />
           ) : query.data.items.length === 0 ? (
@@ -234,9 +238,9 @@ function SimilarSection({ base, canAdd, onAdd, taken }: {
                       <span className="font-mono tabular-nums text-sv-accent3">{nf(s.similarity, 0)}%</span>
                     </div>
                     <div className="text-sv-muted">
-                      {s.better_at.length > 0 && <span className="text-emerald-300">+ {s.better_at.join(", ")}</span>}
+                      {s.better_at.length > 0 && <span className="text-sv-accent3">+ {s.better_at.join(", ")}</span>}
                       {s.better_at.length > 0 && s.worse_at.length > 0 && " · "}
-                      {s.worse_at.length > 0 && <span className="text-rose-300">− {s.worse_at.join(", ")}</span>}
+                      {s.worse_at.length > 0 && <span className="text-sv-danger">− {s.worse_at.join(", ")}</span>}
                       {s.better_at.length === 0 && s.worse_at.length === 0 && "perfil quase idêntico"}
                     </div>
                   </div>
@@ -302,17 +306,22 @@ export default function ComparePage() {
   };
 
   return (
-    <div className="space-y-6">
-      <SectionTitle
-        title="Comparar jogadores"
-        right={<Badge kind="accent">Índices ScoutVision</Badge>}
-      />
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-2xl text-sm text-sv-muted">
+          Escolha até {MAX_PLAYERS} jogadores das 5 grandes ligas e compare o perfil por função, componente a componente.
+        </p>
+        <Badge kind="accent">Índices ScoutVision</Badge>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
         {/* ------------------------------------------------ jogadores adicionados */}
-        <section className="sv-card self-start">
+        <section className="sv-card self-start overflow-hidden">
+          <div className="sv-panel-head">
+            <h3 className="sv-panel-title">Jogadores adicionados</h3>
+            <span className="text-xs text-sv-muted sv-num">{selections.length}/{MAX_PLAYERS}</span>
+          </div>
           <div className="sv-card-inner space-y-3">
-            <h3 className="font-semibold">Jogadores adicionados</h3>
             <PlayerSearch
               disabled={selections.length >= MAX_PLAYERS}
               taken={taken}
@@ -350,44 +359,33 @@ export default function ComparePage() {
         </section>
 
         {/* ------------------------------------------------ gráfico */}
-        <section className="sv-card min-w-0">
-          <div className="sv-card-inner space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="font-semibold">
-                Comparação{data?.template ? <span className="ml-2 text-sm font-normal text-sv-muted">template {data.template.label}</span> : null}
-              </h3>
-              <div className="flex gap-1 text-xs">
+        <section className="sv-card min-w-0 overflow-hidden">
+          <div className="sv-panel-head !h-auto min-h-11 py-2 flex-wrap">
+            <h3 className="sv-panel-title">
+              Comparação{data?.template ? <span className="ml-2 font-normal text-sv-muted">template {data.template.label}</span> : null}
+            </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="sv-seg" role="group" aria-label="Estilo do gráfico">
                 {([["polar", "Setores"], ["radar", "Radar"]] as const).map(([k, label]) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => setMode(k)}
-                    className={`rounded-full border px-3 py-1 transition ${mode === k ? "border-sv-accent3 text-sv-accent3" : "border-sv-border text-sv-muted hover:text-sv-text"}`}
-                  >
-                    {label}
-                  </button>
+                  <button key={k} type="button" aria-pressed={mode === k} onClick={() => setMode(k)}
+                          className="sv-seg-item !px-2.5 !py-1 text-[12px]">{label}</button>
+                ))}
+              </div>
+              <div className="sv-seg" role="group" aria-label="Tipo de gráfico">
+                {([["2d", "2D"], ["3d", "3D"]] as const).map(([key, label]) => (
+                  <button key={key} type="button" aria-pressed={view === key} onClick={() => setView(key)}
+                          className="sv-seg-item !px-2.5 !py-1 text-[12px]">{label}</button>
                 ))}
               </div>
             </div>
-            <div className="flex gap-1" role="group" aria-label="Tipo de gráfico">
-              {([["2d", "Gráfico 2D"], ["3d", "Gráfico 3D"]] as const).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={view === key}
-                  onClick={() => setView(key)}
-                  className={`sv-btn !py-1.5 text-[11.5px] ${view === key ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+          </div>
+          <div className="sv-card-inner space-y-3">
             {selections.length === 0 ? (
               <EmptyState title="Nenhum jogador selecionado" description="Adicione jogadores ao lado para ver o gráfico." />
             ) : query.isError ? (
-              <EmptyState title="Não foi possível comparar" description="A API não respondeu. Verifique os jogadores e tente de novo." />
+              <ErrorState title="Não foi possível comparar" description="A API não respondeu. Verifique os jogadores e tente de novo." onRetry={() => query.refetch()} />
             ) : query.isPending ? (
-              <div className="skeleton h-80" />
+              <Skeleton className="h-80 w-full" />
             ) : !data?.available ? (
               <EmptyState title="Sem comparação" description={data?.reason ?? "Dados insuficientes."} />
             ) : ready.length === 0 ? (
@@ -417,9 +415,9 @@ export default function ComparePage() {
       {data?.available && ready.length > 0 && (
         <>
           {/* ------------------------------------------------ resumo */}
-          <section className="sv-card sv-ring">
+          <section className="sv-card sv-ring overflow-hidden">
+            <div className="sv-panel-head"><h3 className="sv-panel-title">Resumo comparativo</h3></div>
             <div className="sv-card-inner space-y-3">
-              <h3 className="font-semibold">Resumo comparativo</h3>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {ready.map((p) => (
                   <div key={p.player_id} className="space-y-1.5 rounded-lg border border-sv-border bg-sv-panel2/40 p-3 text-xs">
@@ -432,9 +430,9 @@ export default function ComparePage() {
                         {p.overall ?? "—"}
                       </span>
                     </div>
-                    {p.strengths && p.strengths.length > 0 && <p className="text-emerald-300">+ {p.strengths.join(" · ")}</p>}
-                    {p.weaknesses && p.weaknesses.length > 0 && <p className="text-rose-300">− {p.weaknesses.join(" · ")}</p>}
-                    {(p.reliability ?? 1) < 0.75 && <p className="text-amber-300">Poucos minutos: índice puxado para 50.</p>}
+                    {p.strengths && p.strengths.length > 0 && <p className="text-sv-accent3">+ {p.strengths.join(" · ")}</p>}
+                    {p.weaknesses && p.weaknesses.length > 0 && <p className="text-sv-danger">− {p.weaknesses.join(" · ")}</p>}
+                    {(p.reliability ?? 1) < 0.75 && <p className="text-sv-warn">Poucos minutos: índice puxado para 50.</p>}
                   </div>
                 ))}
               </div>
@@ -443,12 +441,10 @@ export default function ComparePage() {
           </section>
 
           {/* ------------------------------------------------ tabela por dimensão */}
-          <section className="sv-card">
+          <section className="sv-card overflow-hidden">
+            <div className="sv-panel-head"><h3 className="sv-panel-title">Notas por componente</h3></div>
             <div className="sv-card-inner space-y-3">
-              <div>
-                <h3 className="font-semibold">Notas por componente</h3>
-                <p className="text-xs text-sv-muted">Clique num componente para ver as métricas, a média da liga e a nota de cada uma.</p>
-              </div>
+              <p className="text-xs text-sv-muted">Clique num componente para ver as métricas, a média da liga e a nota de cada uma.</p>
               <div className="sv-table-wrap">
                 <table className="sv-table">
                   <thead>
@@ -463,7 +459,7 @@ export default function ComparePage() {
                       const open = openAxis === a.key;
                       return (
                         <Fragment key={a.key}>
-                          <tr className="cursor-pointer" onClick={() => setOpenAxis(open ? null : a.key)}>
+                          <tr className="cursor-pointer" aria-expanded={open} onClick={() => setOpenAxis(open ? null : a.key)}>
                             <td>
                               <span className="mr-1 text-sv-muted">{open ? "▾" : "▸"}</span>{a.label}
                               <div className="text-[11px] text-sv-muted">{a.hint}</div>

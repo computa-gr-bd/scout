@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
-import { EmptyState, SectionTitle, TeamLogo } from "../components/ui";
+import { Link, useNavigate } from "react-router-dom";
+import { EmptyState, ErrorState, Segmented, Skeleton, TeamLogo } from "../components/ui";
 import { listPlayers, type Player, type PlayerOrder } from "../api/client";
 import { positionLabel } from "../lib/positionLabel";
 
@@ -30,63 +30,61 @@ const ORDERS: { value: PlayerOrder; label: string }[] = [
   { value: "name", label: "Nome (A–Z)" },
 ];
 
-function PlayerRow({ p }: { p: Player }) {
+/** Cor do selo de posição por grupo (apenas leitura rápida; o texto continua sendo a informação). */
+function posTone(position: string | null | undefined): string {
+  const k = (position ?? "").toLowerCase();
+  if (/^(g|gk|goalkeeper|keeper)/.test(k)) return "text-sv-warn border-sv-warn/40 bg-sv-warn/10";
+  if (/^(d|df|def|defen|centre-back|center-back|left-back|right-back)/.test(k)) return "text-sv-info border-sv-info/40 bg-sv-info/10";
+  if (/^(m|mf|mid|defensive|central|attacking|left mid|right mid)/.test(k)) return "text-sv-accent3 border-sv-accent3/40 bg-sv-accent/10";
+  if (k) return "text-sv-danger border-sv-danger/40 bg-sv-danger/10";
+  return "text-sv-muted border-sv-border bg-sv-panel2";
+}
+
+function PlayerRow({ p, order }: { p: Player; order: PlayerOrder }) {
+  const navigate = useNavigate();
   // Estatística mais recente (maior season_id) do escopo geral.
   const s = [...p.statistics.filter((x: any) => x.scope === "overall")]
     .sort((a, b) => (b.season_id ?? 0) - (a.season_id ?? 0))[0];
+  const name = p.display_name || `${p.first_name || ""} ${p.last_name}`.trim();
+  // A coluna usada na ordenação ganha destaque.
+  const hl = (k: PlayerOrder) => (order === k ? "text-sv-accent3 font-semibold" : "");
   return (
-    <Link to={`/players/${p.id}`} className="sv-card block hover:bg-sv-panel2 transition">
-      <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,1.4fr)] gap-x-3 gap-y-2 items-center">
-        <div className="col-span-2 sm:col-span-1 flex items-center gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-full bg-sv-panel2 grid place-items-center text-xs font-semibold border border-sv-border shrink-0">
+    <tr className="cursor-pointer" onClick={() => navigate(`/players/${p.id}`)}>
+      <td>
+        <Link to={`/players/${p.id}`} onClick={(e) => e.stopPropagation()} className="flex items-center gap-3 min-w-0 hover:text-sv-accent3 transition-colors">
+          <span className="w-8 h-8 rounded-md bg-sv-panel2 grid place-items-center text-[11px] font-semibold border border-sv-border shrink-0" aria-hidden="true">
             {(p.display_name || p.last_name).slice(0, 2).toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <div className="font-medium truncate">{p.display_name || `${p.first_name || ""} ${p.last_name}`.trim()}</div>
-            <div className="text-[11px] text-sv-muted truncate">{[p.country, p.position ? positionLabel(p.position) : null].filter(Boolean).join(" · ")}</div>
-          </div>
-        </div>
-        <div className="col-span-2 sm:col-span-1 flex items-center gap-2 min-w-0">
-          {p.team_name ? (
-            <>
-              <TeamLogo name={p.team_name} src={p.team_logo_url} className="w-6 h-6" />
-              <div className="min-w-0">
-                <div className="text-sm truncate">{p.team_name}</div>
-                {p.league_name && <div className="text-[11px] text-sv-muted truncate">{p.league_name}</div>}
-              </div>
-            </>
-          ) : (
-            <span className="text-xs text-sv-muted">Sem time</span>
-          )}
-        </div>
-        <div className="col-span-2 sm:col-span-1 grid grid-cols-3 gap-1 text-xs text-center">
-          <div>
-            <div className="sv-stat-k">J</div><div className="sv-stat-v text-sm">{s?.matches_played ?? "—"}</div>
-          </div>
-          <div>
-            <div className="sv-stat-k">Min</div><div className="sv-stat-v text-sm">{s?.minutes_played ?? "—"}</div>
-          </div>
-          <div>
-            <div className="sv-stat-k">G/A</div>
-            <div className="sv-stat-v text-sm text-sv-accent3">{s ? `${s.goals}/${s.assists}` : "—"}</div>
-          </div>
-        </div>
-        <div className="col-span-2 sm:col-span-1 grid grid-cols-3 gap-2 text-xs text-right">
-          <div>
-            <div className="sv-stat-k">Chutes/90</div>
-            <div className="font-mono">{s?.shots_per_90?.toFixed(2) ?? "—"}</div>
-          </div>
-          <div>
-            <div className="sv-stat-k">xG/90</div>
-            <div className="font-mono text-sv-accent3">{s?.xg_per_90?.toFixed(2) ?? "—"}</div>
-          </div>
-          <div>
-            <div className="sv-stat-k">xA/90</div>
-            <div className="font-mono">{s?.xa_per_90?.toFixed(2) ?? "—"}</div>
-          </div>
-        </div>
-      </div>
-    </Link>
+          </span>
+          <span className="min-w-0 leading-tight">
+            <span className="block font-semibold truncate">{name}</span>
+            {p.country && <span className="block text-[11px] text-sv-muted truncate">{p.country}</span>}
+          </span>
+        </Link>
+      </td>
+      <td className="whitespace-nowrap">
+        {p.position
+          ? <span className={`inline-block rounded-sm border px-1.5 py-0.5 text-[11px] font-medium ${posTone(p.position)}`}>{positionLabel(p.position)}</span>
+          : <span className="text-sv-faint">—</span>}
+      </td>
+      <td className="hidden md:table-cell">
+        {p.team_name ? (
+          <span className="flex items-center gap-2 min-w-0">
+            <TeamLogo name={p.team_name} src={p.team_logo_url} className="w-6 h-6" />
+            <span className="min-w-0 leading-tight">
+              <span className="block text-sm truncate">{p.team_name}</span>
+              {p.league_name && <span className="block text-[11px] text-sv-muted truncate">{p.league_name}</span>}
+            </span>
+          </span>
+        ) : <span className="text-xs text-sv-muted">Sem time</span>}
+      </td>
+      <td className="text-right sv-num hidden sm:table-cell">{s?.matches_played ?? "—"}</td>
+      <td className={`text-right sv-num hidden sm:table-cell ${hl("minutes")}`}>{s?.minutes_played ?? "—"}</td>
+      <td className={`text-right sv-num ${hl("goals")}`}>{s?.goals ?? "—"}</td>
+      <td className={`text-right sv-num ${hl("assists")}`}>{s?.assists ?? "—"}</td>
+      <td className="text-right sv-num hidden lg:table-cell">{s?.shots_per_90?.toFixed(2) ?? "—"}</td>
+      <td className={`text-right sv-num ${order === "xg" ? "text-sv-accent3 font-semibold" : "text-sv-accent3"}`}>{s?.xg_per_90?.toFixed(2) ?? "—"}</td>
+      <td className="text-right sv-num hidden lg:table-cell">{s?.xa_per_90?.toFixed(2) ?? "—"}</td>
+    </tr>
   );
 }
 
@@ -113,40 +111,49 @@ export default function PlayersPage() {
   const hasMore = (qry.data?.length ?? 0) >= pages * PAGE_SIZE;
 
   return (
-    <div className="space-y-5">
-      <SectionTitle
-        title="Jogadores"
-      >
-        <div className="flex gap-2 flex-wrap">
-          <input value={q} onChange={(e) => resetAnd(() => setQ(e.target.value))} placeholder="Buscar jogador…" className="sv-btn !py-1.5 md:w-56 text-left" />
-          <select value={pos} onChange={(e) => resetAnd(() => setPos(e.target.value))}
-            className="sv-btn !py-1.5 bg-sv-panel text-sv-text">
-            {POSITIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-          </select>
-          <select value={order} onChange={(e) => resetAnd(() => setOrder(e.target.value as PlayerOrder))}
-            className="sv-btn !py-1.5 bg-sv-panel text-sv-text">
-            {ORDERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
+    <div className="space-y-4">
+      {/* Barra de filtros */}
+      <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+        <div className="overflow-x-auto max-w-full">
+          <Segmented<string>
+            label="Filtrar por liga"
+            value={league}
+            onChange={(v) => resetAnd(() => setLeague(v))}
+            options={[{ key: "", label: "Todas" }, ...LEAGUES.map((l) => ({ key: l.code, label: l.label }))]}
+          />
         </div>
-      </SectionTitle>
-
-      {/* filtro por liga */}
-      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
-        {[{ code: "", label: "Todas" }, ...LEAGUES].map((l) => (
-          <button
-            key={l.code || "all"}
-            onClick={() => resetAnd(() => setLeague(l.code))}
-            className={league === l.code ? "sv-chip-accent whitespace-nowrap" : "sv-chip whitespace-nowrap hover:bg-sv-panel"}
-          >
-            {l.label}
-          </button>
-        ))}
+        <div className="flex flex-1 flex-col sm:flex-row gap-2 lg:justify-end">
+          <label className="relative sm:w-56">
+            <span className="sr-only">Buscar jogador</span>
+            <svg viewBox="0 0 24 24" fill="none" width="16" height="16" stroke="currentColor" strokeWidth="2"
+                 strokeLinecap="round" className="absolute left-3 top-1/2 -translate-y-1/2 text-sv-faint pointer-events-none" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
+            </svg>
+            <input type="search" value={q} onChange={(e) => resetAnd(() => setQ(e.target.value))}
+                   placeholder="Buscar jogador" className="sv-input w-full !pl-9" />
+          </label>
+          <label>
+            <span className="sr-only">Filtrar por posição</span>
+            <select value={pos} onChange={(e) => resetAnd(() => setPos(e.target.value))} className="sv-input w-full sm:w-48">
+              {POSITIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+          </label>
+          <label>
+            <span className="sr-only">Ordenar por</span>
+            <select value={order} onChange={(e) => resetAnd(() => setOrder(e.target.value as PlayerOrder))} className="sv-input w-full sm:w-44">
+              {ORDERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+        </div>
       </div>
 
       {qry.isLoading ? (
-        <div className="space-y-2">{Array.from({ length: 12 }).map((_, i) => <div key={i} className="sv-card h-[72px] skeleton" />)}</div>
+        <div className="sv-card p-3 space-y-2" aria-busy="true" aria-label="Carregando jogadores">
+          {Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="h-11 w-full" />)}
+        </div>
       ) : qry.isError ? (
-        <EmptyState title="Não foi possível carregar os jogadores" description="Verifique a conexão com a API e tente novamente." />
+        <ErrorState title="Não foi possível carregar os jogadores"
+                    description="Verifique a conexão com a API e tente novamente." onRetry={() => qry.refetch()} />
       ) : !qry.data?.length ? (
         <EmptyState
           title="Nenhum jogador encontrado"
@@ -154,18 +161,39 @@ export default function PlayersPage() {
         />
       ) : (
         <>
-          <div className="space-y-2">
-            {qry.data.map((p) => <PlayerRow key={p.id} p={p} />)}
+          <div className="sv-card overflow-hidden">
+            <div className="sv-table-wrap">
+              <table className="sv-table">
+                <caption className="sr-only">Jogadores das cinco ligas com estatísticas da temporada</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Jogador</th>
+                    <th scope="col">Posição</th>
+                    <th scope="col" className="hidden md:table-cell">Time</th>
+                    <th scope="col" className="text-right hidden sm:table-cell" title="Jogos">J</th>
+                    <th scope="col" className="text-right hidden sm:table-cell" title="Minutos">Min</th>
+                    <th scope="col" className="text-right" title="Gols">G</th>
+                    <th scope="col" className="text-right" title="Assistências">A</th>
+                    <th scope="col" className="text-right hidden lg:table-cell" title="Chutes por 90 minutos">Chutes/90</th>
+                    <th scope="col" className="text-right" title="xG por 90 minutos">xG/90</th>
+                    <th scope="col" className="text-right hidden lg:table-cell" title="xA por 90 minutos">xA/90</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {qry.data.map((p) => <PlayerRow key={p.id} p={p} order={order} />)}
+                </tbody>
+              </table>
+            </div>
           </div>
           <div className="flex justify-center pt-1">
             {qry.isFetching ? (
-              <div className="sv-card h-10 w-48 skeleton" />
+              <Skeleton className="h-9 w-48" />
             ) : hasMore ? (
               <button className="sv-btn" onClick={() => setPages((n) => n + 1)}>
                 Carregar mais ({qry.data.length} exibidos)
               </button>
             ) : (
-              <span className="sv-chip">Fim da lista · {qry.data.length} jogadores</span>
+              <span className="text-xs text-sv-muted">Fim da lista · {qry.data.length} jogadores</span>
             )}
           </div>
         </>

@@ -15,7 +15,7 @@ import { PreMatchReport } from "../components/PreMatchReport";
 import type { WeaknessDetail, ZoneStatEntry } from "../components/ZoneInfoPanel";
 import { ZONE_GEOMETRY } from "../components/Pitch";
 import {
-  Badge, ConfidenceBadge, EmptyState, ProbabilityBar, SectionTitle, TeamLogo,
+  Badge, ConfidenceBadge, EmptyState, ErrorState, ProbabilityBar, SectionTitle, TeamLogo,
 } from "../components/ui";
 import {
   CartesianGrid, Legend, ResponsiveContainer, Scatter, ScatterChart, Tooltip,
@@ -191,33 +191,33 @@ export default function AnalysisPage() {
   }, [matches, routeMatchId, selectedMatchId]);
 
   return (
-    <div className="space-y-6">
-      <SectionTitle title="Análise de partidas" />
-
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrar partidas da análise">
-        {([
-          ["upcoming", "Próximas"],
-          ["recent", "Resultados recentes"],
-        ] as const).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            aria-pressed={scope === key}
-            onClick={() => setScope(key)}
-            className={`sv-btn ${scope === key ? "!bg-sv-accent !border-sv-accent3 text-white" : ""}`}
-          >
-            {label}
-            <span className="sv-chip ml-1.5 !py-0">
-              {scopeCounts[key] ?? "—"}
-            </span>
-          </button>
-        ))}
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="sv-seg" role="group" aria-label="Filtrar partidas da análise">
+          {([
+            ["upcoming", "Próximas"],
+            ["recent", "Resultados recentes"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={scope === key}
+              onClick={() => setScope(key)}
+              className="sv-seg-item"
+            >
+              {label}
+              <span className="text-[11px] sv-num text-sv-faint">{scopeCounts[key] ?? "—"}</span>
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-sv-muted max-w-xl">Selecione uma partida para ver o estúdio de campo, o relatório pré-jogo, as zonas e as estimativas por jogador.</p>
       </div>
 
       {matchesQuery.isError ? (
-        <EmptyState
+        <ErrorState
           title="Não foi possível carregar as partidas"
           description="Confira a conexão com a API e tente novamente."
+          onRetry={() => matchesQuery.refetch()}
         />
       ) : matchesQuery.isPending ? (
         <div className="sv-card h-24 skeleton" />
@@ -231,17 +231,19 @@ export default function AnalysisPage() {
         />
       ) : (
         <div className="grid gap-5 xl:grid-cols-[minmax(240px,320px)_1fr]">
-          <section className="sv-card min-w-0">
-            <div className="sv-card-inner space-y-3">
-              <div>
-                <h2 className="font-semibold">Partidas</h2>
-                <p className="text-xs text-sv-muted">
+          <section className="sv-card min-w-0 overflow-hidden self-start xl:sticky xl:top-[calc(var(--sv-header-h)+1rem)]">
+            <div className="sv-panel-head !h-auto min-h-11 py-2">
+              <div className="min-w-0">
+                <h2 className="sv-panel-title">Partidas</h2>
+                <p className="text-[11px] text-sv-muted">
                   {scope === "upcoming"
                     ? "Próximas partidas das competições sincronizadas."
                     : "Partidas encerradas."}
                 </p>
               </div>
-              <div className="max-h-[70vh] space-y-2 overflow-auto">
+            </div>
+            <div className="p-2">
+              <div className="max-h-[70vh] space-y-1.5 overflow-auto pr-0.5">
                 {matches.map((match) => {
                   const isSelected = match.id === selectedMatchId;
                   return (
@@ -249,10 +251,11 @@ export default function AnalysisPage() {
                       key={match.id}
                       type="button"
                       onClick={() => setSelectedMatchId(match.id)}
-                      className={`w-full rounded-lg border p-3 text-left transition ${
+                      aria-current={isSelected ? "true" : undefined}
+                      className={`w-full rounded-lg border p-3 text-left transition-colors duration-150 ${
                         isSelected
-                          ? "border-sv-accent3 bg-sv-accent/10"
-                          : "border-sv-border bg-sv-panel hover:border-sv-accent3/60"
+                          ? "border-sv-accent3/70 bg-sv-panel3/70 shadow-[inset_3px_0_0_rgb(var(--sv-accent3))]"
+                          : "border-sv-border bg-sv-bg hover:border-sv-border-strong hover:bg-sv-panel2"
                       }`}
                     >
                       <div className="mb-2 flex items-center justify-between gap-2">
@@ -330,23 +333,11 @@ export default function AnalysisPage() {
                     title="Análise de zonas · vulnerabilidades defensivas"
                     hint="Fraquezas por zona e oportunidades ofensivas · clique numa zona para ver as estatísticas"
                     right={
-                      <div className="flex gap-1">
-                        <button
-                          type="button"
-                          aria-pressed={zoneView === "2d"}
-                          onClick={() => setZoneView("2d")}
-                          className={`sv-btn !py-1.5 text-[11.5px] ${zoneView === "2d" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}
-                        >
-                          Mapa 2D
-                        </button>
-                        <button
-                          type="button"
-                          aria-pressed={zoneView === "3d"}
-                          onClick={() => setZoneView("3d")}
-                          className={`sv-btn !py-1.5 text-[11.5px] ${zoneView === "3d" ? "!bg-sv-accent text-white !border-sv-accent3" : ""}`}
-                        >
-                          Campo 3D
-                        </button>
+                      <div className="sv-seg" role="group" aria-label="Visualização das zonas">
+                        <button type="button" aria-pressed={zoneView === "2d"} onClick={() => setZoneView("2d")}
+                                className="sv-seg-item !px-2.5 !py-1 text-[12px]">Mapa 2D</button>
+                        <button type="button" aria-pressed={zoneView === "3d"} onClick={() => setZoneView("3d")}
+                                className="sv-seg-item !px-2.5 !py-1 text-[12px]">Campo 3D</button>
                       </div>
                     }
                   />
@@ -427,18 +418,20 @@ export default function AnalysisPage() {
                           />
                         </div>
                       )}
-                      <div className="flex flex-wrap gap-2" role="group" aria-label="Tipo de estimativa">
-                        {predictionTargets.map(([target, label]) => (
-                          <button
-                            key={target}
-                            type="button"
-                            aria-pressed={predictionTarget === target}
-                            onClick={() => setPredictionTarget(target)}
-                            className={`sv-btn ${predictionTarget === target ? "!bg-sv-accent !border-sv-accent3 text-white" : ""}`}
-                          >
-                            {label}
-                          </button>
-                        ))}
+                      <div className="overflow-x-auto">
+                        <div className="sv-seg" role="group" aria-label="Tipo de estimativa">
+                          {predictionTargets.map(([target, label]) => (
+                            <button
+                              key={target}
+                              type="button"
+                              aria-pressed={predictionTarget === target}
+                              onClick={() => setPredictionTarget(target)}
+                              className="sv-seg-item whitespace-nowrap"
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                       {insightsQuery.data.results_checked && predictions.some((p) => p.outcome) && (
                         <OutcomeSummary predictions={predictions} target={predictionTarget} />
@@ -466,14 +459,14 @@ export default function AnalysisPage() {
                 </section>
 
                 <div className="grid gap-5 lg:grid-cols-2">
-                  <section className="sv-card min-w-0">
+                  <section className="sv-card min-w-0 overflow-hidden">
+                    <div className="sv-panel-head"><h3 className="sv-panel-title">Dispersão Oportunidade × Frequência</h3></div>
                     <div className="sv-card-inner">
-                      <SectionTitle
-                        title="Dispersão Oportunidade × Frequência"
-                        hint={scatterHasRates
+                      <p className="mb-3 text-xs text-sv-muted">
+                        {scatterHasRates
                           ? "Cada bolha = um jogador · X = chutes por jogo · Y = probabilidade estimada · tamanho = oportunidade contra a defesa"
                           : "Cada bolha = um jogador · X = % dos chutes em zonas de ataque · Y = probabilidade estimada"}
-                      />
+                      </p>
                       {insightsQuery.isPending ? (
                         <div className="h-80 skeleton rounded-lg" />
                       ) : scatterData.length === 0 ? (
@@ -526,15 +519,15 @@ export default function AnalysisPage() {
                     </div>
                   </section>
 
-                  <section className="sv-card min-w-0">
+                  <section className="sv-card min-w-0 overflow-hidden">
+                    <div className="sv-panel-head"><h3 className="sv-panel-title">Confrontos: principais vantagens</h3></div>
                     <div className="sv-card-inner">
-                      <SectionTitle title="Confrontos: principais vantagens" />
                       {insightsQuery.isPending ? (
                         <div className="h-80 skeleton rounded-lg" />
                       ) : insights?.matchups?.length ? (
                         <div className="max-h-80 space-y-2 overflow-auto pr-1">
                           {insights.matchups.slice(0, 20).map((matchup, index) => (
-                            <article key={`${matchup.attacker_id}-${index}`} className="sv-card !p-3">
+                            <article key={`${matchup.attacker_id}-${index}`} className="rounded-lg border border-sv-border bg-sv-bg p-3">
                               <div className="mb-2 flex items-center justify-between gap-2">
                                 <div className="flex min-w-0 items-center gap-2 text-sm">
                                   <Badge kind={matchup.score > 0.55 ? "good" : "default"}>
@@ -573,12 +566,10 @@ export default function AnalysisPage() {
                   </section>
                 </div>
 
-                <section className="sv-card">
+                <section className="sv-card overflow-hidden">
+                  <div className="sv-panel-head"><h3 className="sv-panel-title">Mapa de calor de oportunidade · jogador × zona</h3></div>
                   <div className="sv-card-inner">
-                    <SectionTitle
-                      title="Mapa de calor de oportunidade · jogador × zona"
-                      hint="Linhas: principais jogadores · colunas: zonas de ataque · mais claro = maior oportunidade estimada"
-                    />
+                    <p className="mb-3 text-xs text-sv-muted">Linhas: principais jogadores · colunas: zonas de ataque · mais claro = maior oportunidade estimada</p>
                     {insightsQuery.isPending ? (
                       <div className="h-48 skeleton rounded-lg" />
                     ) : opportunityRows.length === 0 ? (
@@ -658,15 +649,15 @@ function OutcomeSummary({ predictions, target }: { predictions: PlayerMatchPredi
   const total = hit(checked);
   const pct = checked.length ? Math.round((100 * total) / checked.length) : 0;
   return (
-    <div className="sv-card !border-emerald-400/25">
+    <div className="sv-card !border-sv-accent3/25">
       <div className="sv-card-inner flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
         <span className="font-semibold">Conferência com o jogo real</span>
         <span>
-          <strong className="text-emerald-300">{total}</strong> de {checked.length} que jogaram {label[target] ?? "fizeram o evento"}
+          <strong className="text-sv-accent3">{total}</strong> de {checked.length} que jogaram {label[target] ?? "fizeram o evento"}
           <span className="text-sv-muted"> ({pct}%)</span>
         </span>
         {absent > 0 && (
-          <span className="text-amber-300">{absent} {absent === 1 ? "não jogou" : "não jogaram"}</span>
+          <span className="text-sv-warn">{absent} {absent === 1 ? "não jogou" : "não jogaram"}</span>
         )}
         <span className="text-sv-muted">
           Top 5 mais prováveis: <strong className="text-sv-text">{hit(top)}</strong> de {top.length}
@@ -677,9 +668,9 @@ function OutcomeSummary({ predictions, target }: { predictions: PlayerMatchPredi
 }
 
 const SENSITIVITY_LABEL: Record<string, { text: string; cls: string }> = {
-  stable: { text: "Estável", cls: "border-emerald-400/40 bg-emerald-500/10 text-emerald-300" },
-  moderate: { text: "Sensibilidade moderada", cls: "border-amber-400/40 bg-amber-500/10 text-amber-300" },
-  sensitive: { text: "Sensível", cls: "border-rose-400/40 bg-rose-500/10 text-rose-300" },
+  stable: { text: "Estável", cls: "border-sv-accent3/40 bg-sv-accent/10 text-sv-accent3" },
+  moderate: { text: "Sensibilidade moderada", cls: "border-sv-warn/40 bg-sv-warn/10 text-sv-warn" },
+  sensitive: { text: "Sensível", cls: "border-sv-danger/40 bg-sv-danger/10 text-sv-danger" },
 };
 
 const pctText = (value: number) => `${Math.round(value * 100)}%`;
@@ -693,15 +684,15 @@ function PredictionMath({ prediction }: { prediction: PlayerMatchPrediction }) {
   return (
     <div className="space-y-2 text-[11px]">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {tag && <span className={`rounded-full border px-2 py-0.5 font-semibold ${tag.cls}`}>{tag.text}</span>}
+        {tag && <span className={`rounded-md border px-2 py-0.5 font-semibold ${tag.cls}`}>{tag.text}</span>}
         {form && form.trend !== "stable" && (
-          <span className={form.trend === "up" ? "text-emerald-300" : "text-rose-300"}>
+          <span className={form.trend === "up" ? "text-sv-accent3" : "text-sv-danger"}>
             {form.trend === "up" ? "▲" : "▼"} forma recente {form.delta_pct > 0 ? "+" : ""}{form.delta_pct.toFixed(0)}% vs. temporada
           </span>
         )}
       </div>
       {distribution && (
-        <details className="group rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
+        <details className="group rounded-lg border border-sv-border bg-sv-bg px-3 py-2">
           <summary className="cursor-pointer select-none text-sv-muted marker:text-sv-muted">
             Ver distribuição e como foi calculado
           </summary>
@@ -709,7 +700,7 @@ function PredictionMath({ prediction }: { prediction: PlayerMatchPrediction }) {
             <div className="grid grid-cols-4 gap-2">
               {distribution.probs.map((prob, index) => (
                 <div key={labels[index]} className="text-center">
-                  <div className="mx-auto flex h-10 w-full items-end overflow-hidden rounded bg-white/5">
+                  <div className="mx-auto flex h-10 w-full items-end overflow-hidden rounded bg-sv-panel3">
                     <div className="w-full rounded bg-sv-accent2/70" style={{ height: `${Math.max(4, Math.round(prob * 100))}%` }} />
                   </div>
                   <div className="mt-1 font-mono tabular-nums text-sv-text">{(prob * 100).toFixed(1)}%</div>
@@ -751,10 +742,10 @@ function PlayerEstimateCard({
   const didNotPlay = !!outcome && !outcome.happened && outcome.played === false;
   // Partida encerrada: verde se aconteceu, amarelo se nem jogou, vermelho discreto se jogou e não aconteceu.
   const tone = !outcome ? "" : outcome.happened
-    ? "!border-emerald-400/60 !bg-emerald-500/[0.07]"
+    ? "!border-sv-accent3/60 !bg-sv-accent/[0.07]"
     : didNotPlay
-      ? "!border-amber-400/45 !bg-amber-500/[0.06]"
-      : "!border-rose-400/35 !bg-rose-500/[0.05]";
+      ? "!border-sv-warn/45 !bg-sv-warn/[0.06]"
+      : "!border-sv-danger/35 !bg-sv-danger/[0.05]";
 
   return (
     <article className={`sv-card ${tone}`}>
@@ -770,10 +761,10 @@ function PlayerEstimateCard({
             role="status"
             className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold ${
               outcome.happened
-                ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
+                ? "border-sv-accent3/50 bg-sv-accent/15 text-sv-accent3"
                 : didNotPlay
-                  ? "border-amber-400/50 bg-amber-500/15 text-amber-300"
-                  : "border-rose-400/40 bg-rose-500/10 text-rose-300"
+                  ? "border-sv-warn/50 bg-sv-warn/15 text-sv-warn"
+                  : "border-sv-danger/40 bg-sv-danger/10 text-sv-danger"
             }`}
           >
             <span aria-hidden>{outcome.happened ? "✓" : didNotPlay ? "⚠" : "✕"}</span>
@@ -798,7 +789,7 @@ function PlayerEstimateCard({
             {factors.map(({ item, negative }, index) => (
               <span
                 key={`${item.feature}-${index}`}
-                className={`inline-flex rounded-full border px-3 py-1 text-sm ${
+                className={`inline-flex rounded-md border px-2.5 py-1 text-sm ${
                   negative
                     ? "border-sv-warn/30 bg-sv-warn/5 text-sv-warn"
                     : "border-sv-accent2/20 bg-sv-accent2/5 text-sv-accent3"
@@ -825,7 +816,7 @@ function PredictionScatterTooltip({
   const point = payload[0].payload;
   const delta = point.y - point.baseline;
   return (
-    <div className="min-w-[190px] rounded-lg border border-white/15 bg-[#0c1322] px-3 py-2 text-xs text-sv-text shadow-2xl">
+    <div className="min-w-[190px] rounded-lg border border-sv-border-strong bg-sv-panel px-3 py-2 text-xs text-sv-text shadow-pop">
       <div className="font-semibold">{point.name}</div>
       <div className="mb-1 text-[10px] text-sv-muted">{point.venue === "home" ? "Mandante" : "Visitante"}</div>
       <div className="flex justify-between gap-4"><span className="text-sv-muted">{xLabel}</span><strong>{point.x}{xLabel.startsWith("%") ? "%" : ""}</strong></div>
@@ -833,7 +824,7 @@ function PredictionScatterTooltip({
       {point.baseline > 0 && (
         <div className="flex justify-between gap-4">
           <span className="text-sv-muted">vs. taxa recente</span>
-          <strong className={delta >= 0 ? "text-emerald-300" : "text-rose-300"}>{delta >= 0 ? "+" : ""}{delta.toFixed(1)} p.p.</strong>
+          <strong className={delta >= 0 ? "text-sv-accent3" : "text-sv-danger"}>{delta >= 0 ? "+" : ""}{delta.toFixed(1)} p.p.</strong>
         </div>
       )}
       {point.oppFactor != null && (

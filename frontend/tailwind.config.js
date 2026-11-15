@@ -1,33 +1,57 @@
 /** @type {import('tailwindcss').Config} */
+// Todas as cores/raios/fontes vêm dos tokens em src/styles/tokens.css.
+const c = (v) => `rgb(var(--sv-${v}) / <alpha-value>)`;
+
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx,js,jsx}"],
   theme: {
+    screens: { sm: "640px", md: "768px", lg: "1024px", xl: "1280px", "2xl": "1536px" },
     extend: {
       colors: {
         sv: {
-          bg: "#0a0f1a",
-          panel: "#111a2b",
-          panel2: "#16203a",
-          border: "#22314f",
-          accent: "#2f8f6b",
-          accent2: "#37b486",
-          accent3: "#5ef2b8",
-          danger: "#e1534e",
-          warn: "#f2a64c",
-          text: "#e6eaf2",
-          muted: "#8794ad",
-          pitch: "#1e7b4b",
-          pitchDark: "#145e38",
+          bg: c("bg"),
+          panel: c("panel"),
+          panel2: c("panel2"),
+          panel3: c("panel3"),
+          border: c("border"),
+          "border-strong": c("border-strong"),
+          accent: c("accent"),
+          accent2: c("accent2"),
+          accent3: c("accent3"),
+          danger: c("danger"),
+          warn: c("warn"),
+          info: c("info"),
+          text: c("text"),
+          muted: c("muted"),
+          faint: c("faint"),
+          pitch: c("pitch"),
+          pitchDark: c("pitch-dark"),
           pitchLine: "rgba(255,255,255,0.85)",
+          // compat: usados pontualmente em PitchStudio
+          accent5: "rgb(var(--sv-accent) / 0.12)",
+          accent40: "rgb(var(--sv-accent3) / 0.4)",
         },
       },
+      // Escala de raios moderada: todos os `rounded-*` do app passam a seguir os tokens.
+      borderRadius: {
+        sm: "var(--sv-r-sm)",
+        DEFAULT: "var(--sv-r-sm)",
+        md: "var(--sv-r-md)",
+        lg: "var(--sv-r-md)",
+        xl: "var(--sv-r-lg)",
+        "2xl": "var(--sv-r-xl)",
+        "3xl": "var(--sv-r-xl)",
+      },
       fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "Roboto"],
-        mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular"],
+        sans: ["var(--sv-font-body)"],
+        display: ["var(--sv-font-display)"],
+        mono: ["var(--sv-font-num)"],
       },
       boxShadow: {
-        glow: "0 0 0 1px rgba(55,180,134,0.35), 0 10px 40px -12px rgba(55,180,134,0.25)",
+        glow: "none",
+        pop: "var(--sv-shadow-pop)",
       },
+      transitionTimingFunction: { sv: "cubic-bezier(0.2, 0, 0, 1)" },
     },
   },
   plugins: [],

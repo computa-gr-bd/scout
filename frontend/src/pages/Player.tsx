@@ -299,12 +299,12 @@ export default function PlayerPage() {
       {/* ------------------------------------------------ cabeçalho */}
       <div className="sv-card sv-ring">
         <div className="sv-card-inner flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="w-20 h-20 shrink-0 rounded-2xl bg-sv-panel2 border border-sv-border grid place-items-center text-2xl font-bold">
+          <div className="w-20 h-20 shrink-0 rounded-xl bg-sv-panel2 border border-sv-border grid place-items-center sv-display text-3xl" aria-hidden="true">
             {(p.display_name || p.last_name).slice(0, 2).toUpperCase()}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">{displayName}</h1>
+              <h2 className="sv-display text-3xl leading-tight tracking-tight">{displayName}</h2>
               {p.position && <Badge kind="accent">{positionLabel(p.position)}</Badge>}
               {p.country && <Badge kind="warn">{p.country}</Badge>}
             </div>
@@ -325,23 +325,32 @@ export default function PlayerPage() {
               {p.height_cm != null && <span>Altura: {p.height_cm} cm</span>}
               {p.weight_kg != null && <span>Peso: {p.weight_kg} kg</span>}
               {p.preferred_foot && <span>Pé: {p.preferred_foot === "left" ? "canhoto" : p.preferred_foot === "right" ? "destro" : p.preferred_foot}</span>}
-              <span>Jogos: {stats?.matches_played ?? "—"} · Titular: {stats?.starts ?? "—"} · Minutos: {stats?.minutes_played ?? "—"}</span>
             </div>
+            <dl className="mt-3 inline-grid grid-flow-col auto-cols-fr gap-px rounded-lg overflow-hidden border border-sv-border bg-sv-border max-w-full">
+              {([["Jogos", stats?.matches_played], ["Titular", stats?.starts], ["Minutos", stats?.minutes_played]] as const).map(([k, v]) => (
+                <div key={k} className="bg-sv-bg px-4 py-1.5 text-center">
+                  <dt className="sv-label">{k}</dt>
+                  <dd className="sv-display text-xl leading-6">{v ?? "—"}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
           <div className="shrink-0 flex flex-wrap gap-2">
-            <Link to={`/compare?p=${p.id}`} className="sv-btn sv-btn-primary">Comparar</Link>
+            <Link to={`/compare?p=${p.id}`} className="sv-btn-primary">Comparar</Link>
             <Link to="/players" className="sv-btn">Voltar à lista</Link>
           </div>
         </div>
       </div>
 
       {/* ------------------------------------------------ abas */}
-      <div className="flex items-center gap-1 border-b border-sv-border text-sm">
+      <div className="flex items-center gap-1 border-b border-sv-border text-sm" role="tablist" aria-label="Seções do jogador">
         {([["overview", "Visão geral"], ["zones", "Zonas e chutes"]] as const).map(([k, label]) => (
           <button
             key={k}
+            role="tab"
+            aria-selected={tab === k}
             onClick={() => setTab(k)}
-            className={`px-3 py-2 -mb-px border-b-2 transition ${tab === k ? "border-sv-accent3 text-sv-accent3" : "border-transparent text-sv-muted hover:text-sv-text"}`}
+            className={`px-4 py-2.5 -mb-px border-b-2 font-medium transition-colors ${tab === k ? "border-sv-accent3 text-sv-text" : "border-transparent text-sv-muted hover:text-sv-text"}`}
           >
             {label}
           </button>
@@ -592,7 +601,7 @@ export default function PlayerPage() {
                         <span className="font-mono text-sv-accent3 text-sm">{(prob.probability * 100).toFixed(1)}%</span>
                       </div>
                       <div className="h-2 rounded-full bg-sv-panel2 overflow-hidden">
-                        <div className="h-full rounded-full bg-gradient-to-r from-sv-accent via-sv-accent2 to-sv-accent3"
+                        <div className="h-full rounded-full bg-sv-accent3"
                              style={{ width: `${clamp(prob.probability * 100)}%` }} />
                       </div>
                     </div>

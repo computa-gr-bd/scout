@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { EmptyState, SectionTitle, TeamLogo } from "../components/ui";
+import { EmptyState, ErrorState, Segmented, Skeleton, TeamLogo } from "../components/ui";
 import type { League } from "../api/teamsData";
 import { listTeams, listCompetitions, listSeasons, type Competition, type Season, type Team } from "../api/client";
 
@@ -45,54 +45,50 @@ function teamPriority(team: Team) {
 
 const TEAM_PAGE_SIZE = 50;
 
-/**
- * Card for teams returned by the backend.
- */
-function TeamCard({ t, league }: { t: Team & { league_id: string }; league?: League }) {
-  const s = t.statistics.find((x) => x.scope === "overall");
-  const inner = (
-    <div className="sv-card-inner">
-      <div className="flex items-center gap-3 mb-3">
-        <TeamLogo name={t.name} src={t.logo_url} className="w-10 h-10 transition-transform duration-200 group-hover:scale-110" />
-        <div className="min-w-0">
-          <div className="font-semibold truncate">{t.name}</div>
-          <div className="text-xs text-sv-muted">
-            {[t.code || t.short_name, t.country].filter(Boolean).join(" · ")}
-          </div>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-        <div>
-          <div className="sv-stat-k">J</div>
-          <div className="sv-stat-v">{s?.matches_played ?? "—"}</div>
-        </div>
-        <div>
-          <div className="sv-stat-k">Pts/J</div>
-          <div className="sv-stat-v text-sv-accent3">{s?.points_per_game != null ? s.points_per_game.toFixed(2) : "—"}</div>
-        </div>
-        <div>
-          <div className="sv-stat-k">xG/90</div>
-          <div className="sv-stat-v">{s?.xg_per_90 != null ? s.xg_per_90.toFixed(2) : "—"}</div>
-        </div>
-        <div>
-          <div className="sv-stat-k">xGA/90</div>
-          <div className="sv-stat-v text-sv-warn">{s?.xga_per_90 != null ? s.xga_per_90.toFixed(2) : "—"}</div>
-        </div>
-      </div>
-      <div className="mt-3 pt-3 border-t border-sv-border/60 flex items-center justify-between gap-2 text-[11px]">
-        <span className="text-sv-muted truncate">
-          {league ? `${league.short_name} · ${league.season}` : "Competição indisponível"}
-        </span>
-        <span className="sv-chip-accent !py-0 opacity-0 translate-x-1 transition group-hover:opacity-100 group-hover:translate-x-0">
-          abrir time →
-        </span>
-      </div>
+type TeamRowData = Team & { league_id: string };
+type TeamSort = "name" | "pts" | "xg" | "xga";
+
+function teamStat(t: Team) {
+  return t.statistics.find((x) => x.scope === "overall");
+}
+
+/** Barra horizontal pequena que dá contexto visual ao valor dentro da lista. */
+function MiniBar({ value, max, tone }: { value: number | null | undefined; max: number; tone: "good" | "warn" }) {
+  const pct = value != null && max > 0 ? Math.max(4, Math.min(100, (value / max) * 100)) : 0;
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <span className={`sv-num font-semibold ${tone === "good" ? "text-sv-accent3" : "text-sv-warn"}`}>
+        {value != null ? value.toFixed(2) : "—"}
+      </span>
+      <span className="hidden lg:block w-14 h-1.5 rounded-sm bg-sv-panel3 overflow-hidden" aria-hidden="true">
+        <span className={`block h-full rounded-sm ${tone === "good" ? "bg-sv-accent3" : "bg-sv-warn"}`} style={{ width: `${pct}%` }} />
+      </span>
     </div>
   );
+}
+
+function TeamTableRow({ t, league, maxXg, maxXga }: { t: TeamRowData; league?: League; maxXg: number; maxXga: number }) {
+  const s = teamStat(t);
+  const navigate = useNavigate();
   return (
-    <Link to={`/teams/${t.id}`} className="sv-card group cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:border-sv-accent/60 hover:bg-sv-panel2 hover:shadow-glow">
-      {inner}
-    </Link>
+    <tr className="cursor-pointer" onClick={() => navigate(`/teams/${t.id}`)}>
+      <td>
+        <Link to={`/teams/${t.id}`} onClick={(e) => e.stopPropagation()} className="flex items-center gap-3 min-w-0 hover:text-sv-accent3 transition-colors">
+          <TeamLogo name={t.name} src={t.logo_url} className="w-8 h-8" />
+          <span className="min-w-0 leading-tight">
+            <span className="block font-semibold truncate">{t.name}</span>
+            <span className="block text-[11px] text-sv-muted truncate">{[t.code || t.short_name, t.country].filter(Boolean).join(" · ")}</span>
+          </span>
+        </Link>
+      </td>
+      <td className="hidden md:table-cell text-xs text-sv-muted whitespace-nowrap">
+        {league ? `${league.short_name} · ${league.season}` : "Competição indisponível"}
+      </td>
+      <td className="text-right sv-num">{s?.matches_played ?? "—"}</td>
+      <td className="text-right sv-num font-semibold">{s?.points_per_game != null ? s.points_per_game.toFixed(2) : "—"}</td>
+      <td><MiniBar value={s?.xg_per_90} max={maxXg} tone="good" /></td>
+      <td><MiniBar value={s?.xga_per_90} max={maxXga} tone="warn" /></td>
+    </tr>
   );
 }
 
@@ -100,6 +96,7 @@ export default function TeamsPage() {
   const [q, setQ] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [leagueId, setLeagueId] = useState("all");
+  const [sort, setSort] = useState<TeamSort>("name");
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearchTerm(q.trim()), 250);
@@ -298,6 +295,23 @@ export default function TeamsPage() {
     });
   }, [teamsQ.data, compIdBySeasonId, comps, compsQ.data, seasonsQ.data]);
 
+  const sortedTeams = useMemo(() => {
+    const val = (t: Team, k: "points_per_game" | "xg_per_90" | "xga_per_90") => teamStat(t)?.[k] ?? null;
+    const arr = [...teams];
+    if (sort === "name") return arr.sort((a, b) => a.name.localeCompare(b.name));
+    const key = sort === "pts" ? "points_per_game" : sort === "xg" ? "xg_per_90" : "xga_per_90";
+    // Sem dado vai para o fim; xGA: menor é melhor.
+    return arr.sort((a, b) => {
+      const va = val(a, key), vb = val(b, key);
+      if (va == null && vb == null) return a.name.localeCompare(b.name);
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      return sort === "xga" ? va - vb : vb - va;
+    });
+  }, [teams, sort]);
+  const maxXg = Math.max(0, ...teams.map((t) => teamStat(t)?.xg_per_90 ?? 0));
+  const maxXga = Math.max(0, ...teams.map((t) => teamStat(t)?.xga_per_90 ?? 0));
+
   const loading = compsQ.isPending
     || seasonsQ.isPending
     || (teamsQ.isPending && teamsQ.fetchStatus !== "idle");
@@ -319,81 +333,94 @@ export default function TeamsPage() {
           ? `${activeLeague.name} ainda não tem times importados — rode a coleta desta liga.`
           : "Nenhum time cadastrado pela API.";
 
-  return (
-    <div className="space-y-5">
-      <SectionTitle
-        title="Times"
-      >
-        <div className="flex gap-2 flex-wrap">
-          <input
-            value={q} onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar times…"
-            className="sv-btn !py-1.5 md:w-64 text-left"
-          />
-          <select
-            value={leagueId} onChange={(e) => setLeagueId(e.target.value)}
-            aria-label="Filtrar por liga"
-            className="sv-btn !py-1.5 bg-sv-panel text-sv-text"
-          >
-            <option value="all">Todas as ligas</option>
-            {comps.map((l) => (
-              <option key={l.id} value={l.id}>{l.name}</option>
-            ))}
-          </select>
-        </div>
-      </SectionTitle>
+  const leagueOptions = [
+    { key: "all", label: "Todas as ligas", count: teams.length > 0 && leagueId === "all" ? teams.length : undefined },
+    ...comps.map((l) => {
+      const count = teams.filter((t) => t.league_id === l.id).length;
+      // Só uma liga é carregada por vez: o número das outras seria 0 (falso). Mostra só o que é conhecido.
+      const showCount = leagueId === l.id || (leagueId === "all" && count > 0);
+      return { key: l.id, label: l.short_name, count: showCount ? count : undefined };
+    }),
+  ];
 
-      {/* Lista de ligas selecionável */}
-      <div className="flex flex-wrap gap-2">
-        {[
-          { id: "all", label: "Todas as ligas", count: teams.length },
-          ...comps.map((l) => ({
-            id: l.id,
-            label: l.short_name,
-            count: teams.filter((t) => t.league_id === l.id).length,
-          })),
-        ].map((opt) => {
-          const active = leagueId === opt.id;
-          // Só uma liga é carregada por vez: o número das outras seria 0 (falso). Mostra só o que é conhecido.
-          const showCount = active || (leagueId === "all" && opt.count > 0);
-          return (
-            <button
-              key={opt.id}
-              onClick={() => setLeagueId(opt.id)}
-              className={`sv-btn !py-1.5 ${active ? "!bg-sv-accent !border-sv-accent3 text-white shadow-glow" : ""}`}
-            >
-              {opt.label}
-              {showCount && (
-                <span className={`sv-chip !py-0 ml-1.5 ${active ? "!bg-white/15 !border-white/25 text-white" : ""}`}>
-                  {opt.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
+  return (
+    <div className="space-y-4">
+      {/* Barra de filtros */}
+      <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+        <div className="hidden sm:block overflow-x-auto max-w-full">
+          <Segmented<string> label="Filtrar por liga" value={leagueId} onChange={setLeagueId} options={leagueOptions} />
+        </div>
+        <label className="sm:hidden">
+          <span className="sr-only">Filtrar por liga</span>
+          <select value={leagueId} onChange={(e) => setLeagueId(e.target.value)} className="sv-input w-full">
+            <option value="all">Todas as ligas</option>
+            {comps.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </label>
+        <div className="flex flex-1 flex-col sm:flex-row gap-2 lg:justify-end">
+          <label className="relative sm:w-64">
+            <span className="sr-only">Buscar times</span>
+            <svg viewBox="0 0 24 24" fill="none" width="16" height="16" stroke="currentColor" strokeWidth="2"
+                 strokeLinecap="round" className="absolute left-3 top-1/2 -translate-y-1/2 text-sv-faint pointer-events-none" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
+            </svg>
+            <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar times"
+                   className="sv-input w-full !pl-9" />
+          </label>
+          <label>
+            <span className="sr-only">Ordenar por</span>
+            <select value={sort} onChange={(e) => setSort(e.target.value as TeamSort)} className="sv-input w-full sm:w-52">
+              <option value="name">Nome (A–Z)</option>
+              <option value="pts">Mais pontos por jogo</option>
+              <option value="xg">Maior xG/90 (ataque)</option>
+              <option value="xga">Menor xGA/90 (defesa)</option>
+            </select>
+          </label>
+        </div>
       </div>
 
       {teams.length === 0 ? (
-        <EmptyState title={emptyTitle} description={emptyDescription} />
+        loading ? (
+          <div className="sv-card p-3 space-y-2" aria-busy="true" aria-label="Carregando times">
+            {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-11 w-full" />)}
+          </div>
+        ) : requestFailed ? (
+          <ErrorState title={emptyTitle} description={emptyDescription} onRetry={() => { compsQ.refetch(); seasonsQ.refetch(); teamsQ.refetch(); }} />
+        ) : (
+          <EmptyState title={emptyTitle} description={emptyDescription} />
+        )
       ) : (
         <div className="space-y-4">
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-            {teams.map((t) => (
-              <TeamCard key={t.id} t={t} league={leagueById[t.league_id]} />
-            ))}
+          <div className="sv-card overflow-hidden">
+            <div className="sv-table-wrap">
+              <table className="sv-table">
+                <caption className="sr-only">Times com estatísticas da temporada corrente</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Time</th>
+                    <th scope="col" className="hidden md:table-cell">Competição</th>
+                    <th scope="col" className="text-right" title="Jogos">J</th>
+                    <th scope="col" className="text-right" title="Pontos por jogo">Pts/J</th>
+                    <th scope="col" className="text-right" title="xG por 90 minutos (ataque)">xG/90</th>
+                    <th scope="col" className="text-right" title="xGA por 90 minutos (defesa)">xGA/90</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedTeams.map((t) => (
+                    <TeamTableRow key={t.id} t={t} league={leagueById[t.league_id]} maxXg={maxXg} maxXga={maxXga} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-          {teamsQ.hasNextPage && (
-            <div className="flex justify-center">
-              <button
-                type="button"
-                className="sv-btn"
-                onClick={() => teamsQ.fetchNextPage()}
-                disabled={teamsQ.isFetchingNextPage}
-              >
+          <div className="flex items-center justify-between text-xs text-sv-muted">
+            <span><span className="sv-num text-sv-text font-semibold">{teams.length}</span> times</span>
+            {teamsQ.hasNextPage && (
+              <button type="button" className="sv-btn" onClick={() => teamsQ.fetchNextPage()} disabled={teamsQ.isFetchingNextPage}>
                 {teamsQ.isFetchingNextPage ? "Carregando…" : "Carregar mais times"}
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </div>
