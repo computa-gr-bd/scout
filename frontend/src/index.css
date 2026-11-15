@@ -103,7 +103,7 @@
 
   /* ---------- Tabelas ---------- */
   .sv-table { @apply w-full text-sm; }
-  .sv-table-wrap { @apply w-full overflow-x-auto; }
+  .sv-table-wrap { @apply relative w-full overflow-x-auto; }
   .sv-table-wrap > .sv-table { @apply min-w-[440px]; }
   .sv-table th {
     @apply text-left font-medium text-sv-muted text-xs px-3 py-2 border-b border-sv-border bg-sv-panel2/40 whitespace-nowrap;
