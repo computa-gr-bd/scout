@@ -19,7 +19,7 @@ import { timeAgo } from "./lib/matchStatus";
 
 function Logo({ onClick }: { onClick?: () => void }) {
   return (
-    <Link to="/" onClick={onClick} aria-label="ScoutVision — ir para o Painel" className="flex items-center gap-2.5 shrink-0">
+    <Link to="/" onClick={onClick} aria-label="ScoutVision — ir para a Home" className="flex items-center gap-2.5 shrink-0">
       <img src="/scoutvision-logo.png" alt="" className="w-9 h-9 object-contain" />
       <div className="sv-display text-[21px] leading-none text-sv-text tracking-tight">ScoutVision</div>
     </Link>

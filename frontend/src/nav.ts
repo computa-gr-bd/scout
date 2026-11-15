@@ -18,7 +18,7 @@ export const NAV_GROUPS: { key: NavItem["group"]; label: string }[] = [
 
 /** Itens de navegação compartilhados entre a sidebar desktop e o drawer mobile. */
 export const NAV_ITEMS: NavItem[] = [
-  { to: "/", label: "Painel", group: "scouting", hint: "Visão geral do ambiente de scouting", icon: "M3 12l9-9 9 9M5 10v10h14V10" },
+  { to: "/", label: "Home", group: "scouting", hint: "Visão geral do ambiente de scouting", icon: "M3 12l9-9 9 9M5 10v10h14V10" },
   { to: "/matches", label: "Partidas", group: "scouting", hint: "Calendário, resultados e acesso à análise pré-jogo", icon: "M4 6h16v12H4zM4 10h16M10 6v12" },
   { to: "/teams", label: "Times", group: "scouting", hint: "Perfil, forma e estatísticas dos clubes", icon: "M4 20v-6a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v6M8 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" },
   { to: "/players", label: "Jogadores", group: "scouting", hint: "Busca e perfil de jogadores das cinco ligas", icon: "M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6" },
