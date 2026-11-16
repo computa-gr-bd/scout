@@ -111,10 +111,93 @@ export function choreoContact(c: Choreo, q: number, spec: Contact, plan: Plan, c
 }
 
 export const choreoKicker = (c: Choreo, q: number, plan: Plan, clips: ClipTable) => choreoContact(c, q, plan.shooter, plan, clips, "shooter");
+
+
 export function choreoTaker(c: Choreo, q: number, plan: Plan, clips: ClipTable) {
-  if (!plan.taker) { c.entries.length = 0; return c; }
-  return choreoContact(c, q, plan.taker, plan, clips, "idle");
+  if (!plan.taker) {
+    c.entries.length = 0;
+    return c;
+  }
+
+  const spec = plan.taker;
+
+  // Preserva o comportamento das jogadas que não são escanteio.
+  if (!plan.corner) {
+    return choreoContact(c, q, spec, plan, clips, "idle");
+  }
+
+  const A = plan.animSec;
+  const meta = CONTACT_CLIPS[spec.clip];
+  const time = q * A;
+
+  // Momento em que começa o clipe do chute.
+  const clipStart = spec.contactQ * A - meta.contact;
+
+  // Mantém a coreografia original durante o chute.
+  if (time >= clipStart) {
+    return choreoContact(c, q, spec, plan, clips, "idle");
+  }
+
+  const approachKey = spec.approach ?? "jog_fwd";
+  const approach = info(clips, approachKey);
+
+  // Posição exata do corpo no início do clipe de chute.
+  const off = rot(
+    meta.ball[0] * spec.mirror,
+    meta.ball[2],
+    spec.yaw
+  );
+
+  const rootX = spec.ball.x - off.x;
+  const rootZ = spec.ball.z - off.z;
+
+  // Velocidade real de deslocamento do clipe de aproximação.
+  const velocity = rot(
+    approach.vx * spec.mirror,
+    approach.vz,
+    spec.yaw
+  );
+
+  // Espera parado por meio segundo.
+  const HOLD = 0.5;
+  const runDuration = Math.max(0, clipStart - HOLD);
+
+  // A posição inicial é calculada pela distância que o jogador
+  // consegue percorrer durante o tempo disponível.
+  const startX = rootX - velocity.x * runDuration;
+  const startZ = rootZ - velocity.z * runDuration;
+
+  c.entries.length = 0;
+  c.y = 0;
+  c.yaw = spec.yaw;
+  c.mirror = spec.mirror;
+
+  if (time <= HOLD) {
+    c.x = startX;
+    c.z = startZ;
+
+    add(c, IDLE, pingPong(time, info(clips, IDLE).dur), 1);
+    return c;
+  }
+
+  // Deslocamento contínuo até a posição de início do chute.
+  const elapsed = Math.min(time - HOLD, runDuration);
+
+  c.x = startX + velocity.x * elapsed;
+  c.z = startZ + velocity.z * elapsed;
+
+  // Sincroniza a animação da corrida com o restante da coreografia.
+  const kickWeight = smooth(
+    (time - clipStart + KICK_END_BLEND) / KICK_END_BLEND
+  );
+
+add(c, approachKey, elapsed % approach.dur, 1 - kickWeight);
+add(c, spec.clip, 0, kickWeight);
+
+  return c;
 }
+
+
 export function choreoDefender(c: Choreo, q: number, plan: Plan, clips: ClipTable) {
   if (!plan.defender) { c.entries.length = 0; return c; }
   return choreoContact(c, q, plan.defender.contact, plan, clips, plan.result === "own_goal" ? "lamento" : "idle");
