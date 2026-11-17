@@ -218,14 +218,14 @@ export function RealisticReplay3D({
       {!(free && canScrub) && <div className="goal-replay-tag" aria-hidden="true">REPLAY · 3D{inSlow ? " · CÂMERA LENTA" : ""}</div>}
 
       {/* seleção de câmera */}
-      <div className="absolute left-2.5 top-2.5 z-[5] flex max-w-[calc(100%-200px)] flex-wrap items-center gap-1">
+      <div className="absolute left-2.5 top-2.5 z-[5] flex max-w-[calc(100%-200px)] flex-wrap items-center gap-1 max-sm:left-2 max-sm:right-2 max-sm:top-[calc(env(safe-area-inset-top,0px)+54px)] max-sm:max-w-none max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:pb-1 max-sm:[scrollbar-width:none] max-sm:[&::-webkit-scrollbar]:hidden">
         {(Object.keys(CAM_LABEL) as CamMode[]).map((m) => (
           <button
             key={m}
             type="button"
             aria-pressed={camMode === m}
             onClick={() => setCamMode(m)}
-            className={`rounded-full border px-2 py-[3px] text-[10px] font-bold uppercase tracking-wide backdrop-blur transition ${camMode === m ? "border-emerald-300/70 bg-emerald-500/80 text-white" : "border-white/25 bg-slate-900/70 text-slate-200 hover:bg-slate-700/80"}`}
+            className={`shrink-0 rounded-full border px-2 py-[3px] text-[10px] font-bold uppercase tracking-wide backdrop-blur transition max-sm:px-2.5 max-sm:py-1 ${camMode === m ? "border-emerald-300/70 bg-emerald-500/80 text-white" : "border-white/25 bg-slate-900/70 text-slate-200 hover:bg-slate-700/80"}`}
           >
             {m === "free" && <MaterialIcon name="3d_rotation" className="mr-0.5 align-middle text-[13px]" />}{CAM_LABEL[m]}
           </button>
@@ -235,7 +235,7 @@ export function RealisticReplay3D({
           aria-pressed={slow}
           onClick={() => setSlow((s) => !s)}
           title="Câmera lenta no contato com a bola"
-          className={`rounded-full border px-2 py-[3px] text-[10px] font-bold uppercase tracking-wide backdrop-blur transition ${slow ? "border-sky-300/70 bg-sky-500/80 text-white" : "border-white/25 bg-slate-900/70 text-slate-200 hover:bg-slate-700/80"}`}
+          className={`shrink-0 rounded-full border px-2 py-[3px] text-[10px] font-bold uppercase tracking-wide backdrop-blur transition max-sm:px-2.5 max-sm:py-1 ${slow ? "border-sky-300/70 bg-sky-500/80 text-white" : "border-white/25 bg-slate-900/70 text-slate-200 hover:bg-slate-700/80"}`}
         >
           <MaterialIcon name="slow_motion_video" className="mr-0.5 align-middle text-[13px]" />Lenta
         </button>
@@ -243,7 +243,7 @@ export function RealisticReplay3D({
 
       {/* tarja de transmissão */}
       {showLower && info && (
-        <div className={`pointer-events-none absolute left-3 right-3 z-[4] flex items-end justify-between gap-2 ${free && canScrub ? "bottom-[62px]" : "bottom-9"}`} aria-hidden="true">
+        <div className={`pointer-events-none absolute left-3 right-3 z-[4] flex items-end justify-between gap-2 ${free && canScrub ? (fullscreen ? "bottom-[62px] max-sm:bottom-[240px]" : "bottom-[62px] max-sm:bottom-[148px]") : (fullscreen ? "bottom-9 max-sm:bottom-[160px]" : "bottom-9 max-sm:bottom-[68px]")}`} aria-hidden="true">
           <div className="flex min-w-0 items-stretch overflow-hidden rounded-md border border-white/15 bg-slate-950/80 shadow-lg backdrop-blur">
             <div className="w-1.5 shrink-0" style={{ background: teamColor }} />
             <div className="min-w-0 px-2.5 py-1.5">
@@ -263,7 +263,7 @@ export function RealisticReplay3D({
       {/* resultado */}
       {showResult && (
         <div
-          className="pointer-events-none absolute left-1/2 top-[18%] z-[4] -translate-x-1/2 whitespace-nowrap rounded-full border bg-slate-950/75 px-5 py-2 text-[18px] font-black tracking-[0.12em] shadow-2xl backdrop-blur sm:text-[22px]"
+          className="pointer-events-none absolute left-1/2 top-[18%] z-[4] -translate-x-1/2 whitespace-nowrap rounded-full border bg-slate-950/75 px-5 py-2 text-[18px] max-sm:top-[24%] max-sm:text-[16px] font-black tracking-[0.12em] shadow-2xl backdrop-blur sm:text-[22px]"
           style={{ color: label.tone, borderColor: `${label.tone}66`, opacity: clamp(1 - (q - plan.TE - 0.03) * 0.4, 0.55, 1), transform: `translateX(-50%) scale(${1 + 0.12 * (1 - smooth((q - plan.TE - 0.03) / 0.08))})` }}
           aria-hidden="true"
         >
@@ -273,12 +273,12 @@ export function RealisticReplay3D({
 
       {/* modo Livre: dica de controles + barra de reprodução (pausar, arrastar a linha do tempo, voltar) */}
       {free && hint && (
-        <div className="pointer-events-none absolute left-1/2 top-12 z-[6] -translate-x-1/2 rounded-lg border border-white/20 bg-slate-950/80 px-3 py-1.5 text-center text-[11px] font-semibold text-slate-100 shadow-xl backdrop-blur" role="status">
+        <div className="pointer-events-none absolute left-1/2 top-12 z-[6] -translate-x-1/2 max-sm:top-[calc(env(safe-area-inset-top,0px)+96px)] max-sm:w-[88%] rounded-lg border border-white/20 bg-slate-950/80 px-3 py-1.5 text-center text-[11px] font-semibold text-slate-100 shadow-xl backdrop-blur" role="status">
           Arraste para girar · Scroll ou pinça para zoom · Botão direito (ou 2 dedos) para mover
         </div>
       )}
       {free && canScrub && (
-        <div className={`absolute bottom-2.5 left-2.5 z-[6] flex items-center gap-1.5 rounded-xl border border-white/15 bg-slate-950/80 px-2 py-1.5 shadow-xl backdrop-blur ${fullscreen ? "right-[215px]" : "right-2.5"}`}>
+        <div className={`absolute bottom-2.5 left-2.5 z-[6] flex items-center gap-1.5 rounded-xl border border-white/15 bg-slate-950/80 px-2 py-1.5 shadow-xl backdrop-blur max-sm:left-2 max-sm:right-2 max-sm:flex-wrap ${fullscreen ? "right-[215px] max-sm:bottom-[160px]" : "right-2.5 max-sm:bottom-[68px]"}`}>
           <button type="button" onClick={() => onSeek?.(clamp01(progress - 0.02))} title="Voltar um pouco (←)" aria-label="Voltar um pouco" className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-white/20 bg-slate-800/80 text-slate-100 transition hover:bg-slate-600/80">
             <MaterialIcon name="fast_rewind" className="text-[16px]" />
           </button>
@@ -291,7 +291,7 @@ export function RealisticReplay3D({
           <input
             type="range" min={0} max={1000} step={1} value={Math.round((scrub ?? progress) * 1000)}
             aria-label="Linha do tempo do lance"
-            className="mx-1 h-1.5 min-w-0 flex-1 cursor-pointer accent-emerald-400"
+            className="mx-1 h-1.5 min-w-0 flex-1 cursor-pointer accent-emerald-400 max-sm:order-last max-sm:mx-0 max-sm:basis-full"
             onPointerDown={() => { resumeRef.current = playing; if (playing) onTogglePlay?.(); }}
             onChange={(e) => { const v = Number(e.target.value) / 1000; setScrub(v); onSeek?.(v); }}
             onPointerUp={() => { setScrub(null); if (resumeRef.current && progRef.current < 1) onTogglePlay?.(); resumeRef.current = false; }}
@@ -321,7 +321,7 @@ export function RealisticReplay3D({
           )}
           {onClose && (
             <button type="button" className="goal-replay-close" onClick={onClose} title="Fechar (Esc)" aria-label="Fechar replay 3D">
-              <MaterialIcon name="close" className="mr-1 align-middle" />Fechar
+              <MaterialIcon name="close" className="mr-1 align-middle" /><span className="goal-replay-close-label">Fechar</span>
             </button>
           )}
         </div>

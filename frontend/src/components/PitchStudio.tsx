@@ -746,6 +746,14 @@ export function PitchStudio({
     clearGoalPulse(); setPopupOpen(false);
     setIdx(idx + 1); setStarted(true); setPlaying(true);
   };
+  /** Reproduz o lance anterior direto, mantendo o replay (e a tela cheia) abertos. */
+  const playPrevShot = () => {
+    if (idx <= 0) return;
+    realReadyRef.current = replayMode !== "real";
+    progressRef.current = 0; liveProgressRef.current = 0; setProgress(0);
+    clearGoalPulse(); setPopupOpen(false);
+    setIdx(idx - 1); setStarted(true); setPlaying(true);
+  };
   const goPrev = () => { if (idx > 0) selectShot(idx - 1); };
   const goNext = () => { if (idx < filtered.length - 1) selectShot(idx + 1); };
 
@@ -904,10 +912,10 @@ export function PitchStudio({
           </div>
         )}
         {isShotView && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-sv-muted">Replay</span>
-            <button onClick={goPrev} disabled={idx === 0} className="sv-btn !py-1 !px-2.5 text-[12px]" title="Anterior"><MaterialIcon name="skip_previous" /></button>
-            <div className="flex items-center gap-0.5 rounded-lg border border-sv-border bg-sv-panel/70 p-0.5" role="group" aria-label="Visualização do replay">
+          <div className="flex flex-nowrap items-center gap-1.5 sm:flex-wrap">
+            <span className="mr-1 hidden text-[10px] font-semibold uppercase tracking-wider text-sv-muted sm:inline">Replay</span>
+            <button onClick={goPrev} disabled={idx === 0} className="sv-btn !py-1.5 !px-2.5 text-[12px] shrink-0 sm:!py-1" title="Anterior" aria-label="Lance anterior"><MaterialIcon name="skip_previous" /></button>
+            <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-sv-border bg-sv-panel/70 p-0.5" role="group" aria-label="Visualização do replay">
               {(["2d", "real"] as ReplayMode[]).map((mode) => (
                 <button
                   key={mode}
@@ -920,11 +928,11 @@ export function PitchStudio({
                 </button>
               ))}
             </div>
-            <button onClick={togglePlayback} disabled={!current} className="sv-btn-primary !py-1 !px-3.5 text-[12px]">
+            <button onClick={togglePlayback} disabled={!current} className="sv-btn-primary !py-1.5 !px-3.5 text-[12px] min-w-0 flex-1 justify-center whitespace-nowrap max-sm:!px-2 sm:flex-none sm:!py-1">
               <MaterialIcon name={!started ? "play_arrow" : playing ? "pause" : progress >= 1 ? "replay" : "play_arrow"} className="mr-1 align-middle" />
               {!started ? "Reproduzir lance" : playing ? "Pausar" : progress >= 1 ? "Repetir lance" : "Continuar"}
             </button>
-            <button onClick={goNext} disabled={idx === Math.max(0, filtered.length - 1)} className="sv-btn !py-1 !px-2.5 text-[12px]" title="Próximo"><MaterialIcon name="skip_next" /></button>
+            <button onClick={goNext} disabled={idx === Math.max(0, filtered.length - 1)} className="sv-btn !py-1.5 !px-2.5 text-[12px] shrink-0 sm:!py-1" title="Próximo" aria-label="Próximo lance"><MaterialIcon name="skip_next" /></button>
           </div>
         )}
       </div>
@@ -972,17 +980,18 @@ export function PitchStudio({
                   onClose={closeReplay}
                 />
               </Suspense>
-              {inFs && (
-                <div className="goal-replay-fs-controls">
-                  <button onClick={togglePlayback} className="sv-btn-primary !py-1.5 !px-4 text-[13px]">
-                    <MaterialIcon name={playing ? "pause" : progress >= 1 ? "replay" : "play_arrow"} className="mr-1 align-middle" />
-                    {playing ? "Pausar" : progress >= 1 ? "Repetir lance" : "Continuar"}
-                  </button>
-                  <button onClick={playNextShot} disabled={idx >= filtered.length - 1} className="sv-btn !py-1.5 !px-3 text-[13px]" title="Próximo lance" aria-label="Reproduzir próximo lance">
-                    <MaterialIcon name="skip_next" />
-                  </button>
-                </div>
-              )}
+              <div className={`goal-replay-fs-controls${inFs ? "" : " is-inline"}`}>
+                <button onClick={playPrevShot} disabled={idx <= 0} className="sv-btn goal-replay-fs-side" title="Lance anterior" aria-label="Reproduzir lance anterior">
+                  <MaterialIcon name="skip_previous" />
+                </button>
+                <button onClick={togglePlayback} className="sv-btn-primary goal-replay-fs-main">
+                  <MaterialIcon name={playing ? "pause" : progress >= 1 ? "replay" : "play_arrow"} className="mr-1 align-middle" />
+                  {playing ? "Pausar" : progress >= 1 ? "Repetir lance" : "Continuar"}
+                </button>
+                <button onClick={playNextShot} disabled={idx >= filtered.length - 1} className="sv-btn goal-replay-fs-side" title="Próximo lance" aria-label="Reproduzir próximo lance">
+                  <MaterialIcon name="skip_next" />
+                </button>
+              </div>
               {current.result === "goal" && goalPulse > 0.15 && (
                 <div className="goal-replay-goal-label" style={{ opacity: Math.min(1, goalPulse * 2.4) }}>
                   {current.ownGoal ? `GOL CONTRA · ${current.player}` : `GOL · ${current.player}`}

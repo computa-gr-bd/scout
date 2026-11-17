@@ -244,22 +244,56 @@
   .goal-replay-real .goal-replay-tag {
     bottom: 10px;
   }
+  /* Mobile em pé: palco vertical (a cena é pensada para tela estreita e alta) */
   @media (max-width: 640px) {
     .goal-replay-3d {
       height: 300px;
     }
     .goal-replay-real {
-      height: 380px;
+      height: clamp(430px, 128vw, 78svh);
+    }
+    .goal-replay-real .goal-replay-tag {
+      top: 14px;
+      bottom: auto;
+      left: 12px;
+    }
+    .goal-replay-goal-label {
+      top: 34%;
+      max-width: 90%;
+      padding: 6px 12px;
+      font-size: 12px;
+      text-align: center;
+      white-space: normal;
+    }
+  }
+  /* Celular deitado: ocupa a altura útil da tela */
+  @media (max-height: 500px) and (orientation: landscape) {
+    .goal-replay-real {
+      height: 82svh;
     }
   }
   /* Botões do canto superior direito (tela cheia + fechar) */
   .goal-replay-topright {
     position: absolute;
-    top: 12px;
-    right: 12px;
-    z-index: 5;
+    top: max(12px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+    z-index: 8;
     display: flex;
     gap: 8px;
+  }
+  @media (max-width: 640px) {
+    .goal-replay-topright .goal-replay-close {
+      width: 38px;
+      height: 38px;
+      justify-content: center;
+      padding: 0;
+    }
+    .goal-replay-topright .goal-replay-close .goal-replay-close-label {
+      display: none;
+    }
+    .goal-replay-topright .goal-replay-close .material-symbols-rounded {
+      margin: 0;
+    }
   }
   .goal-replay-topright .goal-replay-close {
     position: static;
@@ -275,12 +309,15 @@
     position: fixed;
     inset: 0;
     z-index: 100;
+    height: 100vh;
+    height: 100dvh;
   }
   .goal-replay-stage.is-fs .goal-replay-3d {
     height: 100%;
     border: 0;
     border-radius: 0;
   }
+  /* Controles do lance dentro do palco (tela cheia no desktop; sempre visíveis no mobile) */
   .goal-replay-fs-controls {
     position: absolute;
     right: 14px;
@@ -289,6 +326,40 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  .goal-replay-fs-controls.is-inline {
+    display: none;
+  }
+  .goal-replay-fs-controls .goal-replay-fs-main {
+    min-height: 40px;
+    padding: 0 18px;
+    font-size: 14px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .goal-replay-fs-controls .goal-replay-fs-side {
+    width: 40px;
+    min-height: 40px;
+    padding: 0;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.82);
+    backdrop-filter: blur(6px);
+  }
+  @media (max-width: 640px) {
+    .goal-replay-fs-controls,
+    .goal-replay-fs-controls.is-inline {
+      display: flex;
+      left: 50%;
+      right: auto;
+      transform: translateX(-50%);
+      bottom: max(12px, env(safe-area-inset-bottom));
+      width: max-content;
+      max-width: calc(100% - 24px);
+    }
+    /* Tela cheia no celular: o Chrome mostra um aviso na faixa de baixo; os botões ficam acima dela */
+    .goal-replay-stage.is-fs .goal-replay-fs-controls {
+      bottom: calc(max(12px, env(safe-area-inset-bottom)) + 92px);
+    }
   }
 }
 .material-symbols-rounded {

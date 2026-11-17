@@ -63,6 +63,51 @@ export function BallTrail({ ballRef, plan, qRef }: { ballRef: RefObject<THREE.Gr
 }
 
 /* ------------------------------ Câmera ------------------------------------ */
+/**
+ * Em tela estreita (celular em pé) o campo de visão HORIZONTAL encolhe e os jogadores saem cortados.
+ * Mantém o enquadramento horizontal de uma tela larga (~16:10) aumentando o FOV vertical, com limite para não distorcer.
+ */
+const REF_ASPECT = 1.55;
+export function fovForAspect(fov: number, aspect: number): number {
+  if (!(aspect > 0) || aspect >= REF_ASPECT * 0.9) return fov;
+  const k = Math.min(2.1, Math.pow(REF_ASPECT / aspect, 0.9));
+  const wide = 2 * Math.atan(Math.tan((fov * Math.PI) / 360) * k) * (180 / Math.PI);
+  return Math.min(82, wide);
+}
+
+/* Enquadramento garantido: afasta a câmera ao longo do raio de visão até quem chuta (e a bola) caberem na área segura do quadro. */
+const _fitCam = new THREE.PerspectiveCamera();
+const _fitP = new THREE.Vector3();
+const _fitPos = new THREE.Vector3();
+
+function allInFrame(pts: THREE.Vector3[], aspect: number): boolean {
+  const portrait = aspect < 1;
+  // área segura: deixa folga para os botões do topo e para a tarja/controles de baixo
+  const xMax = portrait ? 0.8 : 0.88, yMin = portrait ? -0.5 : -0.72, yMax = portrait ? 0.62 : 0.8;
+  for (const p of pts) {
+    _fitP.copy(p).applyMatrix4(_fitCam.matrixWorldInverse);
+    if (_fitP.z > -0.4) return false;               // atrás da câmera
+    _fitP.applyMatrix4(_fitCam.projectionMatrix);
+    if (Math.abs(_fitP.x) > xMax || _fitP.y < yMin || _fitP.y > yMax) return false;
+  }
+  return true;
+}
+
+export function fitScale(pos: THREE.Vector3, look: THREE.Vector3, fov: number, aspect: number, pts: THREE.Vector3[], maxS: number): number {
+  _fitCam.fov = fov; _fitCam.aspect = aspect; _fitCam.near = 0.1; _fitCam.far = 600; _fitCam.updateProjectionMatrix();
+  const test = (k: number) => {
+    _fitPos.copy(pos).sub(look).multiplyScalar(k).add(look);
+    _fitPos.y = Math.max(0.4, _fitPos.y);
+    _fitCam.position.copy(_fitPos); _fitCam.lookAt(look); _fitCam.updateMatrixWorld(true);
+    return allInFrame(pts, aspect);
+  };
+  if (test(1)) return 1;
+  if (!test(maxS)) return maxS;
+  let lo = 1, hi = maxS;
+  for (let i = 0; i < 9; i++) { const m = (lo + hi) / 2; if (test(m)) hi = m; else lo = m; }
+  return hi;
+}
+
 export type CamShot = { pos: THREE.Vector3; look: THREE.Vector3; fov: number; key: number; k: number };
 
 export function directCamera(mode: CamMode, q: number, plan: Plan, kPos: THREE.Vector3, ball: THREE.Vector3, out: CamShot) {
@@ -195,6 +240,7 @@ export function useBallAndCamera({ plan, qRef, camMode, kPos, getHold }: {
     axis: new THREE.Vector3(), quat: new THREE.Quaternion(),
     shot: { pos: new THREE.Vector3(), look: new THREE.Vector3(), fov: 40, key: -1, k: 4 } as CamShot,
     lookCur: new THREE.Vector3(0, 1, GL), lastKey: -999, lastQ: 0, freeInit: false,
+    pts: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()], fitS: 1,
   }), []);
 
   useFrame((_, delta) => {
@@ -236,7 +282,8 @@ export function useBallAndCamera({ plan, qRef, camMode, kPos, getHold }: {
     const cam = camera as THREE.PerspectiveCamera;
     if (camMode === "free") {
       // modo livre: quem manda é o OrbitControls (FreeCamera). Só ajusta o campo de visão uma vez ao entrar.
-      if (!tmp.freeInit) { tmp.freeInit = true; cam.fov = 45; cam.updateProjectionMatrix(); }
+      const freeFov = fovForAspect(45, cam.aspect);
+      if (!tmp.freeInit || Math.abs(cam.fov - freeFov) > 0.05) { tmp.freeInit = true; cam.fov = freeFov; cam.updateProjectionMatrix(); }
       tmp.lastKey = -999;               // ao sair do modo livre, a câmera de transmissão assume sem "voar" até a posição
       return;
     }
@@ -246,11 +293,36 @@ export function useBallAndCamera({ plan, qRef, camMode, kPos, getHold }: {
     const key = shot.key + (camMode === "auto" ? 0 : 1000);
     const snap = key !== tmp.lastKey && (camMode !== "auto" || shot.key === 1 || shot.key === 3 || shot.key === 4 || shot.key === 5 || shot.key === 6 || tmp.lastKey === -999);
     const a = 1 - Math.exp(-shot.k * Math.min(delta, 0.05));
+    const punch = Math.exp(-Math.pow((qq - plan.TC) / 0.03, 2)) * 2.5;
+    const fov = fovForAspect(shot.fov - punch, cam.aspect);
+
+    // celular em pé: garante que quem chuta (e a bola) apareçam no quadro, afastando a câmera se preciso
+    let targetS = 1;
+    if (cam.aspect < 1.2) {
+      const fixedCam = camMode !== "auto";
+      const wantShooter = fixedCam ? qq < plan.TE + 0.02 : shot.key === 0;
+      const wantBall = fixedCam && qq >= plan.TC - 0.02 && qq <= plan.TE;
+      let n = 0;
+      if (wantShooter) {
+        tmp.pts[n++].set(kPos.current.x, 0.1, kPos.current.z);
+        tmp.pts[n++].set(kPos.current.x, 1.8, kPos.current.z);
+      }
+      if (wantBall) tmp.pts[n++].copy(tmp.ball);
+      if (n > 0) {
+        const maxS = camMode === "side" ? 1.6 : camMode === "goal" ? 1.7 : 2.0;
+        targetS = fitScale(shot.pos, shot.look, fov, cam.aspect, tmp.pts.slice(0, n), maxS);
+      }
+    }
+    // abre rápido, fecha devagar (sem "pulsar")
+    tmp.fitS = snap || tmp.lastKey === -999 || targetS > tmp.fitS ? targetS : tmp.fitS + (targetS - tmp.fitS) * Math.min(1, delta * 2.5);
+    if (tmp.fitS > 1.001) {
+      shot.pos.sub(shot.look).multiplyScalar(tmp.fitS).add(shot.look);
+      shot.pos.y = Math.max(0.4, shot.pos.y);
+    }
+
     if (snap || tmp.lastKey === -999) { cam.position.copy(shot.pos); tmp.lookCur.copy(shot.look); }
     else { cam.position.lerp(shot.pos, a); tmp.lookCur.lerp(shot.look, Math.min(1, a * 1.4)); }
     tmp.lastKey = key;
-    const punch = Math.exp(-Math.pow((qq - plan.TC) / 0.03, 2)) * 2.5;
-    const fov = shot.fov - punch;
     if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = lerp(cam.fov, fov, snap ? 1 : 0.2); cam.updateProjectionMatrix(); }
     cam.lookAt(tmp.lookCur);
   });
