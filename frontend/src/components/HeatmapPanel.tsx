@@ -12,7 +12,7 @@
  *                    rotulados como "demonstração" na legenda.
  */
 import {
-  useEffect, useMemo, useRef, useState,
+  Suspense, lazy, useEffect, useMemo, useRef, useState,
   type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode,
 } from "react";
 import type { StudioAction, StudioDataset } from "../api/studioData";
@@ -26,6 +26,10 @@ import {
   toMeters, zoneAt, type KdeGrid, type KdeSample, type RampStop,
 } from "../lib/heatmapKde";
 
+// O 3D (three.js) só é baixado quando o usuário abre a visão 3D.
+const HeatmapTerrain3D = lazy(() => import("./HeatmapTerrain3D").then((m) => ({ default: m.HeatmapTerrain3D })));
+
+type ViewMode = "2d" | "3d";
 type TeamKey = "home" | "away";
 type TeamSel = TeamKey | "both";
 type Metric = "count" | "xg";
@@ -175,6 +179,7 @@ export function HeatmapPanel({
   const teamColor = (t: TeamKey) => (t === "home" ? homeColor : awayColor);
   const shown: TeamKey[] = team === "both" ? ["home", "away"] : [team];
 
+  const [viewMode, setViewMode] = useState<ViewMode>("2d");
   const [metric, setMetric] = useState<Metric>("count");
   const [smooth, setSmooth] = useState<Smooth>("normal");
   const [scale, setScale] = useState<Scale>("team");
@@ -320,6 +325,15 @@ export function HeatmapPanel({
   const totalN = shown.reduce((a, t) => a + kdes[t].evs.length, 0);
   const showDots = real && (dots || (totalN > 0 && totalN <= 6));
 
+  const terrainEvents = useMemo(
+    () => shown.flatMap((t) => kdes[t].evs.map((e) => ({
+      team: t, mx: e.mx, my: e.my, w: real ? (effMetric === "xg" ? (e.shot?.xg ?? 0) : 1) : (e.occ ?? 0),
+      goal: e.shot?.result === "goal",
+    }))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [kdes, team, real, effMetric],
+  );
+
   const onMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     if (!r.width) return;
@@ -350,6 +364,8 @@ export function HeatmapPanel({
     <div className="space-y-3">
       {/* Controles */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <Seg<ViewMode> label="Visão" value={viewMode} onChange={setViewMode}
+          options={[{ v: "2d", label: "2D" }, { v: "3d", label: "3D", title: "Relevo de calor interativo" }]} />
         {real && (
           <Seg<Metric> label="Peso" value={effMetric} onChange={setMetric}
             options={[
@@ -390,6 +406,19 @@ export function HeatmapPanel({
       </div>
 
       {/* Campo */}
+      {viewMode === "3d" ? (
+        <Suspense fallback={<div className="flex h-[440px] items-center justify-center rounded-2xl border border-white/10 text-xs text-sv-muted sm:h-[580px]">Carregando mapa 3D…</div>}>
+          <HeatmapTerrain3D
+            layers={layers} events={terrainEvents} showEvents={showDots} real={real} unit={unit} radius={REGION_RADIUS}
+            homeName={m.home} awayName={m.away} teamName={teamName} teamColor={teamColor}
+            hover={hover ? { mx: hover.mx, my: hover.my } : null} pinned={pinned}
+            info={hoverInfo ?? pinnedInfo}
+            onHover={(p) => setHover(p ? { px: 0, py: 0, mx: p.mx, my: p.my } : null)}
+            onPick={(p) => setPinned(p)}
+          />
+        </Suspense>
+      ) : (
+      <>
       <div className="overflow-hidden rounded-2xl border border-white/10">
         <div className="relative w-full select-none" style={{ aspectRatio: `${PITCH_BOX_W} / ${PITCH_BOX_H}` }}>
           <PitchTurf />
@@ -483,6 +512,8 @@ export function HeatmapPanel({
           )}
         </div>
       </div>
+      </>
+      )}
 
       {/* Cards: legenda por time + região selecionada */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
