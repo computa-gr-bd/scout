@@ -4,6 +4,24 @@ import { clamp } from "./common";
 import { DECAL, type ClipKey } from "./modelMeta";
 import { makeBackTexture } from "./Rig";
 
+/** Mantém pernas e pés imóveis durante a animação de repouso dos jogadores de linha. */
+function freezeLowerBody(clip: THREE.AnimationClip) {
+  const lowerBody = /mixamorig(Left|Right)(UpLeg|Leg|Foot|ToeBase)\.(quaternion|position)$/;
+
+  for (const track of clip.tracks) {
+    if (!lowerBody.test(track.name)) continue;
+
+    const size = track.getValueSize();
+    const firstFrame = Array.from(track.values.slice(0, size));
+
+    for (let i = 0; i < track.values.length; i += size) {
+      for (let j = 0; j < size; j++) {
+        track.values[i + j] = firstFrame[j];
+      }
+    }
+  }
+}
+
 /** Clipe pronto para uso: sem deslocamento do quadril (ficamos no lugar) e com o caminho de raiz guardado. */
 export type PreparedClip = {
   clip: THREE.AnimationClip;
@@ -26,8 +44,13 @@ export type Assets = {
  * deslocamento separado. O Blender exporta o quadril em cm, com Y = frente e X = lateral.
  * `mode`: "first" fixa no 1º frame; "mean" fixa na média (bom para clipes de espera, que balançam).
  */
-export function prepareClip(src: THREE.AnimationClip, mode: "first" | "mean"): PreparedClip {
+export function prepareClip(
+  src: THREE.AnimationClip,
+  mode: "first" | "mean",
+  freezeLegs = false
+): PreparedClip {
   const clip = src.clone();
+  if (freezeLegs) freezeLowerBody(clip);
   const track = clip.tracks.find((t) => /Hips\.position$/.test(t.name));
   const n = track ? track.times.length : 0;
   const rootT = new Float32Array(n);
@@ -73,7 +96,13 @@ const modeFor = (k: ClipKey): "first" | "mean" => (MEAN_MODE.test(k) ? "mean" : 
 
 export function buildAssets(player: { scene: THREE.Object3D }, keys: ClipKey[], files: { animations: THREE.AnimationClip[] }[], mask: THREE.Texture): Assets {
   const clips: Partial<Record<ClipKey, PreparedClip>> = {};
-  keys.forEach((k, i) => { clips[k] = prepareClip(files[i].animations[0], modeFor(k)); });
+  keys.forEach((k, i) => {
+  clips[k] = prepareClip(
+    files[i].animations[0],
+    modeFor(k),
+    k === "idle_offensive"
+  );
+});
   mask.flipY = false;                       // convenção do glTF: v = 0 no topo
   mask.colorSpace = THREE.NoColorSpace;
   mask.needsUpdate = true;

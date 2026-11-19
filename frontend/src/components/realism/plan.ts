@@ -394,19 +394,20 @@ export function buildPlan(o: PlanInput): Plan {
     taker = { clip: takerClip, mirror: 1, contactQ: qKc, ball: ballCorner.clone(), yaw: yawTo(ballCorner, S), approach: "jog_fwd" };
     clipSet.add(takerClip); clipSet.add("jog_fwd");
     cornerInfo = { side: cs, ballAt: ballCorner, qKick: qKc };
-    const airborne = S.y > 0.5;                      // cabeceio ou voleio: a bola chega no alto
-    const bend = -cs * 1.3;                          // efeito do cruzamento
-    if (airborne) segs.unshift(seg(qKc, TC, ballCorner, S, 7, "lin", bend));
-    else {
-      const back = new THREE.Vector3(ballCorner.x - S.x, 0, ballCorner.z - S.z).normalize();
-      const P1 = v3(S.x + back.x * 1.5, BALL_R, S.z + back.z * 1.5);
-      segs.unshift(seg(TC - 0.035, TC, P1, S, 0.3, "lin"));
-      segs.unshift(seg(qKc, TC - 0.035, ballCorner, P1, 6.5, "lin", bend));
-    }
-  } else if (kind === "header") {
-    crossFrom = v3(clamp(S.x * 1.6 + (S.x >= 0 ? 4 : -4), -16, 16), 0.5, S.z + 4.8);
-    segs.unshift(seg(TC - 0.22, TC, crossFrom, S, 2.7, "lin"));
-  }
+   const airborne = S.y > 0.5;
+const bend = -cs * 1.3;
+const ballStartQ = Math.max(0, qKc - 0.2 / animSec);
+
+if (airborne) {
+  segs.unshift(seg(ballStartQ, TC, ballCorner, S, 7, "lin", bend));
+} else {
+  const back = new THREE.Vector3(ballCorner.x - S.x, 0, ballCorner.z - S.z).normalize();
+  const P1 = v3(S.x + back.x * 1.5, BALL_R, S.z + back.z * 1.5);
+
+  segs.unshift(seg(ballStartQ, TC - 0.035, ballCorner, P1, 6.5, "lin", bend));
+  segs.unshift(seg(qKc, TC - 0.035, ballCorner, P1, 6.5, "lin", bend));
+}
+}
 
   // comemoração: corre para o lado, perto da lateral/escanteio
   const cel = S.x >= 0 ? 1 : -1;
