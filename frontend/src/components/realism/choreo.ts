@@ -151,22 +151,32 @@ export function choreoTaker(c: Choreo, q: number, plan: Plan, clips: ClipTable) 
   const rootX = spec.ball.x - off.x;
   const rootZ = spec.ball.z - off.z;
 
-  // Velocidade real de deslocamento do clipe de aproximação.
+   // O jogador se aproxima da bola na direção para a qual está olhando.
   const velocity = rot(
     approach.vx * spec.mirror,
     approach.vz,
     spec.yaw
   );
 
-  // Espera parado por meio segundo.
-  const HOLD = 0.5;
-  const runDuration = Math.max(0, clipStart - HOLD);
+  // Mantém o jogador entre a linha lateral e a estrutura do estádio.
+  const side = Math.sign(spec.ball.x) || 1;
+  const targetStartX = side * 35.5;
 
-  // A posição inicial é calculada pela distância que o jogador
-  // consegue percorrer durante o tempo disponível.
+  // Calcula quanto tempo ele realmente precisa para chegar à bola.
+  const availableRunDuration = (rootX - targetStartX) / velocity.x;
+  const naturalRunDuration = Math.max(0, clipStart - 0.5);
+
+  const runDuration = Math.min(
+    naturalRunDuration,
+    Math.max(0, availableRunDuration)
+  );
+
+  // O tempo restante é usado para manter o jogador parado antes da corrida.
+  const HOLD = Math.max(0, clipStart - runDuration);
+
   const startX = rootX - velocity.x * runDuration;
   const startZ = rootZ - velocity.z * runDuration;
-
+  
   c.entries.length = 0;
   c.y = 0;
   c.yaw = spec.yaw;
