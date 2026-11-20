@@ -21,7 +21,7 @@ import {
   PITCH_BOX_H, PITCH_BOX_W, PITCH_PAD, PitchMarkings, PitchTurf,
 } from "./HeatmapPitch";
 import {
-  BANDWIDTH_MAX, BANDWIDTH_MIN, HEAT_CUTOFF, PITCH_L, PITCH_W, RAMP_AWAY, RAMP_HOME, RAMP_SPECTRAL,
+  PITCH_L, PITCH_W, RAMP_AWAY, RAMP_HOME, RAMP_SPECTRAL,
   buildLut, chooseBandwidth, computeKde, contourSegments, densityAt, eventsWithin, heatAlpha, rampAt,
   toMeters, zoneAt, type KdeGrid, type KdeSample, type RampStop,
 } from "../lib/heatmapKde";
@@ -357,7 +357,6 @@ export function HeatmapPanel({
     height: `${(PITCH_W / PITCH_BOX_H) * 100}%`,
   };
 
-  const bandwidthText = shown.map((t) => `${shown.length > 1 ? `${teamName(t)} ` : ""}${nf(kdes[t].h, 1)} m`).join(" · ");
   const ariaSummary = `Mapa de calor de ${shown.map((t) => `${teamName(t)} (${kdes[t].evs.length} eventos)`).join(" e ")}`;
 
   return (
@@ -617,19 +616,6 @@ export function HeatmapPanel({
           )}
         </div>
       </div>
-
-      {/* Metodologia: de onde vem cada número */}
-      <p className="px-1 text-[10.5px] leading-relaxed text-sv-muted">
-        {real
-          ? <>Densidade por kernel gaussiano (KDE) sobre as coordenadas reais de {effMetric === "xg" ? "cada finalização, ponderada pelo xG" : "cada finalização"}. </>
-          : <>Densidade por kernel gaussiano (KDE) sobre os pontos de ocupação de demonstração. </>}
-        Largura de banda {bandwidthText} (regra de Scott ajustada, limitada a {nf(BANDWIDTH_MIN, 1)}–{nf(BANDWIDTH_MAX, 1)} m), campo FIFA 105 × 68 m,
-        correção de borda por reflexão; regiões abaixo de {nf(HEAT_CUTOFF * 100, 1)}% do pico ficam sem cor. Linhas finas = 25%, 50% e 75% do pico.
-        {ownGoalsExcluded > 0 && ` ${ownGoalsExcluded} gol${ownGoalsExcluded > 1 ? "s contra não entram" : " contra não entra"} (a fonte não garante o referencial das coordenadas).`}
-        {real && !hasXg && " A fonte não traz xG para este recorte; o mapa usa a contagem de finalizações."}
-        {real && " As coordenadas contêm apenas finalizações: o mapa mostra onde cada time chutou, não toda a movimentação em campo."}
-        {m.dataSourceLabel ? ` Fonte: ${m.dataSourceLabel}.` : ""}
-      </p>
     </div>
   );
 }

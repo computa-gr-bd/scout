@@ -424,10 +424,6 @@ export default function PlayerPage() {
                   <Empty text="Sem estatísticas individuais para este jogador nas fontes conectadas." />
                 )}
               </div>
-              <div className="text-[11px] text-sv-muted mt-1">
-                Normalizado vs. máximos típicos por 90 min.
-                {avg ? ` Média da liga: ${avg.n_players} jogadores de linha com ≥ ${avg.min_minutes} min.` : ""}
-              </div>
             </Panel>
 
             {/* ---------------------------------------------- rosca / índice */}
@@ -466,9 +462,6 @@ export default function PlayerPage() {
               ) : (
                 <div className="h-52"><Empty text="Sem minutos jogados registrados para calcular o índice." /></div>
               )}
-              <div className="text-[11px] text-sv-muted mt-2">
-                Índice 0–100 calculado com os dados disponíveis (Understat / football-data); não é um modelo treinado.
-              </div>
             </Panel>
           </div>
 
