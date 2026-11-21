@@ -24,7 +24,8 @@ import {
   HEAT_CUTOFF, RAMP_SPECTRAL, buildLut, chooseBandwidth, computeKde, eventsWithin, toMeters, zoneAt,
   type KdeGrid, type KdeSample,
 } from "../lib/heatmapKde";
-import { RESULT_META, fmt, resultKey, toWorld } from "../lib/shotAnalytics";
+import { fmt, resultKey, resultMeta, shotWeight, toWorld, type HeatMetric } from "../lib/shotAnalytics";
+import { GoalkeeperMarks3D } from "./GoalkeeperMarks3D";
 import type { MatchInfo } from "../lib/matchLabel";
 
 type CamKey = "tilt" | "aerial" | "low" | "goal";
@@ -225,8 +226,9 @@ function ballRadius(xg: number | null) {
 }
 
 function HeatBall({
-  item, index, match, ringColor, selected, dim, show, cellH, cols, rows, segs, onSelect,
+  item, index, match, ringColor, selected, dim, show, cellH, cols, rows, segs, mode, onSelect,
 }: {
+  mode: ShotViewMode;
   item: Shot3DItem; index: number; match?: MatchInfo; ringColor: string; selected: boolean; dim: boolean;
   show: boolean; cellH: { current: Float32Array }; cols: number; rows: number; segs: number;
   onSelect: (i: number) => void;
@@ -293,7 +295,7 @@ function HeatBall({
             <div className="text-sv-muted">
               {[match?.score, match?.dateLabel].filter(Boolean).join(" · ")}
               {(match?.score || match?.dateLabel) ? " · " : ""}
-              {shot.minute != null ? `${shot.minute}'` : ""} {RESULT_META[resultKey(shot)].label} · xG {fmt(shot.xg)}
+              {shot.minute != null ? `${shot.minute}'` : ""} {resultMeta(mode)[resultKey(shot)].label} · xG {fmt(shot.xg)}
             </div>
           </div>
         </Html>
@@ -367,7 +369,7 @@ export interface ShotHeat3DProps {
   items: Shot3DItem[];
   /** Chutes do período inteiro: fixa a escala de altura/cor para o relevo crescer durante a reprodução. */
   reference: Shot3DItem[];
-  metric: "xg" | "count";
+  metric: HeatMetric;
   /** true: escala do período inteiro; false: escala própria do recorte atual (ex.: "só este jogo"). */
   fixedScale?: boolean;
   selected: number | null;
@@ -405,7 +407,7 @@ export function ShotHeat3D({
   // ---- densidade ----
   const sampleOf = useMemo(() => (it: Shot3DItem): KdeSample => ({
     ...toMeters(it.pos?.x ?? it.shot.x ?? 0, it.pos?.y ?? it.shot.y ?? 0),
-    w: metric === "xg" ? (it.shot.xg ?? 0) : 1,
+    w: shotWeight(it.shot, metric),
   }), [metric]);
   const refSamples = useMemo(() => reference.map(sampleOf), [reference, sampleOf]);
   const curSamples = useMemo(() => items.map(sampleOf), [items, sampleOf]);
@@ -475,7 +477,10 @@ export function ShotHeat3D({
   }, [probe, items, curSamples]);
 
   const pickedItem = selected != null ? items[selected] : null;
-  const unit = metric === "xg" ? "xG por 100 m²" : "chutes por 100 m²";
+  const pickedWorld = pickedItem
+    ? (() => { const w = toWorld(pickedItem.pos?.x ?? pickedItem.shot.x ?? 0, pickedItem.pos?.y ?? pickedItem.shot.y ?? 0, 0); return { x: w[0], z: w[2] }; })()
+    : null;
+  const unit = metric === "xg" ? "xG por 100 m²" : metric === "goals" ? "gols sofridos por 100 m²" : metric === "saves" ? "defesas por 100 m²" : "chutes por 100 m²";
   const peakValue = norm * 100;
   const segs = items.length > 140 ? 12 : 20;
   const showCaption = caption ?? null;
@@ -493,12 +498,13 @@ export function ShotHeat3D({
           <directionalLight position={[-30, 40, 30]} intensity={0.5} />
           <Suspense fallback={null}>
             <PitchTurf3D />
+            {mode === "gk" && <GoalkeeperMarks3D selectedPos={pickedWorld} />}
             <Terrain targetT={targetT} cols={cols} rows={rows} mode={terrain} scale={heightScale} cut={cut}
               lut={lut} lin={lin} cellH={cellH} onProbe={setProbe} />
             {items.map((it, i) => (
               <HeatBall key={`${it.shot.event_id}-${i}`} item={it} index={i} match={matchOf(it)}
                 ringColor={multi ? (matchOf(it)?.color ?? it.ring) : it.ring}
-                selected={selected === i} dim={dimOf(it, i)} show={showBalls}
+                selected={selected === i} dim={dimOf(it, i)} show={showBalls} mode={mode}
                 cellH={cellH} cols={cols} rows={rows} segs={segs} onSelect={onSelect} />
             ))}
             {showPeak && peak && peak.t > 0.2 && (
@@ -543,7 +549,7 @@ export function ShotHeat3D({
 
         {pickedItem && (
           <ShotDetailCard
-            shot={pickedItem.shot} color={pickedItem.color} match={matchOf(pickedItem)} onClose={() => onSelect(null)}
+            shot={pickedItem.shot} color={pickedItem.color} match={matchOf(pickedItem)} mode={mode} onClose={() => onSelect(null)}
             className="absolute bottom-3 left-3 right-3 sm:right-auto sm:max-w-sm"
           />
         )}

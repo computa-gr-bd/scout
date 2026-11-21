@@ -8,6 +8,7 @@ import { CameraRig, type CameraPreset } from "./CameraRig";
 import { PitchTurf3D, TURF_L, TURF_W } from "./PitchTurf3D";
 import { estimatedTrajectory, resultKey, toWorld, type AttackSide } from "../lib/shotAnalytics";
 import { ShotDetailCard } from "./ShotDetailCard";
+import { GoalkeeperMarks3D } from "./GoalkeeperMarks3D";
 import type { MatchInfo } from "../lib/matchLabel";
 
 export interface Shot3DItem {
@@ -160,6 +161,9 @@ export function ShotPitch3D({
   const picked = selected != null ? items[selected] : null;
   const pickedMatch = picked && matchOf ? matchOf(picked.shot) : undefined;
   const twoTeams = !!homeLabel && !!awayLabel;
+  const pickedWorld = picked
+    ? (() => { const w = toWorld(picked.pos?.x ?? picked.shot.x ?? 0, picked.pos?.y ?? picked.shot.y ?? 0, 0); return { x: w[0], z: w[2] }; })()
+    : null;
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/10" style={{ height: 540 }}>
@@ -171,6 +175,7 @@ export function ShotPitch3D({
         <directionalLight position={[-30, 40, 30]} intensity={0.45} />
         <Suspense fallback={null}>
           <PitchTurf3D />
+          {mode === "gk" && <GoalkeeperMarks3D selectedPos={pickedWorld} />}
           {items.map((it, i) =>
             (showTrails || selected === i) ? (
               <Trajectory key={`t-${it.shot.event_id}-${i}`} item={it} index={i}
@@ -213,13 +218,13 @@ export function ShotPitch3D({
       </div>
 
       <div className="absolute right-3 top-3 max-w-[50%] text-right text-[10px] leading-snug text-sv-muted">
-        Esfera maior = maior xG
+        Esfera maior = maior xG{mode === "gk" ? " · verde = defesa · vermelho = gol sofrido · cone = abertura do gol" : ""}
         {twoTeams && <> · anel azul/vermelho = {homeLabel}/{awayLabel}</>}
       </div>
 
       {picked && (
         <ShotDetailCard
-          shot={picked.shot} color={picked.color} match={pickedMatch} onClose={() => onSelect(null)}
+          shot={picked.shot} color={picked.color} match={pickedMatch} mode={mode} onClose={() => onSelect(null)}
           className="absolute bottom-3 left-3 right-3 sm:right-auto sm:max-w-sm"
         />
       )}

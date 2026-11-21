@@ -15,6 +15,51 @@ export const RESULT_META: Record<ResultKey, { label: string; color: string }> = 
 };
 export const RESULT_ORDER: ResultKey[] = ["goal", "saved", "post", "blocked", "miss"];
 
+/** Perspectiva do goleiro: o gol é ruim (vermelho) e a defesa é boa (verde). */
+export const GK_RESULT_META: Record<ResultKey, { label: string; color: string }> = {
+  goal: { label: "Gol sofrido", color: "#ef4444" },
+  saved: { label: "Defesa", color: "#22c55e" },
+  blocked: { label: "Bloqueado", color: "#94a3b8" },
+  post: { label: "Na trave", color: "#a855f7" },
+  miss: { label: "Para fora", color: "#eab308" },
+};
+export const GK_RESULT_ORDER: ResultKey[] = ["saved", "goal", "post", "blocked", "miss"];
+
+export type ShotMode = "attack" | "gk" | "def";
+export function resultMeta(mode: ShotMode = "attack") {
+  return mode === "gk" ? GK_RESULT_META : RESULT_META;
+}
+export function resultOrder(mode: ShotMode = "attack") {
+  return mode === "gk" ? GK_RESULT_ORDER : RESULT_ORDER;
+}
+
+/** Defesa de grande chance e gol de baixa chance (leitura de goleiro). */
+export const HARD_SAVE_XG = 0.3;
+export const SOFT_GOAL_XG = 0.1;
+
+export type GkSector = "left" | "center" | "right";
+export const GK_SECTOR_LABEL: Record<GkSector, string> = {
+  left: "Lado esquerdo do goleiro", center: "Centro", right: "Lado direito do goleiro",
+};
+/** Ângulo (graus) do chute em relação ao eixo do gol; negativo = lado esquerdo do goleiro. */
+export function shotAngleDeg(x: number, y: number): number {
+  const dx = ((100 - x) / 100) * PITCH_W;
+  const dy = ((y - 50) / 100) * PITCH_H; // y pequeno = esquerda do goleiro (de frente para o campo)
+  return (Math.atan2(dy, Math.max(0.01, dx)) * 180) / Math.PI;
+}
+export function sectorOf(x: number, y: number): GkSector {
+  const a = shotAngleDeg(x, y);
+  return a < -18 ? "left" : a > 18 ? "right" : "center";
+}
+/** Abertura do gol vista pelo chutador (graus): quanto maior, mais gol ele enxerga. */
+export function goalOpeningDeg(x: number, y: number): number {
+  const dx = Math.max(0.01, ((100 - x) / 100) * PITCH_W);
+  const py = ((y - 50) / 100) * PITCH_H;
+  const a1 = Math.atan2(py - 3.66, dx);
+  const a2 = Math.atan2(py + 3.66, dx);
+  return (Math.abs(a2 - a1) * 180) / Math.PI;
+}
+
 export const SITUATION_LABELS: Record<string, string> = {
   OpenPlay: "Bola rolando",
   FromCorner: "Escanteio",
@@ -220,7 +265,15 @@ export interface HeatCell {
  * Agrupa os chutes numa grade sobre o terço ofensivo (x de 50 a 100).
  * `metric` define se o valor da célula é a soma de xG ou a contagem de chutes.
  */
-export function heatGrid(shots: UnderstatShot[], metric: "xg" | "count", cols = 10, rows = 8) {
+export type HeatMetric = "xg" | "count" | "goals" | "saves";
+export function shotWeight(s: UnderstatShot, metric: HeatMetric): number {
+  if (metric === "xg") return s.xg ?? 0;
+  if (metric === "goals") return resultKey(s) === "goal" ? 1 : 0;
+  if (metric === "saves") return resultKey(s) === "saved" ? 1 : 0;
+  return 1;
+}
+
+export function heatGrid(shots: UnderstatShot[], metric: HeatMetric, cols = 10, rows = 8) {
   const x0 = 50;
   const cw = (100 - x0) / cols;
   const ch = 100 / rows;
@@ -236,7 +289,7 @@ export function heatGrid(shots: UnderstatShot[], metric: "xg" | "count", cols = 
     const r = Math.min(rows - 1, Math.max(0, Math.floor(s.y / ch)));
     const cell = cells[r * cols + c];
     cell.count += 1;
-    cell.value += metric === "xg" ? s.xg ?? 0 : 1;
+    cell.value += shotWeight(s, metric);
   });
   const max = Math.max(0, ...cells.map((c) => c.value));
   return { cells: cells.filter((c) => c.value > 0), max };

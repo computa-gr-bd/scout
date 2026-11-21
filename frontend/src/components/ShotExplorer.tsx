@@ -3,14 +3,16 @@ import type { UnderstatShot } from "../api/client";
 import { Pitch2D, type PitchShot } from "./Pitch";
 import { ShotPitch3D, type Shot3DItem, type ShotViewMode } from "./ShotPitch3D";
 import { DefenseKpis } from "./DefenseKpis";
+import { GoalkeeperPitch2D } from "./GoalkeeperPitch2D";
+import { ShotDetailCard } from "./ShotDetailCard";
 import { XgTimeline } from "./XgTimeline";
 import { TeamLogo } from "./ui";
 import { buildMatchIndex, type MatchLike } from "../lib/matchLabel";
 import {
-  AWAY_COLOR, DEFAULT_FILTERS, HOME_COLOR, RESULT_META, RESULT_ORDER, SITUATION_LABELS, SOLO_COLOR,
-  applyFilters, bodyLabel, displayPoint, distanceToGoal, fmt, heatGrid, resultKey, shotColor, situationLabel,
+  AWAY_COLOR, DEFAULT_FILTERS, HOME_COLOR, RESULT_ORDER, SITUATION_LABELS, SOLO_COLOR,
+  applyFilters, bodyLabel, displayPoint, distanceToGoal, fmt, heatGrid, resultKey, resultMeta, resultOrder, situationLabel,
   summarize, uniqueValues, BODY_LABELS, BIG_CHANCE_XG,
-  type AttackSide, type ResultKey, type ShotFilters, type ShotSummary,
+  type AttackSide, type HeatMetric, type ResultKey, type ShotFilters, type ShotSummary,
 } from "../lib/shotAnalytics";
 
 // O mapa de calor 3D (three.js) só é baixado quando alguém abre "Calor 3D".
@@ -116,6 +118,15 @@ export function ShotExplorer({
   note?: string | null;
 }) {
   const defending = mode !== "attack";
+  const gk = mode === "gk";
+  // Goleiro vê o jogo ao contrário: defesa é verde e gol sofrido é vermelho.
+  const meta = resultMeta(mode);
+  const order = resultOrder(mode);
+  const colorOf = (s: UnderstatShot) => meta[resultKey(s)].color;
+  const viewLabels: Record<ViewMode, string> = gk ? { ...VIEW_LABELS, map: "Mapa do gol" } : VIEW_LABELS;
+  const heatMetrics: { v: HeatMetric; label: string }[] = gk
+    ? [{ v: "xg", label: "Por xG" }, { v: "count", label: "Por chutes" }, { v: "goals", label: "Gols sofridos" }, { v: "saves", label: "Defesas" }]
+    : [{ v: "xg", label: "Por xG" }, { v: "count", label: "Por chutes" }];
   const teams = useMemo(
     () => (homeName && awayName ? [homeName, awayName] : defending ? [] : uniqueValues(shots, (s) => s.team).slice(0, 2)),
     [shots, homeName, awayName, defending]
@@ -135,7 +146,7 @@ export function ShotExplorer({
   const [lines, setLines] = useState(true);
   const [trails, setTrails] = useState(true);
   const [sides, setSides] = useState(true);
-  const [heatMetric, setHeatMetric] = useState<"xg" | "count">("xg");
+  const [heatMetric, setHeatMetric] = useState<HeatMetric>("xg");
   const [selected, setSelected] = useState<number | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -259,10 +270,10 @@ export function ShotExplorer({
         side,
         isGoal: resultKey(s) === "goal",
         r: Math.max(1.4, Math.min(4.2, 1.4 + (s.xg ?? 0) * 6)),
-        color: shotColor(s),
+        color: colorOf(s),
         stroke: multiTeam ? teamColor(s.team) : undefined,
         label: plotted.length <= 25 && s.minute != null ? String(s.minute) : undefined,
-        title: `${matchOf(s) ? `${matchOf(s)!.label} · ` : ""}${s.minute ?? "?"}' ${s.player ?? ""} · ${RESULT_META[resultKey(s)].label} · xG ${fmt(s.xg)}`,
+        title: `${matchOf(s) ? `${matchOf(s)!.label} · ` : ""}${s.minute ?? "?"}' ${s.player ?? ""} · ${meta[resultKey(s)].label} · xG ${fmt(s.xg)}`,
         };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -272,7 +283,7 @@ export function ShotExplorer({
     const side = sideOf(s.team);
     return {
       shot: s,
-      color: shotColor(s),
+      color: colorOf(s),
       ring: teamColor(s.team),
       side,
       pos: displayPoint(s.x ?? 0, s.y ?? 0, side),
@@ -355,13 +366,13 @@ export function ShotExplorer({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          {RESULT_ORDER.map((k) => {
+          {order.map((k) => {
             const on = filters.results.includes(k);
             return (
               <button key={k} onClick={() => toggleResult(k)} aria-pressed={on}
                 className={`sv-chip !cursor-pointer ${on ? "" : "opacity-40"}`}>
-                <span className="inline-block h-2 w-2 rounded-full" style={{ background: RESULT_META[k].color }} />
-                {RESULT_META[k].label}
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: meta[k].color }} />
+                {meta[k].label}
               </button>
             );
           })}
@@ -413,7 +424,7 @@ export function ShotExplorer({
 
       {/* Resumo */}
       {defending ? (
-        <DefenseKpis shots={filtered} mode={mode as "gk" | "def"} matchCount={matchCount ?? Math.max(1, matchIndex.length)} note={note} />
+        <DefenseKpis shots={filtered} mode={mode as "gk" | "def"} matchCount={matchCount ?? Math.max(1, matchIndex.length)} note={note} matchOf={matchOf} />
       ) : (
         <div className="sv-card-inner">
           <div className="sv-label mb-3">Resumo das finalizações ({filtered.length})</div>
@@ -428,7 +439,7 @@ export function ShotExplorer({
             {(Object.keys(VIEW_LABELS) as ViewMode[]).map((v) => (
               <button key={v} onClick={() => setView(v)}
                 className={`sv-btn !px-3 !py-1 text-[12px] ${view === v ? "!border-sv-accent3 !bg-sv-accent text-white" : ""}`}>
-                {VIEW_LABELS[v]}
+                {viewLabels[v]}
               </button>
             ))}
           </div>
@@ -462,10 +473,10 @@ export function ShotExplorer({
                   ))}
                 </div>
                 <div className="flex gap-1">
-                  {(["xg", "count"] as const).map((m) => (
-                    <button key={m} onClick={() => setHeatMetric(m)}
-                      className={`sv-btn !px-2 !py-0.5 text-[11px] ${heatMetric === m ? "!border-sv-accent3 !bg-sv-accent text-white" : ""}`}>
-                      {m === "xg" ? "Por xG" : "Por chutes"}
+                  {heatMetrics.map((m) => (
+                    <button key={m.v} onClick={() => setHeatMetric(m.v)}
+                      className={`sv-btn !px-2 !py-0.5 text-[11px] ${heatMetric === m.v ? "!border-sv-accent3 !bg-sv-accent text-white" : ""}`}>
+                      {m.label}
                     </button>
                   ))}
                 </div>
@@ -489,6 +500,12 @@ export function ShotExplorer({
               mode={mode} matches={matchIndex} caption={replayCaption}
             />
           </Suspense>
+        ) : gk && view === "map" ? (
+          <GoalkeeperPitch2D
+            items={items3d} showLines={lines}
+            selected={plotIdxOfSelected != null && plotIdxOfSelected >= 0 ? plotIdxOfSelected : null}
+            onSelect={pickByPlot}
+          />
         ) : (
           <Pitch2D
             shots={view === "map" ? pitchShots : undefined}
@@ -516,11 +533,15 @@ export function ShotExplorer({
 
         {view === "heat" && heatDim === "2d" && (
           <p className="px-1 text-[11px] text-sv-muted">
-            Terço ofensivo, com o gol à direita. As cores somam {heatMetric === "xg" ? "o xG" : "os chutes"} de cada região; mais quente = maior volume.
+            Terço ofensivo, com o gol à direita. As cores somam {heatMetric === "xg" ? "o xG" : heatMetric === "goals" ? "os gols sofridos" : heatMetric === "saves" ? "as defesas" : "os chutes"} de cada região; mais quente = maior volume.
             {" "}Use o <b className="text-white/80">Calor 3D</b> para ver o relevo crescer durante a reprodução e identificar a partida de cada chute.
           </p>
         )}
-        {view === "map" && selectedShot && (
+        {view === "map" && selectedShot && gk && (
+          <ShotDetailCard shot={selectedShot} color={colorOf(selectedShot)} match={matchOf(selectedShot)} mode={mode}
+            onClose={() => setSelected(null)} />
+        )}
+        {view === "map" && selectedShot && !gk && (
           <div className="rounded-xl border border-sv-border p-3 text-xs">
             {matchOf(selectedShot) && (
               <div className="mb-2 flex items-center gap-2">
@@ -534,7 +555,7 @@ export function ShotExplorer({
               <span className="ml-2 font-normal text-sv-muted">{selectedShot.team}</span>
             </div>
             <div className="flex flex-wrap gap-x-5 gap-y-1 text-sv-muted">
-              <span>{RESULT_META[resultKey(selectedShot)].label}</span>
+              <span>{meta[resultKey(selectedShot)].label}</span>
               <span>xG <b className="text-white">{fmt(selectedShot.xg)}</b></span>
               <span>{situationLabel(selectedShot.situation)}</span>
               <span>{bodyLabel(selectedShot.body_part)}</span>
@@ -548,9 +569,9 @@ export function ShotExplorer({
 
         {view !== "heat" && (
           <div className="flex flex-wrap gap-3 px-1 text-[11px] text-sv-muted">
-            {RESULT_ORDER.map((k) => (
+            {order.map((k) => (
               <span key={k} className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full" style={{ background: RESULT_META[k].color }} />{RESULT_META[k].label}
+                <span className="h-2 w-2 rounded-full" style={{ background: meta[k].color }} />{meta[k].label}
               </span>
             ))}
             <span>· tamanho = xG</span>
@@ -620,8 +641,8 @@ export function ShotExplorer({
                       </td>
                     )}
                     <td className="px-3 py-1.5">
-                      <span className="mr-1.5 inline-block h-2 w-2 rounded-full" style={{ background: shotColor(s) }} />
-                      {RESULT_META[resultKey(s)].label}
+                      <span className="mr-1.5 inline-block h-2 w-2 rounded-full" style={{ background: colorOf(s) }} />
+                      {meta[resultKey(s)].label}
                     </td>
                     <td className="px-3 py-1.5 text-right font-mono tabular-nums">{fmt(s.xg)}</td>
                     <td className="px-3 py-1.5 text-sv-muted">{situationLabel(s.situation)}</td>

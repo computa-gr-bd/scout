@@ -1,6 +1,9 @@
 import { useMemo } from "react";
 import type { UnderstatShot } from "../api/client";
-import { BIG_CHANCE_XG, resultKey, summarize } from "../lib/shotAnalytics";
+import {
+  BIG_CHANCE_XG, HARD_SAVE_XG, SITUATION_LABELS, SOFT_GOAL_XG, fmt, resultKey, summarize,
+} from "../lib/shotAnalytics";
+import type { MatchInfo } from "../lib/matchLabel";
 import { toMeters, zoneAt } from "../lib/heatmapKde";
 
 const ZONES = ["Pequena área", "Grande área", "Entrada da área", "Longa distância", "Meio-campo"];
@@ -23,8 +26,11 @@ function Tile({ k, v, sub, hint }: { k: string; v: string; sub?: string; hint?: 
  * ADVERSÁRIOS dos jogos em que o jogador esteve em campo.
  */
 export function DefenseKpis({
-  shots, mode, matchCount, note,
-}: { shots: UnderstatShot[]; mode: "gk" | "def"; matchCount: number; note?: string | null }) {
+  shots, mode, matchCount, note, matchOf,
+}: {
+  shots: UnderstatShot[]; mode: "gk" | "def"; matchCount: number; note?: string | null;
+  matchOf?: (s: UnderstatShot) => MatchInfo | undefined;
+}) {
   const d = useMemo(() => {
     const sum = summarize(shots);
     let goals = 0, saved = 0, blocked = 0, xgOnTarget = 0;
@@ -42,6 +48,24 @@ export function DefenseKpis({
     }
     return { sum, goals, saved, blocked, xgOnTarget, zones: ZONES.map((name) => ({ name, ...zones.get(name)! })) };
   }, [shots]);
+
+  const gkx = useMemo(() => {
+    if (mode !== "gk") return null;
+    const hard = shots.filter((s) => resultKey(s) === "saved" && (s.xg ?? 0) >= HARD_SAVE_XG)
+      .sort((a, b) => (b.xg ?? 0) - (a.xg ?? 0));
+    const soft = shots.filter((s) => resultKey(s) === "goal" && (s.xg ?? 0) < SOFT_GOAL_XG)
+      .sort((a, b) => (a.xg ?? 0) - (b.xg ?? 0));
+    const bySit = new Map<string, { n: number; goals: number; saves: number; xg: number }>();
+    for (const s of shots) {
+      const k = s.situation ?? "Outras";
+      const b = bySit.get(k) ?? { n: 0, goals: 0, saves: 0, xg: 0 };
+      b.n += 1; b.xg += s.xg ?? 0;
+      if (resultKey(s) === "goal") b.goals += 1;
+      if (resultKey(s) === "saved") b.saves += 1;
+      bySit.set(k, b);
+    }
+    return { hard, soft, sit: [...bySit.entries()].sort((a, b) => b[1].n - a[1].n) };
+  }, [shots, mode]);
 
   const games = Math.max(1, matchCount);
   const { sum } = d;
@@ -95,6 +119,48 @@ export function DefenseKpis({
           })}
         </div>
       </div>
+
+      {gkx && (
+        <div className="grid gap-4 md:grid-cols-3">
+          <div>
+            <div className="mb-1.5 text-[11px] text-sv-muted">Por tipo de jogada</div>
+            <div className="space-y-1 text-xs">
+              {gkx.sit.map(([k, b]) => (
+                <div key={k} className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-sv-muted">{SITUATION_LABELS[k] ?? k}</span>
+                  <span className="shrink-0 font-mono tabular-nums">
+                    {b.n} · <span className="text-emerald-400">{b.saves}d</span> · <span className="text-red-400">{b.goals}g</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="mb-1.5 text-[11px] text-sv-muted">Maiores defesas (xG ≥ {HARD_SAVE_XG.toFixed(2).replace(".", ",")}) · {gkx.hard.length}</div>
+            <ul className="space-y-1 text-xs">
+              {gkx.hard.slice(0, 4).map((s, i) => (
+                <li key={`h${i}`} className="flex items-baseline justify-between gap-2">
+                  <span className="min-w-0 truncate">{s.minute != null ? `${s.minute}' ` : ""}{matchOf?.(s)?.label ?? s.player ?? "—"}</span>
+                  <span className="shrink-0 font-mono tabular-nums text-emerald-400">xG {fmt(s.xg)}</span>
+                </li>
+              ))}
+              {gkx.hard.length === 0 && <li className="text-sv-muted">Nenhuma no recorte.</li>}
+            </ul>
+          </div>
+          <div>
+            <div className="mb-1.5 text-[11px] text-sv-muted">Gols de baixa chance (xG &lt; {SOFT_GOAL_XG.toFixed(2).replace(".", ",")}) · {gkx.soft.length}</div>
+            <ul className="space-y-1 text-xs">
+              {gkx.soft.slice(0, 4).map((s, i) => (
+                <li key={`s${i}`} className="flex items-baseline justify-between gap-2">
+                  <span className="min-w-0 truncate">{s.minute != null ? `${s.minute}' ` : ""}{matchOf?.(s)?.label ?? s.player ?? "—"}</span>
+                  <span className="shrink-0 font-mono tabular-nums text-red-400">xG {fmt(s.xg)}</span>
+                </li>
+              ))}
+              {gkx.soft.length === 0 && <li className="text-sv-muted">Nenhum no recorte.</li>}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {note && <p className="text-[11px] leading-snug text-sv-muted">{note}</p>}
     </div>
