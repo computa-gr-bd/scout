@@ -399,17 +399,30 @@ def estimated_lineup(db: Session, team_id: int,
 
 
 def match_goals(db: Session, match_id: int) -> List[Dict[str, Any]]:
-    """Gols da partida: quem marcou, minuto, assistência, pênalti/gol-contra."""
+    """Gols da partida: quem marcou, minuto, assistência, pênalti/gol-contra.
+
+    Uma única consulta com JOIN filtra gols pelo match_id e carrega jogador/
+    evento em lote, eliminando o select(Goal).all() + N+1 de db.get.
+    """
+    from sqlalchemy.orm import selectinload, joinedload
+
+    rows = db.execute(
+        select(Goal, Event.minute, Event.team_id)
+        .join(Event, Event.id == Goal.event_id)
+        .options(
+            selectinload(Goal.scorer),
+            selectinload(Goal.assist),
+        )
+        .where(Event.match_id == match_id)
+    ).all()
+
     goals: List[Dict[str, Any]] = []
-    for g in db.scalars(select(Goal)).all():
-        event = db.get(Event, g.event_id) if g.event_id else None
-        if event is None or event.match_id != match_id:
-            continue
-        scorer = db.get(Player, g.scorer_player_id)
-        assist = db.get(Player, g.assist_player_id) if g.assist_player_id else None
+    for g, minute, team_id in rows:
+        scorer = g.scorer
+        assist = g.assist
         goals.append({
-            "minute": event.minute,
-            "team_id": event.team_id,
+            "minute": minute,
+            "team_id": team_id,
             "scorer_player_id": g.scorer_player_id,
             "scorer_name": _display_name(scorer),
             "assist_player_id": g.assist_player_id,

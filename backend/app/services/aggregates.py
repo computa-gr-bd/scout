@@ -116,9 +116,13 @@ def compute_match_aggregates(db: Session, match: Match) -> None:
             passes_by_player.setdefault(pid, []).append(r)
 
     goals_by_player: Dict[int, int] = {}
-    for g in db.scalars(select(Goal)).all():
-        ev = db.get(Event, g.event_id)
-        if ev is not None and ev.match_id == match.id and g.scorer_player_id:
+    # Filtrar gols no SQL pelo match_id em vez de carregar todos os gols do banco.
+    for g in db.scalars(
+        select(Goal)
+        .join(Goal.event)
+        .where(Event.match_id == match.id)
+    ).all():
+        if g.scorer_player_id:
             goals_by_player[g.scorer_player_id] = goals_by_player.get(g.scorer_player_id, 0) + 1
 
     assists_by_player: Dict[int, int] = {}

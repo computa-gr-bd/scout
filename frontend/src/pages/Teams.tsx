@@ -109,11 +109,11 @@ export default function TeamsPage() {
   // execução) e deixava a rota /teams inteira em branco.
   const compsQ = useQuery({
     queryKey: ["comps-page"], queryFn: () => listCompetitions(),
-    retry: 1, retryDelay: 600,
+    retry: 1, retryDelay: 600, staleTime: 10 * 60_000,
   });
   const seasonsQ = useQuery({
     queryKey: ["seasons-page"], queryFn: () => listSeasons(),
-    retry: 1, retryDelay: 600,
+    retry: 1, retryDelay: 600, staleTime: 10 * 60_000,
   });
 
   // Temporada corrente de cada competição (a marcada como current, senão a de fim mais recente).

@@ -1,7 +1,7 @@
-import { Link } from "react-router-dom";
 import clsx from "clsx";
 import type { Match } from "../api/client";
 import { TeamLogo } from "./ui";
+import { Link } from "react-router-dom";
 import { formatShortDate, formatTime, matchPhase, matchStatusLabel } from "../lib/matchStatus";
 
 /** Selo de status da partida (ao vivo pulsa; encerrada neutra; agendada discreta). */

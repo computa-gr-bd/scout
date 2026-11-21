@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  getUnderstatLeagueTable, getUnderstatMatchShots, getUnderstatPlayerShots, getUnderstatStats,
+  getUnderstatLeagueTable, getUnderstatMatchShots, getUnderstatStats,
   getUnderstatSyncStatus, getUnderstatTeamForm, listUnderstatLeagues, listUnderstatMatches,
   syncUnderstatFast,
   type UnderstatLeague, type UnderstatMatch, type UnderstatStats, type UnderstatTableRow,
 } from "../api/client";
 import { Link } from "react-router-dom";
 import { ShotExplorer } from "../components/ShotExplorer";
+import { Modal, PlayerShotsModal } from "../components/PlayerShotsModal";
 import { TeamCompare, type CompareTeam } from "../components/TeamCompare";
 import { XgScatter, type ScatterPoint } from "../components/XgScatter";
 import { Badge, EmptyState, ErrorState, LeagueLogo, SectionTitle, TeamLogo } from "../components/ui";
@@ -31,24 +32,6 @@ function LoadingCard({ lines = 4 }: { lines?: number }) {
         {Array.from({ length: lines }).map((_, i) => (
           <div key={i} className="h-4 skeleton" style={{ width: `${90 - i * 9}%` }} />
         ))}
-      </div>
-    </div>
-  );
-}
-
-function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  // Esc fecha; o scroll do fundo fica travado enquanto o modal está aberto.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
-  }, [onClose]);
-  return (
-    <div className="fixed inset-0 z-50 overflow-auto bg-black/75 p-3 sm:p-6" onClick={onClose}>
-      <div className="mx-auto max-w-[1200px]" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <div className="sv-card shadow-pop">{children}</div>
       </div>
     </div>
   );
@@ -459,30 +442,6 @@ function PerformancePanel({
 }
 
 // ---------------------------------------------------------------- Chutes de um jogador
-
-function PlayerShotsModal({ playerId, name, onClose }: { playerId: number; name: string; onClose: () => void }) {
-  const q = useQuery({
-    queryKey: ["understat", "player-shots", playerId],
-    queryFn: () => getUnderstatPlayerShots(playerId),
-    retry: 1,
-  });
-  return (
-    <Modal onClose={onClose}>
-      <div className="px-4 py-3 border-b border-sv-border bg-sv-panel2/40 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold truncate">{q.data?.player ?? name}</div>
-          <div className="text-xs text-sv-muted">Todas as finalizações coletadas · ataque sempre para a direita</div>
-        </div>
-        <button className="sv-btn" onClick={onClose}>Fechar</button>
-      </div>
-      <div className="p-3 sm:p-5">
-        {q.isLoading && <div className="text-sm text-sv-muted">Carregando chutes…</div>}
-        {q.isError && <div className="text-sm text-sv-muted">Não foi possível carregar os chutes deste jogador.</div>}
-        {q.data && <ShotExplorer shots={q.data.shots} showXgTimeline={false} />}
-      </div>
-    </Modal>
-  );
-}
 
 // ---------------------------------------------------------------- Partidas
 

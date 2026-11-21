@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -179,7 +179,7 @@ export default function Dashboard() {
   // ---- Partida em destaque: sorteada entre as já disputadas que têm chutes (lances reais no estúdio).
   const poolQ = useQuery({
     queryKey: ["understat", "matches", "home-pool"],
-    queryFn: () => listUnderstatMatches({ finished_only: true, limit: 120 }),
+    queryFn: () => listUnderstatMatches({ finished_only: true, limit: 50 }),
     staleTime: 5 * 60_000, retry: 0,
   });
   const pool = useMemo(() => (poolQ.data ?? []).filter((m) => m.has_shots), [poolQ.data]);

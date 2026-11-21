@@ -380,6 +380,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
   const standingsQ = useQuery({
     queryKey: ["standings", seasonId],
     queryFn: () => getStandings(seasonId!),
+    staleTime: 5 * 60_000,
     enabled: seasonId != null,
     retry: 1, retryDelay: 600,
   });

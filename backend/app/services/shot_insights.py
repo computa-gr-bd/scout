@@ -1,4 +1,4 @@
-"""Análise tática calculada AO VIVO a partir dos chutes reais (Understat).
+﻿"""Análise tática calculada AO VIVO a partir dos chutes reais (Understat).
 
 Alimenta a tela de Análise sem depender de tabelas pré-calculadas (``DefensiveWeakness``,
 ``PlayerZoneStats``) nem de modelo treinado — que só existem nos dados de demonstração:
@@ -121,6 +121,40 @@ def _on_target(e: Event) -> bool:
     return bool(e.shot and e.shot.on_target) or _is_goal(e)
 
 
+def _shot_rows_lightweight(db, match_ids):
+    if not match_ids:
+        return []
+    rows = db.execute(
+        select(
+            Event.match_id,
+            Event.team_id,
+            EventPosition.x,
+            EventPosition.y,
+            Shot.xg,
+        )
+        .join(EventPosition, EventPosition.event_id == Event.id, isouter=True)
+        .join(Shot, Shot.event_id == Event.id, isouter=True)
+        .where(Event.match_id.in_(match_ids), Event.type == EventType.SHOT)
+    ).all()
+    return [(mid, tid, float(x or 0.0), float(y or 0.0), float(xg or 0.08)) for mid, tid, x, y, xg in rows]
+
+
+def _zone_from_xy(x: float, y: float) -> Tuple[str, str]:
+    if x > 83:
+        att_z = "central_box" if 33 <= y <= 67 else ("outside_box_left" if y < 33 else "outside_box_right")
+    elif x > 50:
+        att_z = "opp_central_midfield" if 33 <= y <= 67 else ("opp_left_flank" if y < 33 else "opp_right_flank")
+    else:
+        att_z = "own_central_midfield" if 33 <= y <= 67 else ("own_left_flank" if y < 33 else "own_right_flank")
+    dx, dy = 100.0 - x, 100.0 - y
+    if dx > 83:
+        def_z = "central_box" if 33 <= dy <= 67 else ("outside_box_left" if dy < 33 else "outside_box_right")
+    elif dx > 50:
+        def_z = "opp_central_midfield" if 33 <= dy <= 67 else ("opp_left_flank" if dy < 33 else "opp_right_flank")
+    else:
+        def_z = "own_central_midfield" if 33 <= dy <= 67 else ("own_left_flank" if dy < 33 else "own_right_flank")
+    return att_z, def_z
+
 def _own_zone(e: Event) -> Tuple[str, str]:
     """(zona de ataque do chutador, zona própria do defensor) — o defensor vê o campo girado 180°."""
     px, py = e.position.x, e.position.y
@@ -149,14 +183,24 @@ def season_baseline(
             .order_by(desc(Match.kickoff_time))
             .limit(LEAGUE_WINDOW)
         ).all())
-    events = _load_shot_events(db, ids) if len(ids) >= 6 else fallback_events
-    n_matches = len(ids) if len(ids) >= 6 else max(1, len({e.match_id for e in fallback_events}))
-    att: Dict[str, float] = defaultdict(float)
-    dfn: Dict[str, float] = defaultdict(float)
-    for e in events:
-        a, d = _own_zone(e)
-        att[a] += _xg(e)
-        dfn[d] += _xg(e)
+    if len(ids) >= 6:
+        rows = _shot_rows_lightweight(db, ids)
+        n_matches = len(ids)
+        att: Dict[str, float] = defaultdict(float)
+        dfn: Dict[str, float] = defaultdict(float)
+        for mid, tid, x, y, xg in rows:
+            a, d = _zone_from_xy(x, y)
+            att[a] += xg
+            dfn[d] += xg
+    else:
+        events = fallback_events
+        n_matches = max(1, len({e.match_id for e in events})) if events else 1
+        att: Dict[str, float] = defaultdict(float)
+        dfn: Dict[str, float] = defaultdict(float)
+        for e in events:
+            a, d = _own_zone(e)
+            att[a] += _xg(e)
+            dfn[d] += _xg(e)
     per = 2.0 * n_matches  # dois times por jogo
     return {k: v / per for k, v in att.items()}, {k: v / per for k, v in dfn.items()}, n_matches
 
@@ -807,3 +851,4 @@ def match_insights(db: Session, m: Match) -> Dict[str, Any]:
         "notes": notes,
         "generated_at": datetime.utcnow().isoformat(),
     }
+

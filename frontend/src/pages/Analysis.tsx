@@ -81,6 +81,7 @@ export default function AnalysisPage() {
   const upcomingQuery = useQuery({
     queryKey: ["matches", "analysis", "upcoming"],
     queryFn: () => listMatches({ scope: "upcoming", limit: 100, analysis: true }),
+    staleTime: 5 * 60_000,
   });
   const recentQuery = useQuery({
     queryKey: ["matches", "analysis", "recent"],

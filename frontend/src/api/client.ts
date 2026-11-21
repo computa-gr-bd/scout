@@ -628,6 +628,13 @@ export interface UnderstatShot {
   last_action?: string | null;
   assisted_by?: string | null;
   match_id?: number;
+  /** Partida em que o chute aconteceu (preenchido nos endpoints por jogador). */
+  home_team?: string | null;
+  away_team?: string | null;
+  home_score?: number | null;
+  away_score?: number | null;
+  match_date?: string | null;
+  match_label?: string | null;
   details?: Record<string, unknown> | null;
 }
 export interface UnderstatMatchShots {
@@ -753,6 +760,38 @@ export async function syncUnderstatFast(params?: {
     .then((r) => r.data);
 }
 export type UnderstatPlayerShot = UnderstatShot & { match_id: number };
+
+/** Resumo de uma partida dentro de `getUnderstatPlayerShotsAgainst`. */
+export interface UnderstatShotsAgainstMatch {
+  match_id: number;
+  home_team: string | null;
+  away_team: string | null;
+  home_score: number | null;
+  away_score: number | null;
+  match_date: string | null;
+  match_label: string | null;
+  /** Minutos que o jogador atuou (null = sem dado). */
+  minutes: number | null;
+  started: boolean;
+  /** true quando o recorte de minutos do jogador foi estimado. */
+  window_estimated: boolean;
+  shots_faced: number;
+}
+export interface UnderstatShotsAgainst {
+  player_id: number;
+  player: string | null;
+  team?: string | null;
+  /** true quando não há dados de participação e foram usados os jogos recentes do time. */
+  approximate: boolean;
+  matches: UnderstatShotsAgainstMatch[];
+  shots: UnderstatPlayerShot[];
+}
+/** Chutes que o time do jogador sofreu com ele em campo (goleiros e defensores). */
+export async function getUnderstatPlayerShotsAgainst(playerId: number, limitMatches = 10) {
+  return api
+    .get<UnderstatShotsAgainst>(`/understat/players/${playerId}/shots-against`, { params: { limit_matches: limitMatches } })
+    .then((r) => r.data);
+}
 export async function getUnderstatPlayerShots(playerId: number) {
   return api
     .get<{ player_id: number; player: string | null; shots: UnderstatPlayerShot[] }>(

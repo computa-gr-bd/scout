@@ -11,6 +11,7 @@ import {
 } from "../api/client";
 import { Badge, EmptyState, TeamLogo } from "../components/ui";
 import { Pitch2D, type PitchShot } from "../components/Pitch";
+import { PlayerShotsModal, shotsButtonLabel } from "../components/PlayerShotsModal";
 import { IndexKpiGrid, PositionIndexSection } from "../components/PositionIndex";
 import { positionLabel } from "../lib/positionLabel";
 
@@ -153,6 +154,7 @@ export default function PlayerPage() {
   const playerId = Number(id);
   const [tab, setTab] = useState<"overview" | "zones">("overview");
   const [showAvg, setShowAvg] = useState(true);
+  const [shotsOpen, setShotsOpen] = useState(false);
 
   const player = useQuery({ queryKey: ["player", playerId], queryFn: () => getPlayer(playerId) });
   const overview = useQuery({ queryKey: ["player-overview", playerId], queryFn: () => getPlayerOverview(playerId), retry: 0 });
@@ -337,6 +339,10 @@ export default function PlayerPage() {
           </div>
           <div className="shrink-0 flex flex-wrap gap-2">
             <Link to={`/compare?p=${p.id}`} className="sv-btn-primary">Comparar</Link>
+            <button type="button" className="sv-btn" onClick={() => setShotsOpen(true)}
+              title={role === "GK" ? "Chutes que o time sofreu com ele no gol" : role === "DEF" ? "Chutes que o time cedeu com ele em campo" : "Mapa, calor e campo 3D dos chutes"}>
+              {shotsButtonLabel(role)}
+            </button>
             <Link to="/players" className="sv-btn">Voltar à lista</Link>
           </div>
         </div>
@@ -671,6 +677,9 @@ export default function PlayerPage() {
             )}
           </Panel>
         </>
+      )}
+      {shotsOpen && (
+        <PlayerShotsModal playerId={p.id} name={displayName} role={indexQ.isLoading ? undefined : role} onClose={() => setShotsOpen(false)} />
       )}
     </div>
   );

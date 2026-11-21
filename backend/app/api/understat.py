@@ -10,7 +10,8 @@ Endpoints:
 - POST   /api/understat/matches/{id}/shots   — força coleta de shots de uma partida
 - GET    /api/understat/teams/{team_id}/stats — estatísticas de um time (temporada)
 - GET    /api/understat/league-table/{league_key} — tabela da liga completa
-- GET    /api/understat/players/{id}/shots   — chutes de um jogador
+- GET    /api/understat/players/{id}/shots   — chutes de um jogador (com a partida de cada um)
+- GET    /api/understat/players/{id}/shots-against — chutes sofridos com o jogador em campo (goleiro/defensor)
 - GET    /api/understat/players/{id}/stats   — estatísticas agregadas de um jogador
 - GET    /api/understat/stats                — estatísticas agregadas (top jogadores e times)
 """
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from datetime import timedelta
 from typing import Any, Optional
 
 from app.vendor.understat import Understat
@@ -29,7 +31,7 @@ from sqlalchemy import select, func, desc
 from app.db import get_db
 from app.db.models import (
     CollectionState, Competition, DataSource, Event, EventPosition, EventType,
-    Match, Player, Season, PlayerMatchStatistics, PlayerStatistics, Shot, Team,
+    Lineup, Match, Player, Season, PlayerMatchStatistics, PlayerStatistics, Shot, Team,
     TeamMatchStatistics, TeamStatistics,
 )
 from app.services.understat_sync import (
@@ -487,12 +489,64 @@ def force_match_shots(
     return {"match_id": match_id, "understat_match_id": understat_match_id, **counts}
 
 
+def _match_brief(m: Match | None) -> dict[str, Any]:
+    """Resumo de uma partida (quem jogou contra quem) para rotular chutes no front."""
+    if m is None:
+        return {}
+    home = m.home_team.name if m.home_team else None
+    away = m.away_team.name if m.away_team else None
+    return {
+        "home_team": home,
+        "away_team": away,
+        "home_score": m.home_score,
+        "away_score": m.away_score,
+        "match_date": m.kickoff_time.isoformat() if m.kickoff_time else None,
+        "match_label": f"{home} vs {away}" if home and away else None,
+    }
+
+
+def _player_shot_row(e: Event, shooter: str | None, brief: dict[str, Any]) -> dict[str, Any]:
+    shot = e.shot
+    pos = e.position
+    return {
+        "event_id": e.id,
+        "match_id": e.match_id,
+        "minute": e.minute,
+        "period": e.period,
+        "player": shooter,
+        "team": e.team.name if e.team else None,
+        "result": e.outcome,
+        "on_target": shot.on_target if shot else None,
+        "is_goal": shot.is_goal if shot else None,
+        "xg": shot.xg if shot else None,
+        "x": pos.x if pos else None,
+        "y": pos.y if pos else None,
+        "end_x": pos.end_x if pos else None,
+        "end_y": pos.end_y if pos else None,
+        "situation": shot.situation if shot else None,
+        "body_part": shot.body_part if shot else None,
+        "assisted_by": (e.details or {}).get("assisted_by"),
+        **brief,
+    }
+
+
+def _matches_by_id(db: Session, ids: set[int]) -> dict[int, Match]:
+    if not ids:
+        return {}
+    rows = db.scalars(
+        select(Match)
+        .options(selectinload(Match.home_team), selectinload(Match.away_team))
+        .where(Match.id.in_(ids))
+    ).all()
+    return {m.id: m for m in rows}
+
+
 @router.get("/understat/players/{player_id}/shots")
 def get_player_shots(
     player_id: int,
     db: Session = Depends(get_db),
 ):
-    """Retorna todos os chutes de um jogador."""
+    """Retorna todos os chutes de um jogador, cada um com a partida em que aconteceu."""
     player = db.get(Player, player_id)
     if not player:
         raise HTTPException(status_code=404, detail="Player not found")
@@ -504,30 +558,159 @@ def get_player_shots(
         .order_by(Event.match_id, Event.minute)
     ).all()
 
+    matches = _matches_by_id(db, {e.match_id for e in events})
     pname = _player_name(player)
-    shots = []
+    shots = [_player_shot_row(e, pname, _match_brief(matches.get(e.match_id))) for e in events]
+    return {"player_id": player_id, "player": pname, "shots": shots}
+
+
+def _equivalent_match_ids(db: Session, m: Match) -> set[int]:
+    """Ids da mesma partida em outros provedores (ESPN, football-data…), ligados por canonical_match_id."""
+    root = m.canonical_match_id or m.id
+    ids = {m.id, root}
+    ids.update(db.scalars(select(Match.id).where(Match.canonical_match_id == root)).all())
+    return ids
+
+
+@router.get("/understat/players/{player_id}/shots-against")
+def get_player_shots_against(
+    player_id: int,
+    limit_matches: int = Query(10, ge=1, le=38, description="Quantos dos últimos jogos considerar."),
+    db: Session = Depends(get_db),
+):
+    """Chutes que o time do jogador sofreu enquanto ele esteve em campo (goleiros e defensores).
+
+    Mostra de onde o adversário finalizou, quanto xG criou e o que virou gol/defesa/bloqueio.
+    O recorte de minutos é estimado a partir dos minutos jogados (titular que saiu → começo do jogo;
+    reserva → fim do jogo). Sem dados de participação, usa todos os jogos recentes do time e
+    devolve ``approximate: true``.
+    """
+    player = db.get(Player, player_id)
+    if not player:
+        raise HTTPException(status_code=404, detail="Player not found")
+    if player.team_id is None:
+        return {"player_id": player_id, "player": _player_name(player), "approximate": True, "matches": [], "shots": []}
+
+    # O time do jogador pode ser o registro de outra fonte (ESPN, football-data): considera todos os
+    # registros do mesmo clube (mesmo nome normalizado) para achar as partidas do Understat.
+    from app.services.studio import _team_ids_like
+    team_ids = _team_ids_like(db, player.team) or [player.team_id]
+    team_matches = db.scalars(
+        select(Match)
+        .options(selectinload(Match.home_team), selectinload(Match.away_team))
+        .where(
+            Match.data_source == DataSource.UNDERSTAT,
+            Match.status == "finished",
+            Match.home_team_id.in_(team_ids) | Match.away_team_id.in_(team_ids),
+        )
+        .order_by(desc(Match.kickoff_time))
+        .limit(max(limit_matches * 3, 30))
+    ).all()
+
+    # Participação do jogador, de qualquer provedor da mesma partida. Minutos zerados/ausentes NÃO
+    # significam "não jogou" (comum em goleiros vindos da ESPN): conta como atuação se houver minutos,
+    # titularidade ou qualquer dado de goleiro (defesas, chutes enfrentados, gols sofridos).
+    played: dict[int, tuple[int | None, bool]] = {}
+
+    def _register(match_id: int, minutes: int, starter: bool, evidence: bool) -> None:
+        if not (minutes > 0 or starter or evidence):
+            return
+        prev = played.get(match_id)
+        mins: int | None = minutes if minutes > 0 else None
+        if prev is None or (mins or 0) > (prev[0] or 0):
+            played[match_id] = (mins, starter or (prev[1] if prev else False))
+
+    for r in db.scalars(select(PlayerMatchStatistics).where(PlayerMatchStatistics.player_id == player_id)).all():
+        evidence = bool((r.saves or 0) or (r.shots_faced or 0) or (r.goals_conceded or 0))
+        _register(r.match_id, int(r.minutes_played or 0), bool(r.is_starter), evidence)
+    for r in db.scalars(select(Lineup).where(Lineup.player_id == player_id)).all():
+        _register(r.match_id, int(r.minutes_played or 0), bool(r.is_starter), False)
+    has_participation = bool(played)
+
+    played_matches = {
+        m.id: m for m in db.scalars(select(Match).where(Match.id.in_(list(played)))).all()
+    } if played else {}
+
+    def _played_hits(m: Match) -> list[tuple[int | None, bool]]:
+        ids = _equivalent_match_ids(db, m)
+        hits = [played[i] for i in ids if i in played]
+        if hits:
+            return hits
+        # mesma partida em outra fonte sem vínculo canônico: mesmo clube e data a menos de 1 dia
+        for pid, pm in played_matches.items():
+            if pm.kickoff_time and m.kickoff_time and abs(pm.kickoff_time - m.kickoff_time) <= timedelta(days=1) \
+                    and ({pm.home_team_id, pm.away_team_id} & set(team_ids)):
+                hits.append(played[pid])
+        return hits
+
+    def _pick(use_participation: bool) -> list[tuple[Match, int | None, bool]]:
+        out: list[tuple[Match, int | None, bool]] = []
+        for m in team_matches:
+            if use_participation:
+                hits = _played_hits(m)
+                if not hits:
+                    continue
+                minutes, starter = max(hits, key=lambda h: h[0] or 0)
+                out.append((m, minutes, starter))
+            else:
+                out.append((m, None, True))
+            if len(out) >= limit_matches:
+                break
+        return out
+
+    chosen = _pick(has_participation)
+    if not chosen:
+        # participação gravada em partidas que não casam com as do Understat: usa os jogos do time
+        has_participation = False
+        chosen = _pick(False)
+
+    ids = {m.id for m, _, _ in chosen}
+    events = db.scalars(
+        select(Event)
+        .options(
+            selectinload(Event.shot), selectinload(Event.position),
+            selectinload(Event.team), selectinload(Event.player),
+        )
+        .where(Event.match_id.in_(ids), Event.type == EventType.SHOT, Event.team_id.notin_(team_ids))
+        .order_by(Event.match_id, Event.minute)
+    ).all() if ids else []
+
+    by_match: dict[int, list[Event]] = {}
     for e in events:
-        shot = e.shot
-        pos = e.position
-        shots.append({
-            "event_id": e.id,
-            "match_id": e.match_id,
-            "minute": e.minute,
-            "period": e.period,
-            "player": pname,
-            "team": e.team.name if e.team else None,
-            "result": e.outcome,
-            "on_target": shot.on_target if shot else None,
-            "is_goal": shot.is_goal if shot else None,
-            "xg": shot.xg if shot else None,
-            "x": pos.x if pos else None,
-            "y": pos.y if pos else None,
-            "end_x": pos.end_x if pos else None,
-            "end_y": pos.end_y if pos else None,
-            "situation": shot.situation if shot else None,
-            "body_part": shot.body_part if shot else None,
+        by_match.setdefault(e.match_id, []).append(e)
+
+    shots: list[dict[str, Any]] = []
+    matches_out: list[dict[str, Any]] = []
+    for m, minutes, starter in reversed(chosen):  # do mais antigo para o mais recente
+        lo, hi = 0, 200
+        window_estimated = False
+        if minutes is not None and minutes < 85:
+            window_estimated = True
+            if starter:
+                hi = minutes
+            else:
+                lo = max(0, 90 - minutes)
+        brief = _match_brief(m)
+        faced = [e for e in by_match.get(m.id, []) if lo <= (e.minute or 0) <= hi]
+        for e in faced:
+            shots.append(_player_shot_row(e, _player_name(e.player), brief))
+        matches_out.append({
+            "match_id": m.id,
+            "minutes": minutes,
+            "started": starter,
+            "window_estimated": window_estimated,
+            "shots_faced": len(faced),
+            **brief,
         })
-    return {"player_id": player_id, "player": _player_name(player), "shots": shots}
+
+    return {
+        "player_id": player_id,
+        "player": _player_name(player),
+        "team": player.team.name if player.team else None,
+        "approximate": not has_participation,
+        "matches": matches_out,
+        "shots": shots,
+    }
 
 
 @router.get("/understat/players/{player_id}/stats")
