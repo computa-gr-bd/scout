@@ -28,7 +28,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Event, EventType, Lineup, Match, Player, PlayerMatchStatistics, ZONE_ORDER
+from app.db.models import Event, EventPosition, EventType, Lineup, Match, Player, PlayerMatchStatistics, Shot, ZONE_ORDER
 from app.services import stats_math as sm
 from app.services.player_dedupe import _name_match
 from app.services.index_service import recent_minutes, team_goalkeeper
