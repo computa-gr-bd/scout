@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { EmptyState, ErrorState, Segmented, Skeleton, TeamLogo } from "../components/ui";
 import { listPlayers, type Player, type PlayerOrder } from "../api/client";
@@ -90,25 +90,28 @@ function PlayerRow({ p, order }: { p: Player; order: PlayerOrder }) {
 
 export default function PlayersPage() {
   const [q, setQ] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   const [pos, setPos] = useState("");
   const [league, setLeague] = useState(""); // "" = todas as 5 ligas
   const [order, setOrder] = useState<PlayerOrder>("minutes");
-  // Paginação incremental: 50 por vez (limite do backend), "Carregar mais" acrescenta.
-  const [pages, setPages] = useState(1);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchTerm(q.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [q]);
+
   const PAGE_SIZE = 50;
-  const qry = useQuery({
-    queryKey: ["players", q, pos, league, order, pages],
-    queryFn: () =>
+  const qry = useInfiniteQuery({
+    queryKey: ["players", searchTerm, pos, league, order],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
       listPlayers({
-        q, position: pos, order, skip: 0, limit: pages * PAGE_SIZE,
-        // Só jogadores de times das 5 ligas.
+        q: searchTerm, position: pos, order, skip: pageParam, limit: PAGE_SIZE,
         top5: true, league: league || undefined,
       }),
-    placeholderData: (prev) => prev,
+    getNextPageParam: (lastPage, pages) =>
+      lastPage.length < PAGE_SIZE ? undefined : pages.length * PAGE_SIZE,
   });
-
-  const resetAnd = (fn: () => void) => { setPages(1); fn(); };
-  const hasMore = (qry.data?.length ?? 0) >= pages * PAGE_SIZE;
+  const players = qry.data?.pages.flat() ?? [];
 
   return (
     <div className="space-y-4">
@@ -118,7 +121,7 @@ export default function PlayersPage() {
           <Segmented<string>
             label="Filtrar por liga"
             value={league}
-            onChange={(v) => resetAnd(() => setLeague(v))}
+            onChange={setLeague}
             options={[{ key: "", label: "Todas" }, ...LEAGUES.map((l) => ({ key: l.code, label: l.label }))]}
           />
         </div>
@@ -129,18 +132,18 @@ export default function PlayersPage() {
                  strokeLinecap="round" className="absolute left-3 top-1/2 -translate-y-1/2 text-sv-faint pointer-events-none" aria-hidden="true">
               <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
             </svg>
-            <input type="search" value={q} onChange={(e) => resetAnd(() => setQ(e.target.value))}
+            <input type="search" value={q} onChange={(e) => setQ(e.target.value)}
                    placeholder="Buscar jogador" className="sv-input w-full !pl-9" />
           </label>
           <label>
             <span className="sr-only">Filtrar por posição</span>
-            <select value={pos} onChange={(e) => resetAnd(() => setPos(e.target.value))} className="sv-input w-full sm:w-48">
+            <select value={pos} onChange={(e) => setPos(e.target.value)} className="sv-input w-full sm:w-48">
               {POSITIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
           </label>
           <label>
             <span className="sr-only">Ordenar por</span>
-            <select value={order} onChange={(e) => resetAnd(() => setOrder(e.target.value as PlayerOrder))} className="sv-input w-full sm:w-44">
+            <select value={order} onChange={(e) => setOrder(e.target.value as PlayerOrder)} className="sv-input w-full sm:w-44">
               {ORDERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </label>
@@ -151,10 +154,10 @@ export default function PlayersPage() {
         <div className="sv-card p-3 space-y-2" aria-busy="true" aria-label="Carregando jogadores">
           {Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="h-11 w-full" />)}
         </div>
-      ) : qry.isError ? (
+      ) : qry.isError && !qry.data ? (
         <ErrorState title="Não foi possível carregar os jogadores"
                     description="Verifique a conexão com a API e tente novamente." onRetry={() => qry.refetch()} />
-      ) : !qry.data?.length ? (
+      ) : !players.length ? (
         <EmptyState
           title="Nenhum jogador encontrado"
           description="Tente outros filtros. Só aparecem jogadores ligados a times das 5 ligas; se a lista estiver vazia, sincronize os elencos (football-data) e o Understat."
@@ -180,20 +183,20 @@ export default function PlayersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {qry.data.map((p) => <PlayerRow key={p.id} p={p} order={order} />)}
+                  {players.map((p) => <PlayerRow key={p.id} p={p} order={order} />)}
                 </tbody>
               </table>
             </div>
           </div>
           <div className="flex justify-center pt-1">
-            {qry.isFetching ? (
+            {qry.isFetchingNextPage ? (
               <Skeleton className="h-9 w-48" />
-            ) : hasMore ? (
-              <button className="sv-btn" onClick={() => setPages((n) => n + 1)}>
-                Carregar mais ({qry.data.length} exibidos)
+            ) : qry.hasNextPage ? (
+              <button className="sv-btn" onClick={() => qry.fetchNextPage()}>
+                {qry.isFetchNextPageError ? "Tentar carregar mais novamente" : `Carregar mais (${players.length} exibidos)`}
               </button>
             ) : (
-              <span className="text-xs text-sv-muted">Fim da lista · {qry.data.length} jogadores</span>
+              <span className="text-xs text-sv-muted">Fim da lista · {players.length} jogadores</span>
             )}
           </div>
         </>

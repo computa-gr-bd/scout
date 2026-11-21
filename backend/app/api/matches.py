@@ -231,8 +231,8 @@ def get_match_analysis(match_id: int, db: Session = Depends(get_db)):
         } for x in h2h
     ]
     form: Dict[str, Any] = {
-        "home": (home.recent_form if home else []),
-        "away": (away.recent_form if away else []),
+        "home": home.recent_form if home and isinstance(home.recent_form, list) else [],
+        "away": away.recent_form if away and isinstance(away.recent_form, list) else [],
     }
     # Standings availability for the match's season.
     from app.db.models import Standing as _Standing

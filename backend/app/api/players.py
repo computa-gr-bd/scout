@@ -97,9 +97,9 @@ def list_players(q: Optional[str] = None, position: Optional[str] = None,
     if order in _ORDERS:
         agg = order_subquery()
         stmt = (stmt.outerjoin(agg, agg.c.pid == Player.id)
-                .order_by(desc(func.coalesce(getattr(agg.c, _ORDERS[order]), 0)), Player.last_name))
+                .order_by(desc(func.coalesce(getattr(agg.c, _ORDERS[order]), 0)), Player.last_name, Player.id))
     else:
-        stmt = stmt.order_by(Player.last_name)
+        stmt = stmt.order_by(Player.last_name, Player.id)
     index = duplicate_index(db)
     ordered: List[int] = []
     seen: set = set()

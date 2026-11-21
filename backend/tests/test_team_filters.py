@@ -139,6 +139,57 @@ def test_players_without_team_still_listable(seeded):
     assert len(r.json()) == 3
 
 
+def test_hidden_competitions_do_not_appear_in_calendar_or_listings(seeded, db_session):
+    for code, name in [("CL", "UEFA Champions League"), (None, "FIFA World Cup")]:
+        comp = Competition(name=name, code=code, type="league", data_source=DataSource.FOOTBALL_DATA)
+        db_session.add(comp)
+        db_session.flush()
+        season = Season(competition_id=comp.id, name="2026", data_source=DataSource.FOOTBALL_DATA)
+        db_session.add(season)
+        db_session.flush()
+        db_session.add(Match(
+            season_id=season.id, home_team_id=seeded["home"], away_team_id=seeded["away"],
+            kickoff_time=datetime.utcnow() + timedelta(days=1), status="scheduled",
+            data_source=DataSource.FOOTBALL_DATA,
+        ))
+    db_session.commit()
+
+    competitions = client.get("/api/competitions").json()
+    assert [c["name"] for c in competitions] == ["Liga"]
+    for params in [{"scope": "upcoming"}, {"scope": "all"}, {"scope": "upcoming", "analysis": "true"}]:
+        response = client.get("/api/matches", params=params)
+        assert response.status_code == 200
+        assert all(m["competition_name"] == "Liga" for m in response.json())
+    assert db_session.query(Competition).count() == 3
+
+
+def test_analysis_accepts_understat_metadata_and_real_form(seeded, db_session):
+    db_session.add_all([
+        TeamStatistics(team_id=seeded["home"], season_id=seeded["season"], scope="overall",
+                       recent_form={"understat_team": "Alpha FC", "points": 10}),
+        TeamStatistics(team_id=seeded["away"], season_id=seeded["season"], scope="overall",
+                       recent_form=[{"result": "W"}]),
+    ])
+    db_session.commit()
+    match = db_session.scalar(select(Match).where(Match.home_team_id == seeded["home"]))
+    response = client.get(f"/api/matches/{match.id}/analysis")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["form"] == {"home": [], "away": [{"result": "W"}]}
+    assert data["home_team_stats"]["recent_form"]["understat_team"] == "Alpha FC"
+
+
+def test_player_pages_are_disjoint_when_names_tie(seeded, db_session):
+    players = db_session.scalars(select(Player).order_by(Player.id)).all()
+    players[0].last_name = players[1].last_name = "Mesmo nome"
+    db_session.commit()
+    params = {"limit": 1, "order": "name"}
+    first = client.get("/api/players", params={**params, "skip": 0}).json()
+    second = client.get("/api/players", params={**params, "skip": 1}).json()
+    assert len(first) == len(second) == 1
+    assert first[0]["id"] != second[0]["id"]
+
+
 def test_squad_ingest_links_player_to_team():
     season = {"id": 20, "startDate": "2026-01-01", "endDate": "2026-12-31"}
     home = {"id": 1, "name": "A", "shortName": "AA",
