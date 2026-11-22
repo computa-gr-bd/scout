@@ -480,8 +480,18 @@ def build_report(match: Dict[str, Any], insights: Dict[str, Any], agg: Dict[str,
 
 
 # --------------------------------------------------------------------------- relatório pós-jogo
-GOAL_TOLERANCE = 1.0          # gols esperados por time: acerto se |esperado − real| < 1
-TOTAL_GOAL_TOLERANCE = 1.5    # total de gols
+GOAL_TOLERANCE = 1.0          # gols esperados por time: só é erro se saiu ABAIXO do esperado por 1 gol ou mais
+TOTAL_GOAL_TOLERANCE = 1.5    # total de gols: só é erro se saiu ABAIXO do esperado por 1,5 gol ou mais
+
+
+def _goals_hit(expected: float, real: float, tolerance: float) -> bool:
+    """Gols esperados funcionam como um "pelo menos": real >= esperado é sempre acerto.
+
+    Só erra quando o real ficou ABAIXO do esperado por ``tolerance`` ou mais (ex.: previu 3 e foi 7 → acerto).
+    """
+    return real >= expected or (expected - real) < tolerance
+
+
 EVEN_MARGIN = 1               # "jogo equilibrado": empate ou vitória por 1 gol
 EVEN_SHOTS_GAP = 2            # "volume parecido de chutes cedidos": diferença de até 2 chutes
 TOP_ZONES = 2                 # a zona fraca prevista vale se estiver entre as 2 que mais cederam xG
@@ -549,9 +559,11 @@ def build_review(report: Dict[str, Any], actual: Dict[str, Any]) -> Dict[str, An
     eg = est["expected_goals"]
     for side, goals in (("home", hs), ("away", as_)):
         add(f"goals_{side}", "Gols", f"Gols do {names[side]}", f"{_n(eg[side])} esperados", f"{goals}",
-            abs(eg[side] - goals) < GOAL_TOLERANCE, "Acerto: diferença menor que 1 gol.")
+            _goals_hit(eg[side], goals, GOAL_TOLERANCE),
+            "Acerto: fez o esperado ou mais (só erra se ficou mais de 1 gol abaixo).")
     add("goals_total", "Gols", "Total de gols", f"{_n(eg['total'])} esperados", f"{hs + as_}",
-        abs(eg["total"] - (hs + as_)) < TOTAL_GOAL_TOLERANCE, "Acerto: diferença menor que 1,5 gol.")
+        _goals_hit(eg["total"], hs + as_, TOTAL_GOAL_TOLERANCE),
+        "Acerto: saiu o esperado ou mais (só erra se ficou mais de 1,5 gol abaixo).")
     over_pred = est["over_2_5"] >= 0.5
     add("over_2_5", "Gols", "Mais de 2,5 gols", f"{'Sim' if over_pred else 'Não'} ({_pct(est['over_2_5'])})",
         f"{'Sim' if hs + as_ >= 3 else 'Não'} ({hs + as_} gols)", over_pred == (hs + as_ >= 3))
