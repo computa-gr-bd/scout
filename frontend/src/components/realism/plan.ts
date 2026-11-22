@@ -59,7 +59,6 @@ export type Plan = {
   };
   defender?: { pos: THREE.Vector3; touch: THREE.Vector3; contactQ: number; contact: Contact };
   extras: Extra[];
-  crossFrom?: THREE.Vector3;
   freeKick?: boolean;
   /** Pra fora: a bola vai por cima (true) ou pelo lado. */
   offHigh: boolean;
@@ -386,7 +385,6 @@ export function buildPlan(o: PlanInput): Plan {
   clipSet.add(clip); if (approach) clipSet.add(approach);
 
   /* ------------------------------------------------ bola chegando: cruzamento (cabeceio) ou escanteio */
-  let crossFrom: THREE.Vector3 | undefined;
   let taker: Contact | undefined;
   let cornerInfo: Plan["corner"];
   if (corner) {
@@ -444,7 +442,7 @@ if (airborne) {
   if (keeper.clip) clipSet.add(keeper.clip);
   return {
     kind, result, left: o.left, animSec, S, aim, TC, TE, segs, net, catches,
-    shooter, taker, corner: cornerInfo, celebTo, keeper, defender, extras, crossFrom, offHigh, freeKick,
+    shooter, taker, corner: cornerInfo, celebTo, keeper, defender, extras, offHigh, freeKick,
     clips: Array.from(clipSet),
   };
 }
