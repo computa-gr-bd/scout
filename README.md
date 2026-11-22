@@ -9,9 +9,17 @@
 Plataforma de scouting e análise exploratória de futebol, com dados de cinco ligas
 europeias, relatórios estatísticos e visualizações táticas em 2D e 3D.
 
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![Three.js](https://img.shields.io/badge/Three.js-R3F-000000?logo=threedotjs&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-4169E1?logo=postgresql&logoColor=white)
+![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)
+
 [Funcionalidades](#funcionalidades) · [Arquitetura](#arquitetura) ·
-[Banco de dados](#banco-de-dados) · [Como executar](#como-executar) ·
-[Coleta de dados](#coleta-de-dados) · [Perguntas frequentes](#perguntas-frequentes)
+[Stack e bibliotecas](#stack-e-bibliotecas) · [Banco de dados](#banco-de-dados) ·
+[Como executar](#como-executar) · [Coleta de dados](#coleta-de-dados)
 
 </div>
 
@@ -110,42 +118,82 @@ medida absoluta de habilidade.
 ## Arquitetura
 
 ```mermaid
-flowchart LR
-    A[Provedores de dados] --> B[Coleta e validação]
-    B --> C[Normalização e associação entre fontes]
-    C --> D[(PostgreSQL no Neon)]
-    D --> E[Serviços de estatística e análise]
-    E --> F[API FastAPI]
-    F --> G[Interface React e TypeScript]
-    G --> H[Scouting, relatórios e visualizações 2D/3D]
+flowchart TB
+    subgraph fontes["1. Fontes externas"]
+        FD["football-data.org<br/>calendário · clubes · elencos · tabelas"]
+        US["Understat<br/>chutes · coordenadas · xG · dados de times e jogadores"]
+        ESPN["ESPN<br/>estatísticas de partida disponíveis"]
+        FBREF["SoccerData / FBref<br/>escalações · dados defensivos"]
+        SB["StatsBomb Open Data<br/>eventos históricos"]
+    end
+
+    subgraph ingestao["2. Coleta e preparação"]
+        COLETORES["Coletores independentes<br/>football-data · Understat · ESPN · FBref · StatsBomb"]
+        VALIDACAO["Validação · normalização<br/>origem · IDs externos · upsert"]
+    end
+
+    subgraph banco["3. Persistência relacional"]
+        DB[("PostgreSQL no Neon<br/>SQLAlchemy · Alembic")]
+        ENTIDADES["competition · season · team · player"]
+        PARTIDAS["match · lineup · event"]
+        DETALHES["shot · pass · goal"]
+        ESTATISTICAS["estatísticas por temporada e partida"]
+        ENTIDADES --- PARTIDAS
+        PARTIDAS --- DETALHES
+        PARTIDAS --- ESTATISTICAS
+        DB --- ENTIDADES
+    end
+
+    subgraph backend["4. Backend"]
+        SERVICOS["Serviços de domínio<br/>perfis · comparações · escalações"]
+        ANALISES["Análises<br/>zonas · índices · relatórios"]
+        API["API FastAPI<br/>validação com Pydantic"]
+        SERVICOS --> ANALISES --> API
+    end
+
+    subgraph frontend["5. Interface"]
+        CLIENTE["Cliente da API<br/>TanStack Query · Axios"]
+        TELAS["React · TypeScript<br/>painel · times · jogadores · partidas"]
+        VISUAL["Studio 2D/3D · Replay · Comparador<br/>Recharts · Three.js"]
+        CLIENTE --> TELAS --> VISUAL
+    end
+
+    FD --> COLETORES
+    US --> COLETORES
+    ESPN --> COLETORES
+    FBREF --> COLETORES
+    SB --> COLETORES
+    COLETORES --> VALIDACAO --> DB
+    DB --> SERVICOS
+    API --> CLIENTE
+
+    ACOES["GitHub Actions<br/>testes e coletas agendadas"] -.-> COLETORES
+    VERCEL["Vercel<br/>interface e API publicadas"] -.-> API
+    VERCEL -.-> TELAS
 ```
 
-### Tecnologias
+O caminho principal dos dados é da coleta à interface. As coletas são separadas
+por provedor; assim, uma falha externa pode afetar uma fonte sem significar que
+as demais deixaram de funcionar. A aplicação mantém a origem dos registros para
+que análises e telas possam respeitar a procedência e a cobertura disponível.
 
-| Camada | Tecnologias | Responsabilidade |
-|---|---|---|
-| Interface | React, TypeScript, Vite, Tailwind CSS | Páginas, filtros e visualizações |
-| Gráficos e 3D | Recharts, Three.js, React Three Fiber e Drei | Gráficos, campos e replay visual |
-| API | Python, FastAPI, Pydantic e Uvicorn | Rotas, validação e lógica de aplicação |
-| Dados e análise | SQLAlchemy, NumPy e clientes dos provedores | Acesso ao banco, coleta e cálculos |
-| Banco de dados | PostgreSQL, hospedado no Neon | Persistência relacional dos dados |
-| Migrações | Alembic | Evolução versionada do esquema |
-| Automação e hospedagem | GitHub Actions, Docker e Vercel | Testes, coletas agendadas e publicação |
+### Stack e bibliotecas
 
-### Por que usamos mais de uma linguagem?
+| Camada | Linguagens e tecnologias | Bibliotecas e ferramentas | Papel no projeto |
+|---|---|---|---|
+| Interface web | TypeScript, HTML, CSS | React, Vite, Tailwind CSS, React Router | Páginas, componentes, navegação e estilos |
+| Estado e comunicação | TypeScript | TanStack Query, Zustand, Axios | Consultas à API, cache e estado compartilhado |
+| Gráficos e visualização | TypeScript, WebGL | Recharts, Three.js, React Three Fiber, Drei | Gráficos, campos e cenas 3D |
+| Backend e API | Python 3.11 | FastAPI, Pydantic, Uvicorn | Rotas HTTP, validação de dados e execução do servidor |
+| Banco e migrações | SQL, Python | PostgreSQL, SQLAlchemy, Psycopg, Alembic | Consultas, persistência relacional e mudanças versionadas no esquema |
+| Coleta e análise | Python | NumPy, Requests, HTTPX, aiohttp, SoccerData e cliente Understat do projeto | Integração com provedores, processamento e cálculos |
+| Testes e automação | Python, TypeScript, YAML | pytest, ESLint, TypeScript Compiler, GitHub Actions | Testes, verificações de código e rotinas agendadas |
+| Ambiente e publicação | YAML, shell | Docker, Docker Compose, Vercel | Execução local, empacotamento e publicação da interface/API |
 
-Cada linguagem atende a uma parte diferente do sistema:
-
-- **Python** é usado na API, nos coletores e nos cálculos estatísticos;
-- **TypeScript** é usado na interface web. Seus tipos ajudam a detectar
-  inconsistências entre os dados recebidos pela API e o que a tela espera;
-- **SQL** é a linguagem de consulta do PostgreSQL. O SQLAlchemy gera e executa
-  consultas a partir do código Python, mas o banco continua sendo relacional;
-- **HTML e CSS** descrevem a estrutura e a apresentação visual da interface;
-- **YAML** configura automações do GitHub Actions e serviços de infraestrutura.
-
-Não são várias tecnologias fazendo a mesma coisa: são ferramentas diferentes
-para interface, regras de negócio, armazenamento e automação.
+As linguagens atendem a camadas diferentes: Python concentra a API, a coleta e
+os cálculos; TypeScript dá tipos à interface; SQL consulta e organiza o banco;
+HTML e CSS compõem a apresentação web; YAML descreve automações e serviços.
+As bibliotecas complementam essas funções, não são linguagens adicionais.
 
 ---
 
@@ -456,62 +504,6 @@ scout/
 ├── docker-compose.yml
 └── vercel.json
 ```
-
----
-
-## Perguntas frequentes
-
-### O ScoutVision prevê o resultado de uma partida?
-
-Ele calcula estimativas a partir das informações disponíveis e apresenta os
-fatores usados. Uma estimativa probabilística não determina o resultado real e
-não deve ser tratada como certeza.
-
-### O sistema usa inteligência artificial treinada?
-
-Não se deve afirmar isso para os recursos descritos aqui. O projeto usa métodos
-estatísticos e, em algumas probabilidades, coeficientes predefinidos. Isso é
-diferente de treinar e validar um modelo de aprendizado de máquina em uma base
-histórica. Não há uma métrica de acerto em partidas reais documentada neste
-README.
-
-### Por que usar PostgreSQL em vez de guardar tudo em planilhas ou arquivos?
-
-O sistema relaciona muitas partidas, times, jogadores, temporadas e eventos.
-PostgreSQL permite impor integridade referencial, consultar relações, filtrar e
-ordenar dados e criar índices para as consultas usadas pela aplicação.
-
-### Por que o banco é normalizado?
-
-Porque informações de entidades são mantidas em registros próprios e ligadas por
-chaves. Isso reduz duplicação e inconsistência, preserva a origem dos registros
-e facilita combinar dados de partida, elenco e temporada. Campos flexíveis de
-provedores podem ser mantidos em estruturas JSON quando não se encaixam em
-colunas comuns.
-
-### Por que os nomes e identificadores variam entre provedores?
-
-Cada serviço define seus próprios identificadores e grafias. O ScoutVision usa
-rotinas de associação para ligar registros equivalentes sem descartar a
-procedência de cada fonte. Uma associação pode não ser possível ou exigir
-revisão se os dados forem ambíguos.
-
-### Escalação provável significa escalação oficial?
-
-Não. Uma escalação oficial vem de um dado confirmado da fonte. Uma escalação
-provável é uma estimativa e deve aparecer identificada como tal.
-
-### Todos os dados são atualizados em tempo real?
-
-Não. Os dados dependem de coletas periódicas, da cobertura de cada fonte e da
-disponibilidade externa. Confira a última execução em `/api/data/status`.
-
-### Os números de uma apresentação são dados reais?
-
-Somente se forem extraídos de uma consulta identificada, com fonte, período e
-definição do indicador. Exemplos sem essa origem devem ser marcados
-explicitamente como fictícios e não podem ser apresentados como resultados do
-ScoutVision.
 
 ---
 
