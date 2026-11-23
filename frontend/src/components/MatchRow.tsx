@@ -49,8 +49,8 @@ function Center({ m, showDate }: { m: Match; showDate?: boolean }) {
  * `showCompetition`: coluna de competição/rodada (esconda em listas já filtradas por competição).
  */
 export function MatchRow({
-  m, showDate = false, showCompetition = true,
-}: { m: Match; showDate?: boolean; showCompetition?: boolean }) {
+  m, showDate = false, showCompetition = true, ownLogosOnly = false, sourceMatch = false,
+}: { m: Match; showDate?: boolean; showCompetition?: boolean; ownLogosOnly?: boolean; sourceMatch?: boolean }) {
   const phase = matchPhase(m.status);
   const homeWon = phase === "finished" && m.home_score > m.away_score;
   const awayWon = phase === "finished" && m.away_score > m.home_score;
@@ -58,7 +58,7 @@ export function MatchRow({
   const label = `${m.home_team.name} contra ${m.away_team.name}, ${matchStatusLabel(m.status)}. Abrir análise.`;
 
   return (
-    <Link to={`/analysis/${m.id}`} aria-label={label} className="sv-row-link px-3 sm:px-4 py-2.5">
+    <Link to={`/analysis/${m.id}${sourceMatch ? "?source_match=1" : ""}`} aria-label={label} className="sv-row-link px-3 sm:px-4 py-2.5">
       <div className={clsx(
         "grid items-center gap-x-3",
         showCompetition
@@ -67,11 +67,11 @@ export function MatchRow({
       )}>
         <div className="flex items-center justify-end gap-2.5 min-w-0">
           <span className={clsx("truncate text-sm text-right", homeWon ? "font-semibold" : "font-medium")}>{m.home_team.name}</span>
-          <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} className="w-6 h-6 sm:w-7 sm:h-7" />
+          <TeamLogo name={m.home_team.name} src={m.home_team.logo_url} ownLogoOnly={ownLogosOnly} className="w-6 h-6 sm:w-7 sm:h-7" />
         </div>
         <Center m={m} showDate={showDate} />
         <div className="flex items-center gap-2.5 min-w-0">
-          <TeamLogo name={m.away_team.name} src={m.away_team.logo_url} className="w-6 h-6 sm:w-7 sm:h-7" />
+          <TeamLogo name={m.away_team.name} src={m.away_team.logo_url} ownLogoOnly={ownLogosOnly} className="w-6 h-6 sm:w-7 sm:h-7" />
           <span className={clsx("truncate text-sm", awayWon ? "font-semibold" : "font-medium")}>{m.away_team.name}</span>
         </div>
         {showCompetition && (

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   getMatch, getMatchInsights, getMatchStudio, listMatches,
@@ -71,6 +71,7 @@ function matchLabel(match: Match) {
 
 export default function AnalysisPage() {
   const { matchId } = useParams<{ matchId: string }>();
+  const [searchParams] = useSearchParams();
   const routeMatchId = matchId && Number.isFinite(Number(matchId)) ? Number(matchId) : null;
   const [selectedMatchId, setSelectedMatchId] = useState<number | null>(routeMatchId);
   const [scope, setScope] = useState<"upcoming" | "recent">("upcoming");
@@ -97,13 +98,15 @@ export default function AnalysisPage() {
     [matchesQuery.data],
   );
   const selectedInList = matches.find((match) => match.id === selectedMatchId);
+  const sourceMatch = searchParams.get("source_match") === "1" && selectedMatchId === routeMatchId;
 
   const selectedQuery = useQuery({
-    queryKey: ["match", selectedMatchId],
-    queryFn: () => getMatch(selectedMatchId!),
-    enabled: selectedMatchId != null && !selectedInList && matchesQuery.isSuccess,
+    queryKey: ["match", selectedMatchId, sourceMatch],
+    queryFn: () => getMatch(selectedMatchId!, sourceMatch),
+    enabled: selectedMatchId != null && (sourceMatch || !selectedInList)
+      && (matchesQuery.isSuccess || routeMatchId != null),
   });
-  const selectedMatch = selectedInList ?? selectedQuery.data;
+  const selectedMatch = sourceMatch ? selectedQuery.data : selectedInList ?? selectedQuery.data;
   const selectedRealMatch = selectedMatch && !isDemoMatch(selectedMatch) ? selectedMatch : undefined;
 
   useEffect(() => {
@@ -113,8 +116,8 @@ export default function AnalysisPage() {
   }, [routeMatchId, scope, selectedQuery.data?.status]);
 
   const studioQuery = useQuery({
-    queryKey: ["match-studio", selectedMatchId],
-    queryFn: () => getMatchStudio(selectedMatchId!),
+    queryKey: ["match-studio", selectedMatchId, sourceMatch],
+    queryFn: () => getMatchStudio(selectedMatchId!, sourceMatch),
     enabled: selectedMatchId != null && selectedRealMatch != null,
   });
   const insightsQuery = useQuery({
@@ -214,15 +217,15 @@ export default function AnalysisPage() {
         <p className="text-xs text-sv-muted max-w-xl">Selecione uma partida para ver o estúdio de campo, o relatório pré-jogo, as zonas e as estimativas por jogador.</p>
       </div>
 
-      {matchesQuery.isError ? (
+      {matchesQuery.isError && routeMatchId == null ? (
         <ErrorState
           title="Não foi possível carregar as partidas"
           description="Confira a conexão com a API e tente novamente."
           onRetry={() => matchesQuery.refetch()}
         />
-      ) : matchesQuery.isPending ? (
+      ) : matchesQuery.isPending && routeMatchId == null ? (
         <div className="sv-card h-24 skeleton" />
-      ) : matches.length === 0 ? (
+      ) : matches.length === 0 && routeMatchId == null ? (
         <EmptyState
           title={scope === "upcoming" ? "Nenhuma partida futura disponível" : "Nenhum resultado recente disponível"}
           description={scope === "upcoming"
@@ -244,6 +247,16 @@ export default function AnalysisPage() {
               </div>
             </div>
             <div className="p-2">
+              {matchesQuery.isError ? (
+                <div className="p-2 text-sm text-sv-muted">
+                  Não foi possível carregar a lista.{" "}
+                  <button className="underline" onClick={() => matchesQuery.refetch()}>Tentar novamente</button>
+                </div>
+              ) : matchesQuery.isPending ? (
+                <div className="p-2 text-sm text-sv-muted">Carregando partidas…</div>
+              ) : matches.length === 0 ? (
+                <div className="p-2 text-sm text-sv-muted">Nenhuma partida disponível nesta lista.</div>
+              ) : null}
               <div className="max-h-[70vh] space-y-1.5 overflow-auto pr-0.5">
                 {matches.map((match) => {
                   const isSelected = match.id === selectedMatchId;
@@ -327,6 +340,7 @@ export default function AnalysisPage() {
                   awayName={selectedRealMatch.away_team.name}
                   homeLogo={selectedRealMatch.home_team.logo_url}
                   awayLogo={selectedRealMatch.away_team.logo_url}
+                  sourceMatch={sourceMatch}
                 />
 
                 <section aria-label="Análise de zonas">

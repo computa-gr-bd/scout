@@ -236,10 +236,10 @@ function reportToText(r: MatchReport, names: Names): string {
   return lines.join("\n");
 }
 
-export function PreMatchReport({ matchId, homeName, awayName, homeLogo, awayLogo }: {
-  matchId: number; homeName: string; awayName: string; homeLogo?: string | null; awayLogo?: string | null;
+export function PreMatchReport({ matchId, homeName, awayName, homeLogo, awayLogo, sourceMatch = false }: {
+  matchId: number; homeName: string; awayName: string; homeLogo?: string | null; awayLogo?: string | null; sourceMatch?: boolean;
 }) {
-  const q = useQuery({ queryKey: ["match-report", matchId], queryFn: () => getMatchReport(matchId), retry: 0 });
+  const q = useQuery({ queryKey: ["match-report", matchId, sourceMatch], queryFn: () => getMatchReport(matchId, sourceMatch), retry: 0 });
   const [copied, setCopied] = useState(false);
   const names: Names = { home: homeName, away: awayName };
   const r = q.data;

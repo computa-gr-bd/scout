@@ -404,6 +404,7 @@ export async function listMatches(params?: {
   scope?: "upcoming" | "recent" | "all"; team_id?: number; skip?: number; limit?: number;
   /** Tela de Análise: jogos passados só da Understat; jogos futuros de qualquer fonte. */
   analysis?: boolean;
+  home_recent?: boolean;
 }) {
   return api.get<Match[]>("/matches", { params }).then((r) => r.data);
 }
@@ -425,7 +426,9 @@ export interface StandingRow {
 export async function getStandings(seasonId: number) {
   return api.get<StandingRow[]>(`/seasons/${seasonId}/standings`).then((r) => r.data);
 }
-export async function getMatch(id: number) { return api.get(`/matches/${id}`).then((r) => r.data); }
+export async function getMatch(id: number, sourceMatch = false) {
+  return api.get(`/matches/${id}`, { params: sourceMatch ? { source_match: true } : undefined }).then((r) => r.data);
+}
 export async function getMatchAnalysis(id: number) { return api.get<MatchAnalysis>(`/matches/${id}/analysis`).then((r) => r.data); }
 export async function getMatchPredictions(id: number) { return api.get(`/matches/${id}/predictions`).then((r) => r.data); }
 /** Análise tática calculada dos chutes reais (Understat): zonas fracas, previsões por jogador e confrontos. */
@@ -883,8 +886,10 @@ export interface MatchStudioPayload {
   players: StudioApiPlayer[];
   coverage: { shots: number; has_shots: boolean; has_lineup: boolean; has_xg: boolean; has_end_location: boolean; notes: string[] };
 }
-export async function getMatchStudio(id: number) {
-  return api.get<MatchStudioPayload>(`/matches/${id}/studio`).then((r) => r.data);
+export async function getMatchStudio(id: number, sourceMatch = false) {
+  return api.get<MatchStudioPayload>(`/matches/${id}/studio`, {
+    params: sourceMatch ? { source_match: true } : undefined,
+  }).then((r) => r.data);
 }
 
 // ---------- Understat: chutes recentes por time (comparação de times) ----------
@@ -1049,8 +1054,11 @@ export interface MatchReport {
   factors?: { home: ReportFactor[]; away: ReportFactor[] };
   conclusion?: { text: string; bullets: string[]; confidence: string; favorite: string };
 }
-export async function getMatchReport(id: number) {
-  return api.get<MatchReport>(`/matches/${id}/report`, { timeout: 60000 }).then((r) => r.data);
+export async function getMatchReport(id: number, sourceMatch = false) {
+  return api.get<MatchReport>(`/matches/${id}/report`, {
+    timeout: 60000,
+    params: sourceMatch ? { source_match: true } : undefined,
+  }).then((r) => r.data);
 }
 
 // ---------- Comparação de jogadores (mesmos índices da tela do jogador) ----------

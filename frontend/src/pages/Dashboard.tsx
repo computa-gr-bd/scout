@@ -168,13 +168,18 @@ const SHORTCUTS: { to: string; label: string; hint: string; icon: string }[] = [
 // ---------------------------------------------------------------- Página
 
 export default function Dashboard() {
-  // Mesma regra da tela de Análise: jogos passados só do Understat; futuros de qualquer fonte, sem duplicatas.
+  // Próximos jogos seguem a regra da tela de Análise.
   const upcomingQ = useQuery({
     queryKey: ["matches-analysis", "upcoming", "home"],
     queryFn: () => listMatches({ scope: "upcoming", analysis: true, limit: 12 }),
     retry: 1, retryDelay: 600,
   });
   const recentQ = useQuery({
+    queryKey: ["home-recent-results"],
+    queryFn: () => listMatches({ scope: "recent", home_recent: true, limit: 12 }),
+    retry: 1, retryDelay: 600,
+  });
+  const analysisRecentQ = useQuery({
     queryKey: ["matches-analysis", "recent", "home"],
     queryFn: () => listMatches({ scope: "recent", analysis: true, limit: 12 }),
     retry: 1, retryDelay: 600,
@@ -192,7 +197,7 @@ export default function Dashboard() {
   const pool = useMemo(() => (poolQ.data ?? []).filter((m) => m.has_shots), [poolQ.data]);
   const [seed, setSeed] = useState(() => Math.random());
   const pickedId = pool.length ? pool[Math.floor(seed * pool.length) % pool.length].id : undefined;
-  const fallbackMatch: Match | undefined = upcoming[0] || recent[0];
+  const fallbackMatch: Match | undefined = upcoming[0] || analysisRecentQ.data?.[0];
   const featuredId = pickedId ?? fallbackMatch?.id;
   const isRandomPick = pickedId != null;
 
@@ -410,7 +415,7 @@ export default function Dashboard() {
             : recentQ.isError ? <div className="p-3"><ErrorState title="Falha ao carregar resultados recentes" onRetry={() => recentQ.refetch()} /></div>
             : recent.length ? (
               <div className="divide-y divide-sv-border/60">
-                {recent.slice(0, 6).map((m) => <MatchRow key={m.id} m={m} showDate showCompetition={false} />)}
+                {recent.slice(0, 6).map((m) => <MatchRow key={m.id} m={m} showDate ownLogosOnly sourceMatch />)}
               </div>
             ) : <div className="p-3"><EmptyState title="Nenhum resultado sincronizado"
                 description="Use Sincronizar agora na tela Ligas para trazer os jogos já disputados." /></div>}

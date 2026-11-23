@@ -11,6 +11,7 @@ from app.repositories.repositories import (
 )
 from app.services.crests import resolve_crest
 from app.services.event_sources import preferred_shot_event_ids
+from app.services.home_recent_results import home_recent_results
 from app.services.scope import excluded_season_ids
 from app.services.studio import _same_team_name, _team_ids_like, norm_team
 from app.schemas import (
@@ -49,7 +50,8 @@ def _lookup_logo(team: Optional[Team], idx: Optional[Dict[str, str]]) -> Optiona
     return resolve_crest(team.name, url)
 
 
-def _to_match_out(m: Match, logo_idx: Optional[Dict[str, str]] = None) -> MatchOut:
+def _to_match_out(m: Match, logo_idx: Optional[Dict[str, str]] = None, *,
+                  own_logos_only: bool = False) -> MatchOut:
     return MatchOut(
         id=m.id,
         season_id=m.season_id,
@@ -59,10 +61,12 @@ def _to_match_out(m: Match, logo_idx: Optional[Dict[str, str]] = None) -> MatchO
         kickoff_time=m.kickoff_time,
         status=m.status,
         home_team=MatchTeamPreview(id=m.home_team.id, name=m.home_team.name,
-                                    short_name=m.home_team.short_name, logo_url=_lookup_logo(m.home_team, logo_idx))
+                                    short_name=m.home_team.short_name, logo_url=(
+                                        m.home_team.logo_url if own_logos_only else _lookup_logo(m.home_team, logo_idx)))
                  if m.home_team else MatchTeamPreview(id=m.home_team_id, name="?", short_name=None),
         away_team=MatchTeamPreview(id=m.away_team.id, name=m.away_team.name,
-                                    short_name=m.away_team.short_name, logo_url=_lookup_logo(m.away_team, logo_idx))
+                                    short_name=m.away_team.short_name, logo_url=(
+                                        m.away_team.logo_url if own_logos_only else _lookup_logo(m.away_team, logo_idx)))
                  if m.away_team else MatchTeamPreview(id=m.away_team_id, name="?", short_name=None),
         home_score=m.home_score, away_score=m.away_score,
         stadium_name=(m.stadium.name if m.stadium else None),
@@ -133,9 +137,20 @@ def list_matches(scope: str = Query("upcoming", pattern="^(upcoming|recent|all)$
                  competition_id: Optional[int] = None,
                  team_id: Optional[int] = None,
                  skip: int = 0, limit: int = 50,
+                 home_recent: bool = False,
                  analysis: bool = Query(False, description="Lista da tela de Análise: jogos passados só da "
                                                            "Understat ou PitchAPI; jogos futuros de qualquer fonte."),
                  db: Session = Depends(get_db)):
+    if home_recent:
+        if scope != "recent" or analysis or competition_id is not None or team_id is not None:
+            raise HTTPException(400, "home_recent aceita apenas resultados recentes sem filtros")
+        if skip < 0 or limit < 0:
+            raise HTTPException(400, "skip e limit devem ser não negativos")
+        matches = home_recent_results(db, skip=skip, limit=limit)
+        results = [_to_match_out(m, own_logos_only=True) for m in matches]
+        for result in results:
+            result.status = "finished"
+        return results
     if analysis:
         matches = _list_analysis_matches(db, scope, skip, limit, competition_id, team_id)
         idx = _logo_index(db)
@@ -168,15 +183,17 @@ def list_matches(scope: str = Query("upcoming", pattern="^(upcoming|recent|all)$
 
 
 @router.get("/matches/{match_id}", response_model=MatchDetailedOut)
-def get_match(match_id: int, db: Session = Depends(get_db)):
+def get_match(match_id: int, source_match: bool = False, db: Session = Depends(get_db)):
     m = match_repo.get_detailed(db, match_id)
     if not m:
         raise HTTPException(404, "Match not found")
-    if m.canonical_match_id is not None:
+    if m.canonical_match_id is not None and not source_match:
         m = match_repo.get_detailed(db, m.canonical_match_id)
         if not m:
             raise HTTPException(404, "Canonical match not found")
-    out = _to_match_out(m, _logo_index(db))  # escudos também para times da Understat
+    out = _to_match_out(m, None if source_match else _logo_index(db), own_logos_only=source_match)
+    if source_match and (m.status or "").lower() == "finished":
+        out.status = "finished"
     # Pre-load all lineup players in a single query (avoid N+1).
     player_ids = [lu.player_id for lu in m.lineups]
     players_by_id = {}
@@ -325,11 +342,11 @@ def get_match_insights(match_id: int, db: Session = Depends(get_db)):
     return _insights_cached(db, match_id)
 
 
-_REPORT_CACHE: Dict[int, tuple] = {}
+_REPORT_CACHE: Dict[tuple[int, bool], tuple] = {}
 
 
 @router.get("/matches/{match_id}/report")
-def get_match_report(match_id: int, db: Session = Depends(get_db)):
+def get_match_report(match_id: int, source_match: bool = False, db: Session = Depends(get_db)):
     """Relatório pré-jogo: fragilidades, chutes cedidos, lados do campo, jogadores-chave, tendências,
     fatores a favor de cada time e estimativa de gols/finalizações (Poisson + binomial negativa).
 
@@ -338,15 +355,16 @@ def get_match_report(match_id: int, db: Session = Depends(get_db)):
     import time
     from app.services.match_report import generate_match_report
 
-    cached = _REPORT_CACHE.get(match_id)
+    cache_key = (match_id, source_match)
+    cached = _REPORT_CACHE.get(cache_key)
     if cached and time.time() - cached[0] < _INSIGHTS_TTL:
         return cached[1]
     m = match_repo.get_detailed(db, match_id)
     if not m:
         raise HTTPException(404, "Match not found")
-    result = generate_match_report(db, m, _insights_cached(db, match_id, m))
+    result = generate_match_report(db, m, _insights_cached(db, match_id, m), canonical_only=source_match)
     if result.get("available"):
-        _REPORT_CACHE[match_id] = (time.time(), result)
+        _REPORT_CACHE[cache_key] = (time.time(), result)
     return result
 
 
@@ -416,14 +434,14 @@ def get_match_lineups(match_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/matches/{match_id}/studio")
-def get_match_studio(match_id: int, db: Session = Depends(get_db)):
+def get_match_studio(match_id: int, source_match: bool = False, db: Session = Depends(get_db)):
     """Dados reais para o ScoutVision Studio: chutes/xG, mapa de calor, escalação e fichas.
 
     Usa Understat/StatsBomb/football-data/FBref conforme o que existir no banco e
     informa em ``mode``/``coverage`` o que veio de fato (nada é simulado).
     """
     from app.services.studio import build_studio_payload
-    payload = build_studio_payload(db, match_id)
+    payload = build_studio_payload(db, match_id, canonical_only=source_match)
     if payload is None:
         raise HTTPException(404, "Match not found")
     return payload

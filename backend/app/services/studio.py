@@ -260,6 +260,23 @@ def _load_shot_events(db: Session, match_ids: Iterable[int]) -> List[Event]:
     return [e for e in db.scalars(q).all() if e.position is not None]
 
 
+def _canonical_shot_events(
+    db: Session, match: Match, siblings: Optional[List[Match]] = None,
+) -> Tuple[Optional[Match], List[Event]]:
+    if siblings is None:
+        root = match.canonical_match_id or match.id
+        siblings = list(db.scalars(
+            select(Match).options(selectinload(Match.home_team), selectinload(Match.away_team))
+            .where(Match.id != match.id, or_(Match.id == root, Match.canonical_match_id == root))
+            .order_by(Match.id)
+        ).all())
+    for candidate in [match, *siblings]:
+        events = _load_shot_events(db, [candidate.id])
+        if events:
+            return candidate, events
+    return None, []
+
+
 def _event_source(events: List[Event]) -> Optional[str]:
     if not events:
         return None
@@ -600,7 +617,7 @@ def _build_players(
 # --------------------------------------------------------------------------
 # Entrada principal
 # --------------------------------------------------------------------------
-def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]:
+def build_studio_payload(db: Session, match_id: int, *, canonical_only: bool = False) -> Optional[Dict[str, Any]]:
     m = db.scalar(
         select(Match)
         .options(selectinload(Match.home_team), selectinload(Match.away_team),
@@ -610,18 +627,31 @@ def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]
     if m is None:
         return None
 
-    home_ids = _team_ids_like(db, m.home_team)
-    away_ids = _team_ids_like(db, m.away_team)
+    home_ids = [m.home_team_id] if canonical_only else _team_ids_like(db, m.home_team)
+    away_ids = [m.away_team_id] if canonical_only else _team_ids_like(db, m.away_team)
     notes: List[str] = []
     linked_match_id: Optional[int] = None
     recent_ids: Dict[str, List[int]] = {"home": [], "away": []}
 
     finished = (m.status or "").lower() == "finished"
 
-    own = _load_shot_events(db, [m.id])
     twin: Optional[Match] = None
-    if not own:
-        twin = _twin_match(db, m, home_ids, away_ids)
+    siblings: List[Match] = []
+    selected_events: List[Event] = []
+    if canonical_only:
+        root = m.canonical_match_id or m.id
+        siblings = list(db.scalars(
+            select(Match).options(selectinload(Match.home_team), selectinload(Match.away_team))
+            .where(Match.id != m.id, or_(Match.id == root, Match.canonical_match_id == root))
+            .order_by(Match.id)
+        ).all())
+        selected, selected_events = _canonical_shot_events(db, m, siblings)
+        own = selected_events if selected is not None and selected.id == m.id else []
+        twin = selected if selected is not None and selected.id != m.id else None
+    else:
+        own = _load_shot_events(db, [m.id])
+        if not own:
+            twin = _twin_match(db, m, home_ids, away_ids)
 
     if own:
         mode = "match"
@@ -633,12 +663,13 @@ def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]
     elif twin is not None:
         mode = "match"
         linked_match_id = twin.id
-        twin_events = _load_shot_events(db, [twin.id])
+        twin_events = selected_events if canonical_only else _load_shot_events(db, [twin.id])
         shots = _serialize_shots(twin_events, {twin.home_team_id}, {twin.id: twin},
                                  _own_goal_beneficiaries(twin_events, {twin.home_team_id}, m))
         used_match_ids = [twin.id]
         data_source = _event_source(twin_events)
-        notes.append("Chutes vindos da mesma partida em outra fonte de dados (vínculo por times e data).")
+        notes.append("Chutes vindos da mesma partida em outra fonte de dados "
+                     + ("(vínculo canônico)." if canonical_only else "(vínculo por times e data)."))
     elif finished:
         # Jogo que já aconteceu: nunca mistura chutes de outros jogos no lugar.
         mode = "none"
@@ -699,6 +730,12 @@ def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]
         played_ids = {s["player_id"] for s in shots if s.get("player_id")}
 
     lineup_payload = _lineup_for_match(db, m, played_ids)
+    if canonical_only and lineup_payload["source"] != "official":
+        for sibling in siblings:
+            sibling_lineup = _lineup_for_match(db, sibling, played_ids)
+            if sibling_lineup["source"] == "official":
+                lineup_payload = sibling_lineup
+                break
     if not (lineup_payload["home"] or lineup_payload["away"]) and linked_match_id:
         twin_match = db.get(Match, linked_match_id)
         if twin_match is not None:
@@ -723,13 +760,15 @@ def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]
         "source": data_source,
         "match": {
             "home": {"id": m.home_team_id, "name": m.home_team.name if m.home_team else None,
-                     "logo_url": resolve_crest(m.home_team.name if m.home_team else None,
-                                               m.home_team.logo_url if m.home_team else None)},
+                     "logo_url": (m.home_team.logo_url if m.home_team else None) if canonical_only
+                     else resolve_crest(m.home_team.name if m.home_team else None,
+                                        m.home_team.logo_url if m.home_team else None)},
             "away": {"id": m.away_team_id, "name": m.away_team.name if m.away_team else None,
-                     "logo_url": resolve_crest(m.away_team.name if m.away_team else None,
-                                               m.away_team.logo_url if m.away_team else None)},
+                     "logo_url": (m.away_team.logo_url if m.away_team else None) if canonical_only
+                     else resolve_crest(m.away_team.name if m.away_team else None,
+                                        m.away_team.logo_url if m.away_team else None)},
             "home_score": m.home_score, "away_score": m.away_score,
-            "status": m.status,
+            "status": "finished" if canonical_only and finished else m.status,
             "kickoff_time": m.kickoff_time.isoformat() if m.kickoff_time else None,
             "competition": comp, "round_name": m.round_name,
             "venue": m.stadium.name if m.stadium else None,

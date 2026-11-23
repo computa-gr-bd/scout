@@ -12,6 +12,7 @@ import { Modal, PlayerShotsModal } from "../components/PlayerShotsModal";
 import { TeamCompare, type CompareTeam } from "../components/TeamCompare";
 import { XgScatter, type ScatterPoint } from "../components/XgScatter";
 import { Badge, EmptyState, ErrorState, LeagueLogo, SectionTitle, TeamLogo } from "../components/ui";
+import { leagueDifferences } from "../lib/leagueDifferences";
 import { fmt } from "../lib/shotAnalytics";
 
 // Renomeado: Understat -> Ligas
@@ -47,11 +48,12 @@ function sortValue(r: UnderstatTableRow, key: SortKey): number | string {
   const rf = r.partial_understat?.recent_form ?? r.recent_form ?? {};
   const xpts = num(rf.xpts);
   const metrics = leagueMetrics(r);
+  const differences = leagueDifferences(r.points, xpts, r.goals_for, metrics.xg);
   switch (key) {
     case "team": return r.team;
     case "xpts": return xpts ?? -Infinity;
-    case "pts_diff": return !r.partial_understat && xpts != null && r.points != null ? r.points - xpts : -Infinity;
-    case "finishing": return metrics.source !== "Understat" || r.xg == null || r.goals_for == null ? -Infinity : r.goals_for - r.xg;
+    case "pts_diff": return differences.points ?? -Infinity;
+    case "finishing": return differences.goals ?? -Infinity;
     case "ppda": return num(rf.ppda) ?? Infinity;
     case "deep": return num(rf.deep) ?? -Infinity;
     case "xg": return metrics.xg ?? -Infinity;
@@ -73,10 +75,10 @@ const COLUMNS: { key: SortKey; label: string; hint?: string; align?: "left" | "c
   { key: "goal_difference", label: "SG" },
   { key: "points", label: "Pts" },
   { key: "xpts", label: "xPts", hint: "Pontos esperados pelo xG criado e cedido em cada jogo" },
-  { key: "pts_diff", label: "Pts−xPts", hint: "Positivo: somou mais pontos do que o desempenho sugere" },
+  { key: "pts_diff", label: "Pts−xPts", hint: "Pontos exibidos menos pontos esperados" },
   { key: "xg", label: "xG", hint: "Gols esperados a favor" },
   { key: "xga", label: "xGA", hint: "Gols esperados contra" },
-  { key: "finishing", label: "GP−xG", hint: "Gols marcados menos xG: positivo = finaliza acima do esperado" },
+  { key: "finishing", label: "GP−xG", hint: "Gols marcados menos xG exibido" },
   { key: "ppda", label: "PPDA", hint: "Passes do adversário por ação defensiva. Menor = pressão mais intensa" },
   { key: "deep", label: "Deep", hint: "Passes e finalizações dentro de ~20 m do gol rival" },
   { key: "shots", label: "Chutes" },
@@ -143,7 +145,7 @@ function LeagueTable({
           <div className="text-sm font-semibold">{q.data?.league}</div>
           <div className="text-xs text-sv-muted">
             Temporada {q.data?.season} · Classificação: {q.data?.source === "football_data" ? "football-data.org" : "Understat"}.
-            {" "}xG, xGA e chutes usam a fonte com mais jogos (P: PitchAPI; U: Understat). xPts, PPDA e Deep são Understat. Jogos de cada fonte indicados ao lado do time.
+            {" "}xG, xGA e chutes usam a fonte com mais jogos: PitchAPI ou Understat. xPts, PPDA e Deep são Understat.
           </div>
         </div>
       </div>
@@ -168,8 +170,8 @@ function LeagueTable({
               const metrics = leagueMetrics(r);
               const rf = partial?.recent_form ?? r.recent_form ?? {};
               const xpts = num(rf.xpts);
-              const ptsDiff = !partial && xpts != null && r.points != null ? r.points - xpts : null;
-              const finishing = metrics.source !== "Understat" || r.xg == null || r.goals_for == null ? null : r.goals_for - r.xg;
+              const { points: ptsDiff, goals: finishing } = leagueDifferences(r.points, xpts, r.goals_for, metrics.xg);
+              const understatGames = partial?.matches_played ?? (r.xg != null || r.xga != null ? r.matches_played : null);
               return (
                 <tr key={r.team_id} onClick={() => onSelectTeam(r)}
                   className={`group cursor-pointer border-t border-sv-border/60 hover:bg-sv-panel2/60 transition-colors ${selectedTeamId === r.team_id ? "bg-sv-panel3/60 shadow-[inset_3px_0_0_rgb(var(--sv-accent3))]" : ""}`}>
@@ -177,11 +179,8 @@ function LeagueTable({
                   <td className={`px-3 py-2 sticky left-0 z-[1] ${selectedTeamId === r.team_id ? "bg-sv-panel3" : "bg-sv-panel group-hover:bg-sv-panel2"}`}>
                     <div className="flex items-center gap-2 min-w-0">
                       <TeamLogo name={r.team} src={r.logo_url} className="w-6 h-6" />
-                      <span className="truncate whitespace-nowrap">{r.team}</span>
-                      {metrics.matchesPlayed != null && <span className="text-[10px] text-sv-warn whitespace-nowrap"
-                        title={`${metrics.source}: ${metrics.matchesPlayed} jogos; Understat: ${partial?.matches_played ?? r.matches_played ?? "indisponível"} jogos; classificação: ${r.matches_played ?? "indisponível"}`}>
-                        {metrics.source === "PitchAPI" ? "P" : "U"} {metrics.matchesPlayed} J{metrics.source === "PitchAPI" && partial ? ` · U ${partial.matches_played} J` : ""}
-                      </span>}
+                      <span className="truncate whitespace-nowrap"
+                        title={`${metrics.source}: ${metrics.matchesPlayed ?? "indisponível"} jogos; Understat: ${understatGames ?? "indisponível"} jogos; classificação: ${r.matches_played ?? "indisponível"}`}>{r.team}</span>
                     </div>
                   </td>
                   <td className="text-center px-2 py-2 tabular-nums">{r.matches_played ?? "—"}</td>

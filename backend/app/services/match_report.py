@@ -645,12 +645,14 @@ def build_review(report: Dict[str, Any], actual: Dict[str, Any]) -> Dict[str, An
 
 
 # --------------------------------------------------------------------------- banco
-def generate_match_report(db: Any, m: Any, insights: Dict[str, Any]) -> Dict[str, Any]:
+def generate_match_report(
+    db: Any, m: Any, insights: Dict[str, Any], *, canonical_only: bool = False,
+) -> Dict[str, Any]:
     """Relatório pré-jogo da partida ``m`` a partir de ``match_insights`` e dos chutes reais anteriores."""
     from app.repositories.repositories import MatchRepository
     from app.services.crests import resolve_crest
     from app.services.shot_insights import WINDOW, season_baseline
-    from app.services.studio import _load_shot_events, _recent_match_ids, _team_ids_like
+    from app.services.studio import _canonical_shot_events, _load_shot_events, _recent_match_ids, _team_ids_like
 
     base = {"available": False, "match_id": m.id, "method": METHOD}
     if not insights.get("available"):
@@ -691,7 +693,20 @@ def generate_match_report(db: Any, m: Any, insights: Dict[str, Any]) -> Dict[str
         # Partida encerrada: no lugar do relatório pré-jogo, confronta a previsão com o que aconteceu.
         from app.services.shot_insights import _own_zone
 
-        actual = actual_from_events(_load_shot_events(db, [m.id]), home_ids, away_ids, m.id, m.home_score, m.away_score, _own_zone)
+        if canonical_only:
+            shot_match, actual_events = _canonical_shot_events(db, m)
+            if shot_match is None:
+                return {**base, "notes": ["Sem finalizações com coordenadas para esta partida."]}
+            actual_home_ids, actual_away_ids = [shot_match.home_team_id], [shot_match.away_team_id]
+            actual_match_id = shot_match.id
+        else:
+            actual_events = _load_shot_events(db, [m.id])
+            actual_home_ids, actual_away_ids = home_ids, away_ids
+            actual_match_id = m.id
+        actual = actual_from_events(
+            actual_events, actual_home_ids, actual_away_ids, actual_match_id,
+            m.home_score, m.away_score, _own_zone,
+        )
         return {
             "available": True, "mode": "post", "match_id": m.id, "method": METHOD, "generated_at": report["generated_at"],
             "teams": report["teams"], "sample": report["sample"], "review": build_review(report, actual),

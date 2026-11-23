@@ -371,7 +371,8 @@ docker compose up --build
 ```
 
 Esse comando sobe a interface e a API; o banco continua sendo o PostgreSQL
-configurado em `DATABASE_URL`. Para ativar também o coletor local recorrente:
+configurado em `DATABASE_URL`. O proxy do Vite encaminha `/api` ao serviço
+`backend` dentro da rede Docker. Para ativar também o coletor local recorrente:
 
 ```bash
 docker compose --profile local-collector up --build
@@ -437,6 +438,10 @@ de associar partidas; falha se a identidade de uma liga estiver ausente ou ambí
 Ela só enriquece partidas já cadastradas, pula correspondências ambíguas, grava a origem PitchAPI e só importa escalações
 marcadas como confirmadas. Quando houver chutes de mais de uma fonte na mesma
 partida, as análises priorizam Understat e usam PitchAPI como alternativa.
+Na Home, resultados recentes finalizados da Understat e da PitchAPI são
+deduplicados mesmo quando não há chutes disponíveis para a partida. O relatório
+pós-jogo usa chutes do registro selecionado ou de uma partida vinculada
+canonicamente, sem somar fontes; sem chutes com coordenadas, informa a ausência.
 Competições PitchAPI fora das cinco ligas são preservadas no banco, mas ocultadas
 das listagens principais. Times homônimos com países distintos não são associados.
 As coordenadas de chute recebidas em metros (campo de 105 × 68 m) são convertidas
@@ -449,9 +454,9 @@ Na classificação e na Home, xG, xGA e chutes vêm da fonte que cobre mais jogo
 (PitchAPI em caso de empate), identificada por time. A PitchAPI considera apenas
 partidas que possuem xG e chutes dos dois times; jogos sem os dados necessários
 ou com associações ambíguas não entram nesses totais. xPts, PPDA e Deep continuam
-vindo da Understat, com a cobertura identificada. Comparações com pontos e gols
-oficiais ficam indisponíveis quando as métricas não têm cobertura compatível.
-Os valores de fontes diferentes não são somados.
+vindo da Understat, com a cobertura identificada. Pts−xPts e GP−xG subtraem
+os valores exibidos, mesmo quando as coberturas diferem; nesses casos, não
+representam uma comparação dos mesmos jogos. Os totais das fontes não são somados.
 
 ### SoccerData / FBref
 

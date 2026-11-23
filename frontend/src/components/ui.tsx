@@ -198,17 +198,21 @@ const TEAM_NAMED_LOGOS: Record<string, string> = {
   "Bayern Munich": bayernLogo,
 };
 
-export function TeamLogo({ name, src, className = "w-8 h-8" }: { name?: string; src?: string | null; className?: string }) {
+export function TeamLogo({ name, src, className = "w-8 h-8", ownLogoOnly = false }: {
+  name?: string; src?: string | null; className?: string; ownLogoOnly?: boolean;
+}) {
   const [broken, setBroken] = useState<string | null>(null);
   // Re-renderiza quando o catálogo de escudos (carregado no início do app) chega/cresce.
   useSyncExternalStore(subscribeCrests, crestsVersion);
   // Todo escudo que a API entrega alimenta o catálogo: outras telas que receberam o mesmo
   // time sem escudo passam a mostrá-lo.
-  if (src && name) registerCrest(name, src);
+  if (src && name && !ownLogoOnly) registerCrest(name, src);
   // Prioridade: escudo real da API (logo_url) → arquivo local → escudo do
   // catálogo football-data (por nome) → catálogo por nome (entre fontes) → logo por hash.
-  const candidate = src || (name ? TEAM_NAMED_LOGOS[name] : undefined)
-    || (name ? crestFor(name) ?? undefined : undefined) || (name ? lookupCrest(name) ?? undefined : undefined);
+  const candidate = src || (ownLogoOnly ? undefined : (
+    (name ? TEAM_NAMED_LOGOS[name] : undefined)
+    || (name ? crestFor(name) ?? undefined : undefined) || (name ? lookupCrest(name) ?? undefined : undefined)
+  ));
   const realLogo = candidate && broken !== candidate ? candidate : undefined;
   if (realLogo) {
     return (
