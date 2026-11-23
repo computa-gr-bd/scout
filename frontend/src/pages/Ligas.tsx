@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getUnderstatLeagueTable, getUnderstatMatchShots, getUnderstatStats,
   getUnderstatSyncStatus, getUnderstatTeamForm, listUnderstatLeagues, listUnderstatMatches,
-  syncUnderstatFast,
+  syncUnderstatFast, leagueMetrics,
   type UnderstatLeague, type UnderstatMatch, type UnderstatStats, type UnderstatTableRow,
 } from "../api/client";
 import { Link } from "react-router-dom";
@@ -44,16 +44,19 @@ type SortKey =
   | "goal_difference" | "points" | "xpts" | "pts_diff" | "xg" | "xga" | "finishing" | "ppda" | "deep" | "shots";
 
 function sortValue(r: UnderstatTableRow, key: SortKey): number | string {
-  const rf = r.recent_form ?? {};
+  const rf = r.partial_understat?.recent_form ?? r.recent_form ?? {};
   const xpts = num(rf.xpts);
+  const metrics = leagueMetrics(r);
   switch (key) {
     case "team": return r.team;
     case "xpts": return xpts ?? -Infinity;
-    case "pts_diff": return xpts != null && xpts > 0 && r.points != null ? r.points - xpts : -Infinity;
-    case "finishing": return r.xg == null || r.goals_for == null ? -Infinity : r.goals_for - r.xg;
+    case "pts_diff": return !r.partial_understat && xpts != null && r.points != null ? r.points - xpts : -Infinity;
+    case "finishing": return metrics.source !== "Understat" || r.xg == null || r.goals_for == null ? -Infinity : r.goals_for - r.xg;
     case "ppda": return num(rf.ppda) ?? Infinity;
     case "deep": return num(rf.deep) ?? -Infinity;
-    case "shots": return r.shots ?? 0;
+    case "xg": return metrics.xg ?? -Infinity;
+    case "xga": return metrics.xga ?? -Infinity;
+    case "shots": return metrics.shots ?? -Infinity;
     default: return (r[key as keyof UnderstatTableRow] as number) ?? 0;
   }
 }
@@ -139,9 +142,8 @@ function LeagueTable({
         <div>
           <div className="text-sm font-semibold">{q.data?.league}</div>
           <div className="text-xs text-sv-muted">
-            Temporada {q.data?.season} · {q.data?.source === "football_data"
-              ? "Classificação: football-data.org. Métricas Understat só aparecem quando cobrem o mesmo número de jogos."
-              : "Classificação: Understat"}
+            Temporada {q.data?.season} · Classificação: {q.data?.source === "football_data" ? "football-data.org" : "Understat"}.
+            {" "}xG, xGA e chutes usam a fonte com mais jogos (P: PitchAPI; U: Understat). xPts, PPDA e Deep são Understat. Jogos de cada fonte indicados ao lado do time.
           </div>
         </div>
       </div>
@@ -162,10 +164,12 @@ function LeagueTable({
           </thead>
           <tbody>
             {rows.map((r) => {
-              const rf = r.recent_form ?? {};
+              const partial = r.partial_understat;
+              const metrics = leagueMetrics(r);
+              const rf = partial?.recent_form ?? r.recent_form ?? {};
               const xpts = num(rf.xpts);
-              const ptsDiff = xpts != null && xpts > 0 && r.points != null ? r.points - xpts : null;
-              const finishing = r.xg == null || r.goals_for == null ? null : r.goals_for - r.xg;
+              const ptsDiff = !partial && xpts != null && r.points != null ? r.points - xpts : null;
+              const finishing = metrics.source !== "Understat" || r.xg == null || r.goals_for == null ? null : r.goals_for - r.xg;
               return (
                 <tr key={r.team_id} onClick={() => onSelectTeam(r)}
                   className={`group cursor-pointer border-t border-sv-border/60 hover:bg-sv-panel2/60 transition-colors ${selectedTeamId === r.team_id ? "bg-sv-panel3/60 shadow-[inset_3px_0_0_rgb(var(--sv-accent3))]" : ""}`}>
@@ -174,6 +178,10 @@ function LeagueTable({
                     <div className="flex items-center gap-2 min-w-0">
                       <TeamLogo name={r.team} src={r.logo_url} className="w-6 h-6" />
                       <span className="truncate whitespace-nowrap">{r.team}</span>
+                      {metrics.matchesPlayed != null && <span className="text-[10px] text-sv-warn whitespace-nowrap"
+                        title={`${metrics.source}: ${metrics.matchesPlayed} jogos; Understat: ${partial?.matches_played ?? r.matches_played ?? "indisponível"} jogos; classificação: ${r.matches_played ?? "indisponível"}`}>
+                        {metrics.source === "PitchAPI" ? "P" : "U"} {metrics.matchesPlayed} J{metrics.source === "PitchAPI" && partial ? ` · U ${partial.matches_played} J` : ""}
+                      </span>}
                     </div>
                   </td>
                   <td className="text-center px-2 py-2 tabular-nums">{r.matches_played ?? "—"}</td>
@@ -184,14 +192,14 @@ function LeagueTable({
                   <td className="text-center px-2 py-2 tabular-nums">{r.goals_against ?? "—"}</td>
                   <td className="text-center px-2 py-2 tabular-nums">{r.goal_difference == null ? "—" : r.goal_difference > 0 ? `+${r.goal_difference}` : r.goal_difference}</td>
                   <td className="text-center px-2 py-2 tabular-nums font-semibold text-sv-accent3">{r.points ?? "—"}</td>
-                  <td className="text-center px-2 py-2 tabular-nums">{xpts != null && xpts > 0 ? xpts.toFixed(1) : "—"}</td>
+                  <td className="text-center px-2 py-2 tabular-nums">{xpts != null ? xpts.toFixed(1) : "—"}</td>
                   <td className={`text-center px-2 py-2 tabular-nums ${diffColor(ptsDiff)}`}>{signed(ptsDiff)}</td>
-                  <td className="text-center px-2 py-2 tabular-nums">{fmt(r.xg)}</td>
-                  <td className="text-center px-2 py-2 tabular-nums text-sv-warn">{fmt(r.xga)}</td>
+                  <td className="text-center px-2 py-2 tabular-nums">{fmt(metrics.xg)}</td>
+                  <td className="text-center px-2 py-2 tabular-nums text-sv-warn">{fmt(metrics.xga)}</td>
                   <td className={`text-center px-2 py-2 tabular-nums ${diffColor(finishing)}`}>{signed(finishing)}</td>
                   <td className="text-center px-2 py-2 tabular-nums">{fmt(num(rf.ppda), 1)}</td>
                   <td className="text-center px-2 py-2 tabular-nums">{num(rf.deep) != null ? Math.round(num(rf.deep) as number) : "—"}</td>
-                  <td className="text-center px-2 py-2 tabular-nums">{r.shots == null ? "—" : Math.round(r.shots)}</td>
+                  <td className="text-center px-2 py-2 tabular-nums">{metrics.shots == null ? "—" : Math.round(metrics.shots)}</td>
                 </tr>
               );
             })}

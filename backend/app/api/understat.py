@@ -1226,8 +1226,10 @@ def get_league_table(
     ).all()
 
     from app.services.crests import resolve_crest
+    from app.services.pitchapi_league_stats import pitchapi_team_totals
     from app.services.studio import _same_team_name, norm_team
 
+    pitchapi_totals = pitchapi_team_totals(db, season.id, comp.code)
     if season.start_date and comp.code:
         year = season.start_date.year
         official_seasons = db.scalars(
@@ -1274,6 +1276,14 @@ def get_league_table(
                         "shots_on_target": stat.shots_on_target if same_coverage else None,
                         "corners": stat.corners_total if same_coverage else None,
                         "recent_form": stat.recent_form if same_coverage else None,
+                        "partial_understat": {
+                            "matches_played": stat.matches_played,
+                            "xg": stat.xg_total,
+                            "xga": stat.xga_total,
+                            "shots": stat.shots,
+                            "recent_form": stat.recent_form,
+                        } if stat is not None and stat.matches_played and not same_coverage else None,
+                        "pitchapi_stats": pitchapi_totals.get(matched.id) if stat is not None else None,
                         "season_id": season.id, "season_name": season.name,
                     })
                 return {
@@ -1307,6 +1317,8 @@ def get_league_table(
             "shots_on_target": st.shots_on_target,
             "corners": st.corners_total,
             "recent_form": rf,
+            "partial_understat": None,
+            "pitchapi_stats": pitchapi_totals.get(team.id),
             "season_id": season.id,
             "season_name": season.name,
         })

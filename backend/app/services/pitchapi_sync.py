@@ -25,6 +25,20 @@ from app.services.studio import _same_team_name, norm_team
 
 BASE_URL = "https://api.pitchapi.dev/v1"
 DEFAULT_LEAGUES = ("PL", "PD", "BL1", "SA", "FL1")
+LEAGUE_IDENTITIES = {
+    "PL": ("ENG", "Premier League"),
+    "PD": ("ESP", "LaLiga"),
+    "BL1": ("GER", "Bundesliga"),
+    "SA": ("ITA", "Serie A"),
+    "FL1": ("FRA", "Ligue 1"),
+}
+LEAGUE_IDS = {
+    "PL": "l_4WFCIZ",
+    "PD": "l_0ErfuF",
+    "BL1": "l_1Isor4",
+    "SA": "l_0ALvwF",
+    "FL1": "l_3FJFUl",
+}
 PITCH_LENGTH_METERS = 105.0
 PITCH_WIDTH_METERS = 68.0
 PLAYER_STAT_FIELDS = {
@@ -145,6 +159,9 @@ class PitchAPIClient:
             "matches", "fixtures",
         )
 
+    def leagues(self) -> list[dict[str, Any]]:
+        return _as_rows(self.get("leagues"), "leagues")
+
     def lineups(self, match_id: str) -> Any:
         return self.get(f"matches/{quote(match_id, safe='')}/lineups")
 
@@ -260,6 +277,28 @@ def _source_match_key(fixture: Mapping[str, Any], match_id: str) -> str:
         else fixture.get("league_id")
     )
     return f"{league_id or 'league'}:{match_id}"
+
+
+def _league_codes_by_id(client: PitchAPIClient, codes: Iterable[str]) -> dict[str, str]:
+    requested = set(codes)
+    unknown = requested - LEAGUE_IDENTITIES.keys()
+    if unknown:
+        raise ValueError(f"Ligas sem identidade PitchAPI configurada: {', '.join(sorted(unknown))}.")
+    catalog = client.leagues()
+    result: dict[str, str] = {}
+    for code in sorted(requested):
+        country, name = LEAGUE_IDENTITIES[code]
+        ids = [
+            str(league["id"])
+            for league in catalog
+            if league.get("id")
+            and league.get("country_code") == country
+            and str(league.get("name", "")).casefold() == name.casefold()
+        ]
+        if len(ids) != 1 or ids[0] != LEAGUE_IDS[code] or ids[0] in result:
+            raise PitchAPIError(f"Identidade da liga {code} não encontrada ou ambígua no catálogo PitchAPI.")
+        result[ids[0]] = code
+    return result
 
 
 def _fixture_status(fixture: Mapping[str, Any]) -> str:
@@ -1021,11 +1060,15 @@ def sync_pitchapi(
     codes = tuple(code.strip().upper() for code in league_codes if code.strip())
     if not codes:
         raise ValueError("Informe ao menos um código de liga.")
+    league_codes_by_id = _league_codes_by_id(client, codes)
     local_matches = list(db.scalars(
         select(Match)
         .join(Season, Season.id == Match.season_id)
         .join(Competition, Competition.id == Season.competition_id)
-        .options(selectinload(Match.home_team), selectinload(Match.away_team))
+        .options(
+            selectinload(Match.home_team), selectinload(Match.away_team),
+            selectinload(Match.season).selectinload(Season.competition),
+        )
         .where(
             Match.canonical_match_id.is_(None),
             Match.kickoff_time >= datetime.combine(start_date - timedelta(days=1), datetime.min.time()),
@@ -1066,6 +1109,11 @@ def sync_pitchapi(
             if abs((match.kickoff_time.date() - fixture_date).days) <= 1
         ]
         for fixture in fixtures:
+            league = fixture.get("league")
+            league_id = league.get("id") if isinstance(league, dict) else fixture.get("league_id")
+            code = league_codes_by_id.get(str(league_id))
+            if code is None:
+                continue
             source_id = _match_id(fixture)
             if source_id is None:
                 summary["matches_unmatched"] += 1
@@ -1073,7 +1121,9 @@ def sync_pitchapi(
             source_key = _source_match_key(fixture, source_id)
             if source_key in processed:
                 continue
-            match, result = _fixture_match(fixture, candidates)
+            match, result = _fixture_match(
+                fixture, (candidate for candidate in candidates if candidate.season.competition.code == code),
+            )
             if match is None:
                 summary[f"matches_{result}"] += 1
                 continue

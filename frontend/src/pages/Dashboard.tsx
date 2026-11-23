@@ -3,7 +3,7 @@ import { useQuery, useQueries } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
   listMatches, getMatch, getMatchStudio,
-  listUnderstatLeagues, listUnderstatMatches, getUnderstatLeagueTable,
+  listUnderstatLeagues, listUnderstatMatches, getUnderstatLeagueTable, leagueMetrics,
   type Match, type MatchStudioPayload, type StudioApiShot, type UnderstatTableRow,
 } from "../api/client";
 import { payloadToDataset } from "../api/studioReal";
@@ -128,8 +128,8 @@ function ZoneBreakdown({ payload }: { payload: MatchStudioPayload }) {
 }
 
 /** Líder de uma métrica entre as tabelas reais das ligas. */
-function Leader({ label, row, value, tone }: {
-  label: string; row?: UnderstatTableRow & { league: string }; value: string; tone: "good" | "warn" | "info";
+function Leader({ label, row, value, tone, showCoverage = false }: {
+  label: string; row?: UnderstatTableRow & { league: string }; value: string; tone: "good" | "warn" | "info"; showCoverage?: boolean;
 }) {
   const color = tone === "good" ? "text-sv-accent3" : tone === "warn" ? "text-sv-warn" : "text-sv-info";
   return (
@@ -140,13 +140,20 @@ function Leader({ label, row, value, tone }: {
           <TeamLogo name={row.team} src={row.logo_url} className="w-8 h-8" />
           <span className="min-w-0 leading-tight">
             <span className="block text-sm font-semibold truncate group-hover:text-sv-accent3 transition-colors">{row.team}</span>
-            <span className="block text-[11px] text-sv-muted truncate">{row.league}</span>
+            <span className="block text-[11px] text-sv-muted truncate">{row.league}{showCoverage && leagueMetrics(row).matchesPlayed != null ? ` · ${leagueMetrics(row).source} ${leagueMetrics(row).matchesPlayed} jogos` : ""}</span>
           </span>
           <span className={`ml-auto sv-display text-2xl ${color}`}>{value}</span>
         </Link>
       ) : <div className="mt-2 text-sm text-sv-faint">—</div>}
     </div>
   );
+}
+
+function advancedPerMatch(row: UnderstatTableRow, field: "xg" | "xga"): number | null {
+  const metrics = leagueMetrics(row);
+  const value = metrics[field];
+  const games = metrics.matchesPlayed;
+  return value != null && games != null && games >= 3 ? value / games : null;
 }
 
 const SHORTCUTS: { to: string; label: string; hint: string; icon: string }[] = [
@@ -245,13 +252,13 @@ export default function Dashboard() {
   );
   // Destaques estatísticos (calculados das mesmas tabelas reais).
   const bestAttack = useMemo(
-    () => [...allRows].filter((r) => r.xg != null)
-      .sort((a, b) => (b.xg ?? 0) / b.matches_played - (a.xg ?? 0) / a.matches_played)[0],
+    () => [...allRows].filter((r) => advancedPerMatch(r, "xg") != null)
+      .sort((a, b) => advancedPerMatch(b, "xg")! - advancedPerMatch(a, "xg")!)[0],
     [allRows],
   );
   const bestDefense = useMemo(
-    () => [...allRows].filter((r) => r.xga != null)
-      .sort((a, b) => (a.xga ?? 0) / a.matches_played - (b.xga ?? 0) / b.matches_played)[0],
+    () => [...allRows].filter((r) => advancedPerMatch(r, "xga") != null)
+      .sort((a, b) => advancedPerMatch(a, "xga")! - advancedPerMatch(b, "xga")!)[0],
     [allRows],
   );
   const bestPpg = topTeams[0];
@@ -350,13 +357,16 @@ export default function Dashboard() {
         <Panel className="xl:col-span-2" title="Equipes em evidência"
           right={<Link to="/ligas" className="text-xs text-sv-accent3 hover:underline">Ver tabelas</Link>}>
           <div className="grid sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-sv-border border-b border-sv-border">
-            <Leader label="Melhor ataque (xG/jogo)" tone="good" row={bestAttack}
-                    value={bestAttack?.xg != null ? (bestAttack.xg / bestAttack.matches_played).toFixed(2) : "—"} />
-            <Leader label="Melhor defesa (xGA/jogo)" tone="info" row={bestDefense}
-                    value={bestDefense?.xga != null ? (bestDefense.xga / bestDefense.matches_played).toFixed(2) : "—"} />
+            <Leader label="Melhor ataque (xG/jogo)" tone="good" row={bestAttack} showCoverage
+                    value={bestAttack ? advancedPerMatch(bestAttack, "xg")?.toFixed(2) ?? "—" : "—"} />
+            <Leader label="Melhor defesa (xGA/jogo)" tone="info" row={bestDefense} showCoverage
+                    value={bestDefense ? advancedPerMatch(bestDefense, "xga")?.toFixed(2) ?? "—" : "—"} />
             <Leader label="Melhor aproveitamento" tone="warn" row={bestPpg}
                     value={bestPpg?.points_per_game != null ? bestPpg.points_per_game.toFixed(2) : "—"} />
           </div>
+          <p className="px-4 py-2 text-[11px] text-sv-muted">
+            xG e xGA por jogo usam a fonte com mais jogos disponíveis (mínimo 3); os modelos das fontes podem diferir.
+          </p>
           <div className="sv-table-wrap">
             <table className="sv-table">
               <caption className="sr-only">Principais times por pontos por jogo entre as ligas sincronizadas</caption>
@@ -373,13 +383,13 @@ export default function Dashboard() {
                         <TeamLogo name={r.team} src={r.logo_url} className="w-6 h-6" />
                         <span className="leading-tight min-w-0">
                           <span className="font-medium block truncate">{r.team}</span>
-                          <span className="text-[11px] text-sv-muted">{r.league}</span>
+                          <span className="text-[11px] text-sv-muted">{r.league}{leagueMetrics(r).matchesPlayed != null ? ` · ${leagueMetrics(r).source} ${leagueMetrics(r).matchesPlayed} jogos` : ""}</span>
                         </span>
                       </Link>
                     </td>
                     <td className="text-right sv-num font-semibold">{r.points_per_game?.toFixed(2) ?? "—"}</td>
-                    <td className="text-right sv-num text-sv-accent3">{r.xg == null ? "—" : (r.xg / r.matches_played).toFixed(2)}</td>
-                    <td className="text-right sv-num text-sv-warn">{r.xga == null ? "—" : (r.xga / r.matches_played).toFixed(2)}</td>
+                    <td className="text-right sv-num text-sv-accent3">{advancedPerMatch(r, "xg")?.toFixed(2) ?? "—"}</td>
+                    <td className="text-right sv-num text-sv-warn">{advancedPerMatch(r, "xga")?.toFixed(2) ?? "—"}</td>
                   </tr>
                 ))}
                 {!topTeams.length && (

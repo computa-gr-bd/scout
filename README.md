@@ -420,7 +420,8 @@ python -m app.services.pitchapi_sync --from-date 2026-11-01 --to-date 2026-11-30
 
 Configure `PITCH_API_KEY` localmente no `.env` e nunca a versione. Sem datas
 informadas, o coletor consulta os últimos sete dias e os próximos dois. O escopo
-padrão são as cinco grandes ligas (`PL,PD,BL1,SA,FL1`); use `--leagues` e
+padrão são as cinco grandes ligas (`PL,PD,BL1,SA,FL1`); use `--leagues` para
+selecionar um subconjunto dessas ligas e
 `--limit` para ajustar a execução (o padrão é 100 partidas; `0` remove o limite).
 
 O workflow `Sincronizar PitchAPI` executa a coleta duas vezes ao dia e também
@@ -431,8 +432,9 @@ Ele usa a mesma janela de datas, sem limite de partidas, tenta novamente coletas
 parciais e não reprocessa partidas já concluídas com sucesso, salvo com `--force`
 na execução manual do coletor. Confira falhas no Actions e `/api/data/status`.
 
-A rotina só enriquece partidas já cadastradas,
-pula correspondências ambíguas, grava a origem PitchAPI e só importa escalações
+A rotina verifica o ID da liga no catálogo PitchAPI, incluindo nome e país, antes
+de associar partidas; falha se a identidade de uma liga estiver ausente ou ambígua.
+Ela só enriquece partidas já cadastradas, pula correspondências ambíguas, grava a origem PitchAPI e só importa escalações
 marcadas como confirmadas. Quando houver chutes de mais de uma fonte na mesma
 partida, as análises priorizam Understat e usam PitchAPI como alternativa. As
 coordenadas de chute recebidas em metros (campo de 105 × 68 m) são convertidas
@@ -441,6 +443,13 @@ ficam identificadas em `supplemental_stats.pitchapi`.
 Na lista e no perfil dos jogadores, os totais PitchAPI são identificados como
 parciais e não são somados às estatísticas de temporada de outras fontes.
 Na lista, a ordenação continua usando apenas as estatísticas de temporada.
+Na classificação e na Home, xG, xGA e chutes vêm da fonte que cobre mais jogos
+(PitchAPI em caso de empate), identificada por time. A PitchAPI considera apenas
+partidas que possuem xG e chutes dos dois times; jogos sem os dados necessários
+ou com associações ambíguas não entram nesses totais. xPts, PPDA e Deep continuam
+vindo da Understat, com a cobertura identificada. Comparações com pontos e gols
+oficiais ficam indisponíveis quando as métricas não têm cobertura compatível.
+Os valores de fontes diferentes não são somados.
 
 ### SoccerData / FBref
 

@@ -583,6 +583,14 @@ export interface UnderstatTableRow {
   xg: number | null; xga: number | null;
   shots: number | null; shots_on_target: number | null; corners: number | null;
   recent_form: Record<string, number | string> | null;
+  partial_understat: {
+    matches_played: number;
+    xg: number | null;
+    xga: number | null;
+    shots: number | null;
+    recent_form: Record<string, number | string> | null;
+  } | null;
+  pitchapi_stats: { matches_played: number; xg: number; xga: number; shots: number } | null;
   season_id: number;
   season_name: string;
 }
@@ -594,6 +602,23 @@ export interface UnderstatLeagueTable {
   source?: "football_data" | "understat";
   table: UnderstatTableRow[];
 }
+
+export function leagueMetrics(row: UnderstatTableRow) {
+  const partial = row.partial_understat;
+  const understatGames = partial?.matches_played ?? (row.xg != null || row.xga != null ? row.matches_played : null);
+  const pitch = row.pitchapi_stats;
+  if (pitch && (understatGames == null || pitch.matches_played >= understatGames)) {
+    return { source: "PitchAPI" as const, matchesPlayed: pitch.matches_played, xg: pitch.xg, xga: pitch.xga, shots: pitch.shots };
+  }
+  return {
+    source: "Understat" as const,
+    matchesPlayed: understatGames,
+    xg: partial ? partial.xg : row.xg,
+    xga: partial ? partial.xga : row.xga,
+    shots: partial ? partial.shots : row.shots,
+  };
+}
+
 export async function getUnderstatLeagueTable(leagueKey: string, seasonId?: number) {
   return api
     .get<UnderstatLeagueTable>(`/understat/league-table/${leagueKey}`, { params: { season_id: seasonId } })

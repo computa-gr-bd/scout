@@ -11,6 +11,7 @@ from app.db.models import (
     TeamMatchStatistics,
 )
 from app.services.event_sources import preferred_shot_event_ids
+from app.services.pitchapi_league_stats import pitchapi_team_totals
 from app.services.pitchapi_sync import (
     PitchAPIClient, PitchAPIError, _upsert_source_match, sync_pitchapi,
 )
@@ -77,7 +78,7 @@ def seeded(db_session):
 def _fixture():
     return {
         "id": "api-match-1",
-        "league": {"id": "league-55"},
+        "league": {"id": "l_4WFCIZ"},
         "time_utc": "2026-09-12T14:00:00Z",
         "status": "finished",
         "home_team": {"id": "api-home", "name": "Arsenal"},
@@ -95,6 +96,9 @@ class FixtureClient:
     def fixtures_for_date(self, fixture_date):
         self.date_calls.append(fixture_date)
         return [_fixture()]
+
+    def leagues(self):
+        return [{"id": "l_4WFCIZ", "name": "Premier League", "country_code": "ENG"}]
 
     def lineups(self, match_id):
         self.match_calls.append(("lineups", match_id))
@@ -221,7 +225,7 @@ def test_pitchapi_import_is_source_aware_and_idempotent(seeded, db_session):
     )
     assert event is not None
     assert event.match_id == seeded["match"].id
-    assert event.external_id == "league-55:api-match-1:shot-1"
+    assert event.external_id == "l_4WFCIZ:api-match-1:shot-1"
     assert event.position.x == pytest.approx(88.5 * 100 / 105)
     assert event.position.y == pytest.approx(42.3 * 100 / 68)
     assert event.shot.xg == 0.3 and event.shot.psxg == 0.6 and event.shot.is_goal
@@ -293,6 +297,58 @@ def test_ambiguous_fixture_does_not_create_pitchapi_match(seeded, db_session):
     assert db_session.scalar(
         select(Match).where(Match.data_source == DataSource.PITCH_API)
     ) is None
+
+
+def test_pitchapi_rejects_same_named_league_from_another_country(seeded, db_session):
+    class ForeignFixtureClient(FixtureClient):
+        def fixtures_for_date(self, fixture_date):
+            fixture = _fixture()
+            fixture["league"] = {"id": "foreign-league", "name": "Premier League"}
+            return [fixture]
+
+    client = ForeignFixtureClient()
+    result = sync_pitchapi(db_session, client, date(2026, 9, 12), date(2026, 9, 12), ("PL",))
+    assert result["matches_matched"] == 0
+    assert not client.match_calls
+    assert db_session.scalar(select(Match).where(Match.data_source == DataSource.PITCH_API)) is None
+
+
+def test_pitchapi_rejects_ambiguous_league_catalog(seeded, db_session):
+    class AmbiguousCatalogClient(FixtureClient):
+        def leagues(self):
+            return super().leagues() + [{"id": "another", "name": "Premier League", "country_code": "ENG"}]
+
+    with pytest.raises(PitchAPIError, match="ambígua"):
+        sync_pitchapi(db_session, AmbiguousCatalogClient(), date(2026, 9, 12), date(2026, 9, 12), ("PL",))
+
+
+def test_pitchapi_team_totals_require_both_sides_and_verified_unique_match(seeded, db_session):
+    sync_pitchapi(db_session, FixtureClient(), date(2026, 9, 12), date(2026, 9, 12), ("PL",))
+    season_id, home_id, away_id = seeded["season"].id, seeded["home"].id, seeded["away"].id
+    totals = pitchapi_team_totals(db_session, season_id, "PL")
+    assert totals[home_id] == {"matches_played": 1, "xg": 0.5, "xga": 0.2, "shots": 10}
+    assert totals[away_id] == {"matches_played": 1, "xg": 0.2, "xga": 0.5, "shots": 4}
+
+    away_stats = db_session.scalar(select(TeamMatchStatistics).where(TeamMatchStatistics.team_id == away_id))
+    original = away_stats.supplemental_stats
+    away_stats.supplemental_stats = {"pitchapi": {"mapped_match_stats": {"shots": 4}}}
+    db_session.flush()
+    assert pitchapi_team_totals(db_session, season_id, "PL") == {}
+    away_stats.supplemental_stats = original
+
+    duplicate = Match(
+        external_id="l_4WFCIZ:another",
+        season_id=season_id,
+        home_team_id=home_id,
+        away_team_id=away_id,
+        kickoff_time=seeded["match"].kickoff_time,
+        status="finished",
+        data_source=DataSource.PITCH_API,
+        canonical_match_id=seeded["match"].id,
+    )
+    db_session.add(duplicate)
+    db_session.flush()
+    assert pitchapi_team_totals(db_session, season_id, "PL") == {}
 
 
 def test_pitchapi_completes_only_missing_finished_results(seeded, db_session):

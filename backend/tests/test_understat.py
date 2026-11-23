@@ -607,15 +607,19 @@ async def test_league_table_uses_same_season_official_standings(db_session, clie
     assert (row["position"], row["matches_played"], row["points"]) == (1, 11, 25)
     assert row["team"] == "Liverpool"
     assert row["xg"] is None and row["shots"] is None and row["recent_form"] is None
+    assert row["partial_understat"]["matches_played"] == 10
+    assert row["partial_understat"]["xg"] == pytest.approx(18.2)
 
     standing = db_session.query(Standing).one()
     standing.played = 10
     db_session.commit()
     matched = client.get("/api/understat/league-table/epl").json()["table"][0]
     assert matched["xg"] == pytest.approx(18.2)
+    assert matched["partial_understat"] is None
 
     season.start_date = date(2025, 8, 1)
     db_session.commit()
     fallback = client.get("/api/understat/league-table/epl").json()
     assert fallback["source"] == "understat"
     assert len(fallback["table"]) == 2
+    assert all(row["partial_understat"] is None for row in fallback["table"])
