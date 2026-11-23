@@ -31,8 +31,8 @@ from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import (
-    Event, EventType, Lineup, Match, Player, PlayerMatchStatistics,
-    PlayerStatistics, Team,
+    Competition, Event, EventType, Lineup, Match, Player, PlayerMatchStatistics,
+    PlayerStatistics, Season, Team,
 )
 from app.services.crests import resolve_crest
 from app.services.event_sources import preferred_shot_event_ids
@@ -66,7 +66,10 @@ _TOKEN_ALIAS = {
 # Nomes que a normalização genérica confundiria: "Paris FC" perderia o "FC" (token de
 # parada) e viraria "paris", que casaria com "Paris Saint-Germain" → os jogadores do PSG
 # apareciam no Paris FC. Vira um token único e distinto.
-_NAME_FIXES = ((re.compile(r"\bparis\s+f\.?c\.?(?=\W|$)"), "parisfc"),)
+_NAME_FIXES = (
+    (re.compile(r"\bparis\s+f\.?c\.?(?=\W|$)"), "parisfc"),
+    (re.compile(r"\bespanyol\s+de\s+barcelona\b"), "espanyol"),
+)
 
 
 def norm_team(name: Optional[str]) -> str:
@@ -104,15 +107,53 @@ def _same_person(a: str, b: str) -> bool:
 
 
 def _team_ids_like(db: Session, team: Optional[Team]) -> List[int]:
-    """Ids do time + equivalentes de outras fontes (mesmo nome normalizado)."""
+    """Ids equivalentes por nome, sem associar clubes de países diferentes."""
     if team is None:
         return []
     key = norm_team(team.name)
-    ids = {team.id}
-    for other in db.scalars(select(Team)).all():
-        if other.id != team.id and _same_team_name(key, norm_team(other.name)):
-            ids.add(other.id)
-    return sorted(ids)
+    candidates = [
+        other for other in db.scalars(select(Team)).all()
+        if other.id == team.id or _same_team_name(key, norm_team(other.name))
+    ]
+    ids = {candidate.id for candidate in candidates}
+    aliases = {
+        "eng": "england", "esp": "spain", "espana": "spain",
+        "ger": "germany", "deu": "germany", "ita": "italy", "fra": "france",
+        "ecu": "ecuador", "bol": "bolivia", "bra": "brazil", "aut": "austria",
+        "rus": "russia", "egy": "egypt", "can": "canada", "ven": "venezuela",
+    }
+
+    def country_key(value: Optional[str]) -> str:
+        normalized = _ascii(value).strip()
+        return aliases.get(normalized, normalized)
+
+    countries: Dict[int, set[str]] = defaultdict(set)
+    for candidate in candidates:
+        country = country_key(candidate.country)
+        if country and country not in {"international", "europe", "world"}:
+            countries[candidate.id].add(country)
+    rows = db.execute(
+        select(Match.home_team_id, Match.away_team_id, Competition.country)
+        .join(Season, Season.id == Match.season_id)
+        .join(Competition, Competition.id == Season.competition_id)
+        .where(
+            or_(Match.home_team_id.in_(ids), Match.away_team_id.in_(ids)),
+            Competition.type == "league",
+        )
+    ).all()
+    for home_id, away_id, raw_country in rows:
+        country = country_key(raw_country)
+        if not country or country in {"international", "europe", "world"}:
+            continue
+        for team_id in (home_id, away_id):
+            if team_id in ids:
+                countries[team_id].add(country)
+    known = countries[team.id]
+    return sorted(
+        candidate.id for candidate in candidates
+        if candidate.id == team.id or not known or not countries[candidate.id]
+        or bool(known & countries[candidate.id])
+    )
 
 
 # --------------------------------------------------------------------------

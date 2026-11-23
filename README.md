@@ -436,8 +436,10 @@ A rotina verifica o ID da liga no catálogo PitchAPI, incluindo nome e país, an
 de associar partidas; falha se a identidade de uma liga estiver ausente ou ambígua.
 Ela só enriquece partidas já cadastradas, pula correspondências ambíguas, grava a origem PitchAPI e só importa escalações
 marcadas como confirmadas. Quando houver chutes de mais de uma fonte na mesma
-partida, as análises priorizam Understat e usam PitchAPI como alternativa. As
-coordenadas de chute recebidas em metros (campo de 105 × 68 m) são convertidas
+partida, as análises priorizam Understat e usam PitchAPI como alternativa.
+Competições PitchAPI fora das cinco ligas são preservadas no banco, mas ocultadas
+das listagens principais. Times homônimos com países distintos não são associados.
+As coordenadas de chute recebidas em metros (campo de 105 × 68 m) são convertidas
 para a escala 0–100 já usada pelo ScoutVision; estatísticas sem coluna equivalente
 ficam identificadas em `supplemental_stats.pitchapi`.
 Na lista e no perfil dos jogadores, os totais PitchAPI são identificados como

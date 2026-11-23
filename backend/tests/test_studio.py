@@ -225,6 +225,53 @@ def test_excluded_competition_is_hidden_and_purged(client, db_session):
     assert db.query(Team).count() == 0
 
 
+def test_pitchapi_outside_top_five_is_hidden_without_deleting(client, db_session):
+    db = db_session
+    foreign = Competition(external_id="russian-league", name="Premier League", country="Russia",
+                          data_source=DataSource.PITCH_API)
+    supported = Competition(external_id="english-league", name="Premier League", country="England",
+                            code="PL", data_source=DataSource.PITCH_API)
+    db.add_all([foreign, supported])
+    db.flush()
+    season = Season(competition_id=foreign.id, name="2026/2027", data_source=DataSource.PITCH_API)
+    home = Team(name="Russian Home", data_source=DataSource.PITCH_API)
+    away = Team(name="Russian Away", data_source=DataSource.PITCH_API)
+    db.add_all([season, home, away])
+    db.flush()
+    match = _match(db, season, home, away, datetime.utcnow() + timedelta(days=2),
+                   status="scheduled", hs=None, as_=None, src=DataSource.PITCH_API, ext="foreign-match")
+    db.commit()
+
+    assert [row["id"] for row in client.get("/api/competitions").json()] == [supported.id]
+    assert client.get("/api/matches", params={"scope": "upcoming"}).json() == []
+    assert client.get("/api/matches", params={"scope": "all", "analysis": "true"}).json() == []
+    assert db.get(Match, match.id) is not None
+    assert db.get(Competition, foreign.id) is not None
+
+
+def test_team_aliases_do_not_merge_same_named_clubs_from_different_countries(db_session):
+    db = db_session
+    spain = Competition(name="La Liga", code="PD", country="Spain", data_source=DataSource.UNDERSTAT)
+    ecuador = Competition(name="Serie A", country="Ecuador", data_source=DataSource.PITCH_API)
+    db.add_all([spain, ecuador])
+    db.flush()
+    spanish_season = Season(competition_id=spain.id, name="2026", data_source=DataSource.UNDERSTAT)
+    ecuadorian_season = Season(competition_id=ecuador.id, name="2026", data_source=DataSource.PITCH_API)
+    barcelona = Team(name="Barcelona", data_source=DataSource.UNDERSTAT)
+    spanish_alias = Team(name="FC Barcelona", country="Spain", data_source=DataSource.FOOTBALL_DATA)
+    espanyol = Team(name="RCD Espanyol de Barcelona", country="Spain", data_source=DataSource.FOOTBALL_DATA)
+    ecuadorian = Team(name="Barcelona", country="Ecuador", data_source=DataSource.PITCH_API)
+    opponent = Team(name="Opponent", data_source=DataSource.PITCH_API)
+    db.add_all([spanish_season, ecuadorian_season, barcelona, spanish_alias, espanyol, ecuadorian, opponent])
+    db.flush()
+    _match(db, spanish_season, barcelona, opponent, datetime(2026, 9, 1), ext="spanish")
+    _match(db, ecuadorian_season, ecuadorian, opponent, datetime(2026, 9, 2), src=DataSource.PITCH_API, ext="ecuadorian")
+    db.commit()
+
+    assert studio._team_ids_like(db, barcelona) == sorted([barcelona.id, spanish_alias.id])
+    assert studio._team_ids_like(db, ecuadorian) == [ecuadorian.id]
+
+
 def _history(db, season, home, away, hp, ap, count=6):
     """Jogos anteriores com chutes dos dois times (base do cálculo de insights)."""
     now = datetime.utcnow()
