@@ -6,7 +6,7 @@ Em 20/01/2026 a Opta encerrou o contrato com o FBref e o site retirou as estatí
 (progressivos, posse, PSxG, desarmes/cortes detalhados...). O Understat nunca teve defesa nem
 goleiro. Para continuar tendo nota de goleiro e de defensor, calculamos o que dá a partir de:
 
-* **chutes do Understat** (``Event``/``Shot``: xG, no alvo, gol) — o que cada time SOFREU em cada jogo;
+* **chutes do Understat ou PitchAPI** (``Event``/``Shot``: xG, no alvo, gol) — o que cada time SOFREU em cada jogo;
 * **escalações / minutos** (``Lineup`` e ``PlayerMatchStatistics``) — quem estava em campo;
 * **placar** da partida (gols sofridos exatos, inclusive contra).
 
@@ -109,6 +109,7 @@ def _shot_facts(db: Any) -> Dict[Tuple[int, int], Dict[str, float]]:
     from sqlalchemy import select
 
     from app.db.models import Event, EventType, Shot
+    from app.services.event_sources import preferred_shot_event_ids
 
     facts: Dict[Tuple[int, int], Dict[str, float]] = defaultdict(
         lambda: {"shots": 0, "xg": 0.0, "sot": 0, "xgot": 0.0, "goals": 0}
@@ -116,7 +117,10 @@ def _shot_facts(db: Any) -> Dict[Tuple[int, int], Dict[str, float]]:
     rows = db.execute(
         select(Event.match_id, Event.team_id, Shot.xg, Shot.on_target, Shot.is_goal, Event.outcome)
         .select_from(Event).join(Shot, Shot.event_id == Event.id)
-        .where(Event.type == EventType.SHOT)
+        .where(
+            Event.type == EventType.SHOT,
+            Event.id.in_(preferred_shot_event_ids()),
+        )
     ).all()
     for match_id, team_id, xg, on_target, is_goal, outcome in rows:
         goal = bool(is_goal) or (outcome or "").lower() == "goal"

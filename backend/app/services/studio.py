@@ -2,7 +2,7 @@
 
 Monta, para uma partida, tudo o que o Studio desenha — chutes com coordenadas
 e xG, mapa de calor, escalação e fichas de jogador — **somente a partir do que
-existe no banco** (Understat, StatsBomb, football-data e FBref). Nada é inventado:
+existe no banco** (Understat, PitchAPI, StatsBomb, football-data e FBref). Nada é inventado:
 quando a fonte não traz um dado, o campo vem ``None`` e a tela mostra "—".
 
 Modos devolvidos em ``mode``:
@@ -35,6 +35,7 @@ from app.db.models import (
     PlayerStatistics, Team,
 )
 from app.services.crests import resolve_crest
+from app.services.event_sources import preferred_shot_event_ids
 from app.services.lineups import FORMATION, _place, estimated_lineup, official_lineups
 
 RECENT_MATCHES = 5
@@ -204,10 +205,21 @@ def _load_shot_events(db: Session, match_ids: Iterable[int]) -> List[Event]:
     q = (
         select(Event)
         .options(selectinload(Event.position), selectinload(Event.shot), selectinload(Event.player))
-        .where(Event.match_id.in_(ids), Event.type == EventType.SHOT)
+        .where(
+            Event.match_id.in_(ids),
+            Event.type == EventType.SHOT,
+            Event.id.in_(preferred_shot_event_ids()),
+        )
         .order_by(Event.match_id, Event.minute)
     )
     return [e for e in db.scalars(q).all() if e.position is not None]
+
+
+def _event_source(events: List[Event]) -> Optional[str]:
+    if not events:
+        return None
+    source = events[0].data_source
+    return getattr(source, "value", source)
 
 
 def _serialize_shots(events: List[Event], home_team_ids: set, source_match: Dict[int, Match],
@@ -572,7 +584,7 @@ def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]
         shots = _serialize_shots(own, {m.home_team_id}, sources,
                                  _own_goal_beneficiaries(own, {m.home_team_id}, m))
         used_match_ids = [m.id]
-        data_source = getattr(m.data_source, "value", m.data_source)
+        data_source = _event_source(own)
     elif twin is not None:
         mode = "match"
         linked_match_id = twin.id
@@ -580,7 +592,7 @@ def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]
         shots = _serialize_shots(twin_events, {twin.home_team_id}, {twin.id: twin},
                                  _own_goal_beneficiaries(twin_events, {twin.home_team_id}, m))
         used_match_ids = [twin.id]
-        data_source = getattr(twin.data_source, "value", twin.data_source)
+        data_source = _event_source(twin_events)
         notes.append("Chutes vindos da mesma partida em outra fonte de dados (vínculo por times e data).")
     elif finished:
         # Jogo que já aconteceu: nunca mistura chutes de outros jogos no lugar.
@@ -589,8 +601,8 @@ def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]
         used_match_ids = []
         data_source = None
         notes.append(
-            "Esta partida já terminou, mas a fonte ainda não publicou os chutes dela "
-            "(o Understat cobre Premier League, La Liga, Bundesliga, Serie A e Ligue 1, e publica com atraso). "
+            "Esta partida já terminou, mas nenhuma fonte conectada publicou os chutes dela. "
+            "Understat e PitchAPI podem complementar partidas das cinco grandes ligas. "
             "Não exibimos chutes de outros jogos no lugar."
         )
     else:
@@ -609,8 +621,7 @@ def build_studio_payload(db: Session, match_id: int) -> Optional[Dict[str, Any]]
             )
         else:
             notes.append(
-                "Nenhuma fonte tem chutes para estes times. O Understat cobre apenas Premier League, "
-                "La Liga, Bundesliga, Serie A e Ligue 1 (não cobre o Brasileirão)."
+                "Nenhuma fonte conectada tem chutes disponíveis para estes times."
             )
 
     if mode == "match":

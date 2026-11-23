@@ -122,13 +122,14 @@ flowchart TB
     subgraph fontes["1. Fontes externas"]
         FD["football-data.org<br/>calendário · clubes · elencos · tabelas"]
         US["Understat<br/>chutes · coordenadas · xG · dados de times e jogadores"]
+        PA["PitchAPI<br/>chutes · xG · escalações confirmadas · estatísticas de partida"]
         ESPN["ESPN<br/>estatísticas de partida disponíveis"]
         FBREF["SoccerData / FBref<br/>escalações · dados defensivos"]
         SB["StatsBomb Open Data<br/>eventos históricos"]
     end
 
     subgraph ingestao["2. Coleta e preparação"]
-        COLETORES["Coletores independentes<br/>football-data · Understat · ESPN · FBref · StatsBomb"]
+        COLETORES["Coletores independentes<br/>football-data · Understat · PitchAPI · ESPN · FBref · StatsBomb"]
         VALIDACAO["Validação · normalização<br/>origem · IDs externos · upsert"]
     end
 
@@ -255,6 +256,7 @@ ambiente e nunca no código-fonte.
 |---|---|---|
 | [football-data.org](https://www.football-data.org/) | Calendário, resultados, competições, times, elencos e classificações | Cobertura e limites dependem do plano e do provedor; requer token |
 | Understat | Chutes, coordenadas, `xG` e estatísticas relacionadas nas ligas cobertas | A estrutura e a disponibilidade podem mudar; coletas podem falhar ou ficar desatualizadas |
+| [PitchAPI](https://pitchapi.dev/) | Complementa partidas existentes com chutes, `xG`, escalações confirmadas e estatísticas de partida | Requer chave; cobertura, contrato e disponibilidade dependem do provedor; não cria partidas nem clubes ausentes do banco |
 | ESPN | Associação de partidas e estatísticas de partidas disponíveis nos endpoints públicos | Endpoints e cobertura não são uma API contratual do projeto |
 | SoccerData / FBref | Dados complementares de temporada e partidas, usados em coletas ou fallback | Pode sofrer restrição, CAPTCHA, mudança de página ou bloqueio |
 | StatsBomb Open Data | Eventos históricos de competições e partidas disponíveis publicamente | Catálogo limitado; verificar licença e atribuição antes de redistribuir |
@@ -320,6 +322,7 @@ Configure pelo menos:
 |---|---|
 | `DATABASE_URL` | URL de conexão PostgreSQL; use a string de conexão do Neon, não a URL de uma Data API |
 | `FOOTBALL_DATA_TOKEN` | Token de acesso do football-data.org para executar essa coleta |
+| `PITCH_API_KEY` | Chave da PitchAPI para complementar partidas existentes |
 | `CORS_ORIGINS` | Origens autorizadas a acessar a API |
 | `VITE_API_BASE_URL` | Endereço da API para desenvolvimento local |
 
@@ -406,6 +409,26 @@ python -m app.services.understat_sync --fast --leagues all
 A coleta depende da disponibilidade e do formato atual da fonte. Se a fonte
 responder com erro ou mudar sua página, a sincronização pode falhar; consulte
 `/api/data/status` em vez de assumir que os dados estão atualizados.
+
+### PitchAPI
+
+```powershell
+Set-Location backend
+python -m alembic upgrade head
+python -m app.services.pitchapi_sync --from-date 2026-11-01 --to-date 2026-11-30 --limit 0
+```
+
+Configure `PITCH_API_KEY` localmente no `.env` e nunca a versione. Sem datas
+informadas, o coletor consulta os últimos sete dias e os próximos dois. O escopo
+padrão são as cinco grandes ligas (`PL,PD,BL1,SA,FL1`); use `--leagues` e
+`--limit` para ajustar a execução (o padrão é 100 partidas; `0` remove o limite).
+A rotina só enriquece partidas já cadastradas,
+pula correspondências ambíguas, grava a origem PitchAPI e só importa escalações
+marcadas como confirmadas. Quando houver chutes de mais de uma fonte na mesma
+partida, as análises priorizam Understat e usam PitchAPI como alternativa. As
+coordenadas de chute recebidas em metros (campo de 105 × 68 m) são convertidas
+para a escala 0–100 já usada pelo ScoutVision; estatísticas sem coluna equivalente
+ficam identificadas em `supplemental_stats.pitchapi`.
 
 ### SoccerData / FBref
 

@@ -158,8 +158,8 @@ def test_finished_match_without_events_does_not_fall_back_to_recent_form(client,
     assert any("já terminou" in n for n in body["coverage"]["notes"])
 
 
-def test_analysis_list_prioritizes_understat_and_dedupes_upcoming(client, db_session):
-    """Análise: jogo passado só da Understat; futuro de qualquer fonte, sem duplicata."""
+def test_analysis_list_prioritizes_real_shot_sources_and_dedupes_upcoming(client, db_session):
+    """Análise inclui jogos com chutes Understat/PitchAPI e deduplica os próximos."""
     db = db_session
     now = datetime.utcnow()
     us_season, us_home, us_away = _world(db)
@@ -170,6 +170,16 @@ def test_analysis_list_prioritizes_understat_and_dedupes_upcoming(client, db_ses
 
     played_us = _match(db, us_season, us_home, us_away, now - timedelta(days=3), ext="u1")
     played_fd = _match(db, fd_season, fd_home, fd_away, now - timedelta(days=3), src=DataSource.FOOTBALL_DATA, ext="f1")
+    pitch_season, pitch_home, pitch_away = _world(db, DataSource.PITCH_API)
+    played_pitch = _match(
+        db, pitch_season, pitch_home, pitch_away, now - timedelta(days=6),
+        src=DataSource.PITCH_API, ext="p1",
+    )
+    us_player = _player(db, "Bukayo Saka", us_home, "us-p1")
+    pitch_player = _player(db, "Bukayo Saka", pitch_home, "pitch-p1", DataSource.PITCH_API)
+    _shot(db, played_us, us_home, us_player, 10, "Goal", 0.3, 90, 50)
+    _shot(db, played_pitch, pitch_home, pitch_player, 10, "Goal", 0.3, 90, 50,
+          src=DataSource.PITCH_API)
     future_us = _match(db, us_season, us_home, us_away, now + timedelta(days=3), status="scheduled", hs=None, as_=None, ext="u2")
     future_fd = _match(db, fd_season, fd_home, fd_away, now + timedelta(days=3), status="scheduled", hs=None, as_=None, src=DataSource.FOOTBALL_DATA, ext="f2")
     future_only_fd = _match(db, fd_season, everton, fulham, now + timedelta(days=4), status="scheduled", hs=None, as_=None, src=DataSource.FOOTBALL_DATA, ext="f3")
@@ -177,12 +187,13 @@ def test_analysis_list_prioritizes_understat_and_dedupes_upcoming(client, db_ses
 
     body = client.get("/api/matches", params={"scope": "all", "analysis": "true"}).json()
     ids = [m["id"] for m in body]
-    assert played_us.id in ids and future_us.id in ids and future_only_fd.id in ids
-    assert played_fd.id not in ids      # jogo passado de outra fonte fica fora da Análise
+    assert played_us.id in ids and played_pitch.id in ids
+    assert future_us.id in ids and future_only_fd.id in ids
+    assert played_fd.id not in ids      # jogo passado sem chutes de fonte aceita fica fora
     assert future_fd.id not in ids      # duplicata do jogo futuro: fica a da Understat
 
     recent = client.get("/api/matches", params={"scope": "recent", "analysis": "true"}).json()
-    assert [m["id"] for m in recent] == [played_us.id]
+    assert [m["id"] for m in recent] == [played_us.id, played_pitch.id]
 
 
 def test_excluded_competition_is_hidden_and_purged(client, db_session):

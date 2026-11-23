@@ -150,7 +150,7 @@ def api_data_status(db: Session = Depends(get_db)):
             "updated_at": as_utc(state.updated_at),
             "summary": state.summary,
             "is_stale": (
-                state.provider == "football_data"
+                state.provider in {"football_data", "pitchapi"}
                 and (
                     last_success_at is None
                     or (now - last_success_at).total_seconds() > stale_after * 3600

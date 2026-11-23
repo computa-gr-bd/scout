@@ -1,12 +1,12 @@
 """Perfil de jogador: escopo das 5 grandes ligas, time atual, zonas e forma recente.
 
-Tudo aqui é derivado de dados que já existem no banco (Understat + football-data):
+Tudo aqui é derivado de dados que já existem no banco (Understat/PitchAPI + football-data):
 
 * ``team_league_map``  → liga (PL, PD, BL1, SA, FL1) de cada time, a partir das
   estatísticas de time / partidas das temporadas dessas competições.
 * ``decorate_players`` → anexa time atual e liga aos jogadores (campos opcionais do schema).
 * ``derive_zone_stats`` → quando não há ``PlayerZoneStatistics`` (só existem em dados demo),
-  calcula as zonas a partir dos chutes reais do Understat (posição X/Y + xG).
+  calcula as zonas a partir dos chutes reais (Understat, com PitchAPI como fallback).
 * ``recent_matches``   → últimos jogos do jogador (gols, assistências, chutes, xG) a partir
   dos eventos de chute/gol.
 * ``next_match``       → próximo jogo agendado do time atual.
@@ -26,6 +26,7 @@ from app.db.models import (
     PlayerStatistics, Season, Shot, Team, TeamStatistics,
 )
 from app.services.crests import resolve_crest
+from app.services.event_sources import preferred_shot_event_ids
 from app.services.scope import excluded_season_ids
 
 # Códigos football-data das 5 ligas (mesmos de ``UNDERSTAT_LEAGUES`` e ``SYNC_COMPETITIONS``).
@@ -139,7 +140,7 @@ def _latest_overall(db: Session, player_id: int) -> Optional[PlayerStatistics]:
 
 
 def derive_zone_stats(db: Session, player_id: int) -> List[Dict[str, Any]]:
-    """Zonas de finalização do jogador a partir dos chutes reais (Understat).
+    """Zonas de finalização do jogador a partir dos chutes reais.
 
     Sem toques/passes na fonte, ``touches`` repete a contagem de chutes. ``offensive_strength``
     é o xG da zona normalizado pelo maior xG de zona (0–1).
@@ -149,7 +150,11 @@ def derive_zone_stats(db: Session, player_id: int) -> List[Dict[str, Any]]:
         .select_from(Event)
         .join(EventPosition, EventPosition.event_id == Event.id)
         .join(Shot, Shot.event_id == Event.id)
-        .where(Event.player_id == player_id, Event.type == EventType.SHOT)
+        .where(
+            Event.player_id == player_id,
+            Event.type == EventType.SHOT,
+            Event.id.in_(preferred_shot_event_ids()),
+        )
     ).all()
     if not rows:
         return []
@@ -196,7 +201,11 @@ def recent_matches(db: Session, player: Player, limit: int = 8) -> List[Dict[str
         select(Event.match_id, Event.team_id, Shot.xg, Shot.is_goal)
         .select_from(Event)
         .join(Shot, Shot.event_id == Event.id)
-        .where(Event.player_id == player.id, Event.type == EventType.SHOT)
+        .where(
+            Event.player_id == player.id,
+            Event.type == EventType.SHOT,
+            Event.id.in_(preferred_shot_event_ids()),
+        )
     ).all()
     assist_rows = db.execute(
         select(Event.match_id, Event.team_id)

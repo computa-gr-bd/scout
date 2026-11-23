@@ -5,11 +5,12 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db import get_db
-from app.db.models import DataSource, Match, Season, Team
+from app.db.models import DataSource, Event, Match, Season, Team
 from app.repositories.repositories import (
     MatchRepository, TeamRepository, TeamStatisticsRepository, PlayerRepository
 )
 from app.services.crests import resolve_crest
+from app.services.event_sources import preferred_shot_event_ids
 from app.services.scope import excluded_season_ids
 from app.services.studio import _same_team_name, _team_ids_like, norm_team
 from app.schemas import (
@@ -83,9 +84,10 @@ def _list_analysis_matches(db: Session, scope: str, skip: int, limit: int,
                            competition_id: Optional[int], team_id: Optional[int]) -> List[Match]:
     """Partidas da tela de Análise.
 
-    * Jogos que JÁ ACONTECERAM: só Understat e finalizados (têm chutes e gols reais).
+    * Jogos que JÁ ACONTECERAM: finalizados e com chutes de uma fonte real.
     * Jogos FUTUROS: qualquer fonte (a análise pré-jogo usa a forma recente dos times).
-    Se o mesmo jogo existir em duas fontes, fica a versão da Understat.
+    Se o mesmo jogo existir em duas fontes, prioriza Understat; PitchAPI é fallback
+    quando não há chutes da fonte principal.
     """
     now = datetime.utcnow()
     base = [Match.season_id.notin_(excluded_season_ids()), Match.canonical_match_id.is_(None)]
@@ -106,7 +108,13 @@ def _list_analysis_matches(db: Session, scope: str, skip: int, limit: int,
     pool = max(limit * 2, 40)  # folga para as duplicatas removidas abaixo
     upcoming = _fetch(Match.kickoff_time >= now, Match.kickoff_time, pool) if scope in ("upcoming", "all") else []
     played = _fetch(
-        and_(Match.kickoff_time < now, Match.status == "finished", Match.data_source == DataSource.UNDERSTAT),
+        and_(
+            Match.kickoff_time < now,
+            Match.status == "finished",
+            Match.id.in_(
+                select(Event.match_id).where(Event.id.in_(preferred_shot_event_ids()))
+            ),
+        ),
         Match.kickoff_time.desc(), pool,
     ) if scope in ("recent", "all") else []
 
@@ -126,7 +134,7 @@ def list_matches(scope: str = Query("upcoming", pattern="^(upcoming|recent|all)$
                  team_id: Optional[int] = None,
                  skip: int = 0, limit: int = 50,
                  analysis: bool = Query(False, description="Lista da tela de Análise: jogos passados só da "
-                                                           "Understat; jogos futuros de qualquer fonte."),
+                                                           "Understat ou PitchAPI; jogos futuros de qualquer fonte."),
                  db: Session = Depends(get_db)):
     if analysis:
         matches = _list_analysis_matches(db, scope, skip, limit, competition_id, team_id)
@@ -310,7 +318,7 @@ def _insights_cached(db: Session, match_id: int, m=None) -> Dict[str, Any]:
 
 @router.get("/matches/{match_id}/insights")
 def get_match_insights(match_id: int, db: Session = Depends(get_db)):
-    """Zonas fracas, probabilidades por jogador e confrontos, calculados dos chutes reais (Understat).
+    """Zonas fracas, probabilidades por jogador e confrontos, calculados dos chutes reais.
 
     Público (não grava nada). `available=false` quando não há chutes anteriores para os times.
     """

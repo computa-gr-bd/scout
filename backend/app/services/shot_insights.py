@@ -1,4 +1,4 @@
-﻿"""Análise tática calculada AO VIVO a partir dos chutes reais (Understat).
+"""Análise tática calculada a partir dos chutes reais (Understat e PitchAPI como fallback).
 
 Alimenta a tela de Análise sem depender de tabelas pré-calculadas (``DefensiveWeakness``,
 ``PlayerZoneStats``) nem de modelo treinado — que só existem nos dados de demonstração:
@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Event, EventPosition, EventType, Lineup, Match, Player, PlayerMatchStatistics, Shot, ZONE_ORDER
 from app.services import stats_math as sm
+from app.services.event_sources import preferred_shot_event_ids
 from app.services.player_dedupe import _name_match
 from app.services.index_service import recent_minutes, team_goalkeeper
 from app.services.studio import (
@@ -134,7 +135,11 @@ def _shot_rows_lightweight(db, match_ids):
         )
         .join(EventPosition, EventPosition.event_id == Event.id, isouter=True)
         .join(Shot, Shot.event_id == Event.id, isouter=True)
-        .where(Event.match_id.in_(match_ids), Event.type == EventType.SHOT)
+        .where(
+            Event.match_id.in_(match_ids),
+            Event.type == EventType.SHOT,
+            Event.id.in_(preferred_shot_event_ids()),
+        )
     ).all()
     return [(mid, tid, float(x or 0.0), float(y or 0.0), float(xg or 0.08)) for mid, tid, x, y, xg in rows]
 
@@ -820,7 +825,8 @@ def match_insights(db: Session, m: Match) -> Dict[str, Any]:
             results_checked = True
 
     notes = [
-        f"Baseado nos últimos {len(home_recent)} jogos do mandante e {len(away_recent)} do visitante com chutes reais (Understat), "
+        f"Baseado nos últimos {len(home_recent)} jogos do mandante e {len(away_recent)} do visitante com chutes reais "
+        f"(Understat ou PitchAPI), "
         f"comparados à média de {league_n} jogos da liga.",
         "Só jogos anteriores a esta partida entram no cálculo.",
         "Probabilidade = chance de pelo menos 1 evento, ajustada pela fraqueza da defesa adversária: "
