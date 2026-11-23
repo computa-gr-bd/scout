@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any, Optional
 
 from app.vendor.understat import Understat
@@ -31,7 +31,7 @@ from sqlalchemy import select, func, desc
 from app.db import get_db
 from app.db.models import (
     CollectionState, Competition, DataSource, Event, EventPosition, EventType,
-    Lineup, Match, Player, Season, PlayerMatchStatistics, PlayerStatistics, Shot, Team,
+    Lineup, Match, Player, Season, Standing, PlayerMatchStatistics, PlayerStatistics, Shot, Team,
     TeamMatchStatistics, TeamStatistics,
 )
 from app.services.understat_sync import (
@@ -40,6 +40,7 @@ from app.services.understat_sync import (
 )
 from app.db import SessionLocal
 from app.services.crests import resolve_crest
+from app.services.event_sources import preferred_shot_event_ids
 
 try:
     import aiohttp
@@ -331,8 +332,11 @@ def get_match_shots(
         raise HTTPException(status_code=400, detail="Match não é da Understat")
 
     shots = []
+    preferred = set(db.scalars(
+        select(Event.id).where(Event.match_id == m.id, Event.id.in_(preferred_shot_event_ids()))
+    ).all())
     for e in m.events:
-        if e.type != EventType.SHOT:
+        if e.type != EventType.SHOT or e.id not in preferred:
             continue
         shot = e.shot
         pos = e.position
@@ -554,7 +558,10 @@ def get_player_shots(
     events = db.scalars(
         select(Event)
         .options(selectinload(Event.shot), selectinload(Event.position), selectinload(Event.team))
-        .where(Event.player_id == player_id, Event.type == EventType.SHOT)
+        .where(
+            Event.player_id == player_id, Event.type == EventType.SHOT,
+            Event.id.in_(preferred_shot_event_ids()),
+        )
         .order_by(Event.match_id, Event.minute)
     ).all()
 
@@ -671,7 +678,10 @@ def get_player_shots_against(
             selectinload(Event.shot), selectinload(Event.position),
             selectinload(Event.team), selectinload(Event.player),
         )
-        .where(Event.match_id.in_(ids), Event.type == EventType.SHOT, Event.team_id.notin_(team_ids))
+        .where(
+            Event.match_id.in_(ids), Event.type == EventType.SHOT, Event.team_id.notin_(team_ids),
+            Event.id.in_(preferred_shot_event_ids()),
+        )
         .order_by(Event.match_id, Event.minute)
     ).all() if ids else []
 
@@ -887,7 +897,10 @@ def get_team_form(
                 func.coalesce(func.sum(Shot.xg), 0.0), func.count(Shot.id),
             )
             .join(Shot, Shot.event_id == Event.id)
-            .where(Event.match_id.in_(ids), Event.type == EventType.SHOT)
+            .where(
+                Event.match_id.in_(ids), Event.type == EventType.SHOT,
+                Event.id.in_(preferred_shot_event_ids()),
+            )
             .group_by(Event.match_id, Event.team_id)
         ).all()
         for mid, tid, xg, n in rows:
@@ -969,7 +982,10 @@ def get_team_shots(
         events = db.scalars(
             select(Event)
             .options(selectinload(Event.shot), selectinload(Event.position), selectinload(Event.player))
-            .where(Event.match_id.in_(ids), Event.team_id == team_id, Event.type == EventType.SHOT)
+            .where(
+                Event.match_id.in_(ids), Event.team_id == team_id, Event.type == EventType.SHOT,
+                Event.id.in_(preferred_shot_event_ids()),
+            )
         ).all()
         for e in events:
             sh, pos = e.shot, e.position
@@ -1020,9 +1036,14 @@ def get_match_events(
     if m.data_source != DataSource.UNDERSTAT:
         raise HTTPException(status_code=400, detail="Match não é da Understat")
 
+    preferred = set(db.scalars(
+        select(Event.id).where(Event.match_id == m.id, Event.id.in_(preferred_shot_event_ids()))
+    ).all())
     events = []
     for e in m.events:
         if e.type not in (EventType.SHOT, EventType.GOAL):
+            continue
+        if e.type == EventType.SHOT and e.id not in preferred:
             continue
         shot = e.shot
         pos = e.position
@@ -1205,6 +1226,63 @@ def get_league_table(
     ).all()
 
     from app.services.crests import resolve_crest
+    from app.services.studio import _same_team_name, norm_team
+
+    if season.start_date and comp.code:
+        year = season.start_date.year
+        official_seasons = db.scalars(
+            select(Season).join(Competition, Competition.id == Season.competition_id).where(
+                Competition.code == comp.code,
+                Competition.data_source == DataSource.FOOTBALL_DATA,
+                Season.start_date >= date(year, 1, 1),
+                Season.start_date < date(year + 1, 1, 1),
+                Season.id.in_(select(Standing.season_id)),
+            )
+        ).all()
+        if len(official_seasons) == 1:
+            official = db.execute(
+                select(Standing, Team).join(Team, Team.id == Standing.team_id)
+                .where(Standing.season_id == official_seasons[0].id, Standing.group_name == "")
+                .order_by(Standing.position)
+            ).all()
+            if official:
+                official_table = []
+                for standing, team in official:
+                    candidates = [
+                        (stat, candidate) for stat, candidate in teams_stats
+                        if _same_team_name(norm_team(team.name), norm_team(candidate.name))
+                    ]
+                    stat, matched = candidates[0] if len(candidates) == 1 else (None, team)
+                    same_coverage = (
+                        stat is not None and standing.played is not None
+                        and stat.matches_played == standing.played
+                    )
+                    official_table.append({
+                        "position": standing.position,
+                        "team_id": matched.id, "team": matched.name,
+                        "short_name": matched.short_name,
+                        "logo_url": resolve_crest(team.name, team.logo_url or matched.logo_url),
+                        "matches_played": standing.played,
+                        "wins": standing.won, "draws": standing.draw, "losses": standing.lost,
+                        "goals_for": standing.goals_for, "goals_against": standing.goals_against,
+                        "goal_difference": standing.goal_difference, "points": standing.points,
+                        "points_per_game": (standing.points / standing.played)
+                        if standing.points is not None and standing.played else None,
+                        "xg": stat.xg_total if same_coverage else None,
+                        "xga": stat.xga_total if same_coverage else None,
+                        "shots": stat.shots if same_coverage else None,
+                        "shots_on_target": stat.shots_on_target if same_coverage else None,
+                        "corners": stat.corners_total if same_coverage else None,
+                        "recent_form": stat.recent_form if same_coverage else None,
+                        "season_id": season.id, "season_name": season.name,
+                    })
+                return {
+                    "league": comp.name, "league_key": league_key,
+                    "season": season.name, "season_id": season.id,
+                    "source": "football_data",
+                    "table": official_table,
+                }
+
     table = []
     for pos, (st, team) in enumerate(teams_stats, start=1):
         rf = st.recent_form or {}
@@ -1237,6 +1315,7 @@ def get_league_table(
         "league": comp.name,
         "league_key": league_key,
         "season": season.name,
+        "source": "understat",
         "season_id": season.id,
         "table": table,
     }

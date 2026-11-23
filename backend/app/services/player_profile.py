@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
+import re
 from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import func, or_, select
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     Competition, Event, EventPosition, EventType, Goal, Match, PitchZone, Player,
-    PlayerStatistics, Season, Shot, Team, TeamStatistics,
+    PlayerMatchStatistics, PlayerStatistics, Season, Shot, Team, TeamStatistics,
 )
 from app.services.crests import resolve_crest
 from app.services.event_sources import preferred_shot_event_ids
@@ -137,6 +138,79 @@ def _latest_overall(db: Session, player_id: int) -> Optional[PlayerStatistics]:
         .where(PlayerStatistics.player_id == player_id, PlayerStatistics.scope == "overall")
         .order_by(PlayerStatistics.season_id.desc().nullslast())
     )
+
+
+def pitchapi_match_summaries(
+    db: Session, members: Dict[int, Iterable[int]],
+) -> Dict[int, Dict[str, Any]]:
+    """Totais parciais por jogador, agrupando aliases e partidas canônicas."""
+    owners = {player_id: canonical for canonical, ids in members.items() for player_id in ids}
+    if not owners:
+        return {}
+    rows = db.execute(
+        select(PlayerMatchStatistics, Match, Season, Competition)
+        .join(Match, Match.id == PlayerMatchStatistics.match_id)
+        .join(Season, Season.id == Match.season_id)
+        .join(Competition, Competition.id == Season.competition_id)
+        .where(PlayerMatchStatistics.player_id.in_(list(owners)))
+        .order_by(Match.kickoff_time.desc())
+    ).all()
+    players: Dict[int, Dict[tuple, Dict[int, List[tuple]]]] = {}
+    for stat, match, season, competition in rows:
+        supplemental = stat.supplemental_stats or {}
+        provider = supplemental.get("pitchapi") if isinstance(supplemental, dict) else None
+        mapped = provider.get("mapped") if isinstance(provider, dict) else None
+        if not isinstance(mapped, dict) or not mapped:
+            continue
+        year_match = re.search(r"\b(?:19|20)\d{2}\b", season.name or "")
+        year = season.start_date.year if season.start_date else int(year_match.group()) if year_match else None
+        groups = players.setdefault(owners[stat.player_id], {})
+        group = groups.setdefault((year, competition.code or competition.id, season.id if year is None else None), {})
+        match_key = match.canonical_match_id or match.id
+        group.setdefault(match_key, []).append((match, mapped, competition.name))
+    fields = ("minutes_played", "goals", "assists", "shots", "shots_on_target", "xg", "xa",
+              "passes_completed", "tackles", "interceptions")
+    results: Dict[int, Dict[str, Any]] = {}
+    for player_id, groups in players.items():
+        clean_groups = {}
+        for key, group in groups.items():
+            clean = {}
+            for match_id, entries in group.items():
+                if any(
+                    left[1][field] != right[1][field]
+                    for i, left in enumerate(entries)
+                    for right in entries[i + 1:]
+                    for field in left[1].keys() & right[1].keys()
+                ):
+                    continue
+                clean[match_id] = max(entries, key=lambda entry: len(entry[1]))
+            if clean:
+                clean_groups[key] = clean
+        if not clean_groups:
+            continue
+        (year, _, _), matches = max(
+            clean_groups.items(), key=lambda item: max(entry[0].kickoff_time for entry in item[1].values()),
+        )
+        totals: Dict[str, Any] = {}
+        for field in fields:
+            values = [mapped[field] for _, mapped, _ in matches.values()
+                      if isinstance(mapped.get(field), (int, float)) and not isinstance(mapped[field], bool)]
+            if values:
+                totals[field] = {"value": round(sum(values), 3), "matches": len(values)}
+        dates = [match.kickoff_time for match, _, _ in matches.values()]
+        results[player_id] = {
+            "competition": next(iter(matches.values()))[2],
+            "season_start_year": year,
+            "matches": len(matches),
+            "first_match": min(dates).isoformat(),
+            "last_match": max(dates).isoformat(),
+            "totals": totals,
+        }
+    return results
+
+
+def pitchapi_match_summary(db: Session, player_ids: Iterable[int]) -> Optional[Dict[str, Any]]:
+    return pitchapi_match_summaries(db, {0: player_ids}).get(0)
 
 
 def derive_zone_stats(db: Session, player_id: int) -> List[Dict[str, Any]]:

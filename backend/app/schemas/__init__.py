@@ -224,8 +224,23 @@ class PlayerZoneStatsOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PitchAPIMetricOut(BaseModel):
+    value: float
+    matches: int
+
+
+class PitchAPISummaryOut(BaseModel):
+    competition: str
+    season_start_year: Optional[int] = None
+    matches: int
+    first_match: str
+    last_match: str
+    totals: Dict[str, PitchAPIMetricOut]
+
+
 class PlayerOut(PlayerBase):
     statistics: List[PlayerStatisticsOut] = []
+    pitchapi_summary: Optional[PitchAPISummaryOut] = None
 
 
 class PlayerDetailedOut(PlayerBase):

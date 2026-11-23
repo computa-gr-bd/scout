@@ -17,7 +17,7 @@ from app.services.position_index import classify_role
 from app.services.predictions import predict_for_player, TARGETS
 from app.services.player_profile import (
     TOP5_CODES, decorate_players, derive_zone_stats, extras_from_stat, league_averages,
-    next_match, order_subquery, recent_matches, team_league_map,
+    next_match, order_subquery, pitchapi_match_summaries, pitchapi_match_summary, recent_matches, team_league_map,
 )
 from app.db.models import Match, Player, PlayerStatistics
 
@@ -119,6 +119,9 @@ def list_players(q: Optional[str] = None, position: Optional[str] = None,
     for s in db.scalars(select(PlayerStatistics).where(PlayerStatistics.player_id.in_(member_ids))).all():
         stats_by_player.setdefault(s.player_id, []).append(s)
 
+    pitchapi = pitchapi_match_summaries(
+        db, {canon: index.members.get(canon, [canon]) for canon in page_ids},
+    )
     players: List[Player] = []
     with db.no_autoflush:  # as mesclagens abaixo são só da resposta: nunca vão para o banco
         for canon in page_ids:
@@ -133,6 +136,7 @@ def list_players(q: Optional[str] = None, position: Optional[str] = None,
                         own = stats_by_player[o.id]
                         break
             p.statistics = own
+            p.pitchapi_summary = pitchapi.get(canon)
             fill_from_duplicates(p, others)
             players.append(p)
         decorate_players(db, players, league_map)
@@ -165,6 +169,9 @@ def get_player_overview(player_id: int, db: Session = Depends(get_db)):
     league_map = team_league_map(db)
     decorate_players(db, [p], league_map)
     stat = ps_repo.for_player(db, player_id)
+    duplicates = duplicate_index(db)
+    canonical = duplicates.canonical_of.get(player_id, player_id)
+    player_ids = duplicates.members.get(canonical, [player_id])
     return {
         "player_id": p.id,
         "role": classify_role(p.position),
@@ -177,6 +184,7 @@ def get_player_overview(player_id: int, db: Session = Depends(get_db)):
         "league": {"code": getattr(p, "league_code", None), "name": getattr(p, "league_name", None)},
         "extras": extras_from_stat(stat),
         "recent": recent_matches(db, p),
+        "pitchapi_summary": pitchapi_match_summary(db, player_ids),
         "next_match": next_match(db, p),
         "league_average": None if (p.position and "GK" in p.position.upper())
         else league_averages(db, getattr(p, "league_code", None), league_map),

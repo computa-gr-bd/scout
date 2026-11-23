@@ -9,7 +9,7 @@ Nenhum teste acessa a rede nem o banco Neon de produção.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,7 +20,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base, get_db
 from app.db.models import (
     CollectionState, DataSource, Event, EventPosition, EventType, Match, Player, PlayerStatistics,
-    Season, Shot, Team, TeamMatchStatistics, TeamStatistics, Competition,
+    Season, Shot, Standing, Team, TeamMatchStatistics, TeamStatistics, Competition,
 )
 from app.main import app as fastapi_app
 from app.services import understat_sync as us
@@ -539,3 +539,83 @@ async def test_understat_extended_stats_form_and_shot_fields(db_session, client)
     player_shots = client.get(f"/api/understat/players/{pid}/shots").json()
     assert player_shots["player"] == "Mohamed Salah"
     assert all({"body_part", "period", "player", "situation"} <= set(s) for s in player_shots["shots"])
+
+
+@pytest.mark.asyncio
+async def test_shot_endpoints_choose_one_provider_per_match(db_session, client):
+    await us.sync_understat_league(db_session, FakeClient(), "epl", 2026)
+    original = db_session.scalars(
+        select(Event).where(Event.type == EventType.SHOT)
+    ).all()
+    home_shot = next(event for event in original if event.shot.is_goal)
+    extra = Event(
+        external_id="pitch-shot", match_id=home_shot.match_id,
+        team_id=home_shot.team_id, player_id=home_shot.player_id,
+        type=EventType.SHOT, minute=23, data_source=DataSource.PITCH_API,
+    )
+    extra.shot = Shot(xg=0.9, is_goal=True)
+    extra.position = EventPosition(x=85, y=45)
+    db_session.add(extra)
+    db_session.commit()
+
+    match_id, player_id, team_id = extra.match_id, extra.player_id, extra.team_id
+
+    def assert_shots(expected_total, expected_home, expected_player, expected_xg):
+        match = client.get(f"/api/understat/matches/{match_id}/shots").json()
+        assert len(match["shots"]) == expected_total
+        assert match["summary"]["home_shots"] == expected_home
+        assert len(client.get(f"/api/understat/players/{player_id}/shots").json()["shots"]) == expected_player
+        team = client.get(f"/api/understat/teams/{team_id}/shots").json()
+        assert len(team["shots"]) == expected_home
+        form = client.get(f"/api/understat/teams/{team_id}/form").json()["matches"][0]
+        assert form["shots_for"] == expected_home
+        assert form["xg_for"] == pytest.approx(expected_xg)
+        events = client.get(f"/api/understat/matches/{match_id}/events").json()
+        assert sum(event["type"] == "shot" for event in events["events"]) == expected_total
+
+    assert_shots(expected_total=3, expected_home=2, expected_player=2, expected_xg=0.5)
+    for event in original:
+        event.type = EventType.PASS
+    db_session.commit()
+    assert_shots(expected_total=1, expected_home=1, expected_player=1, expected_xg=0.9)
+
+
+@pytest.mark.asyncio
+async def test_league_table_uses_same_season_official_standings(db_session, client):
+    await us.sync_understat_league(db_session, FakeClient(), "epl", 2026)
+    competition = Competition(name="Premier League", code="PL", data_source=DataSource.FOOTBALL_DATA)
+    db_session.add(competition)
+    db_session.flush()
+    season = Season(
+        competition_id=competition.id, name="2026-27", start_date=date(2026, 8, 1),
+        data_source=DataSource.FOOTBALL_DATA,
+    )
+    team = Team(name="Liverpool FC", data_source=DataSource.FOOTBALL_DATA)
+    db_session.add_all([season, team])
+    db_session.flush()
+    db_session.add(Standing(
+        season_id=season.id, team_id=team.id, group_name="", position=1,
+        played=11, won=8, draw=1, lost=2, points=25,
+        goals_for=27, goals_against=13, goal_difference=14,
+    ))
+    db_session.commit()
+
+    result = client.get("/api/understat/league-table/epl").json()
+    assert result["source"] == "football_data"
+    assert len(result["table"]) == 1
+    row = result["table"][0]
+    assert (row["position"], row["matches_played"], row["points"]) == (1, 11, 25)
+    assert row["team"] == "Liverpool"
+    assert row["xg"] is None and row["shots"] is None and row["recent_form"] is None
+
+    standing = db_session.query(Standing).one()
+    standing.played = 10
+    db_session.commit()
+    matched = client.get("/api/understat/league-table/epl").json()["table"][0]
+    assert matched["xg"] == pytest.approx(18.2)
+
+    season.start_date = date(2025, 8, 1)
+    db_session.commit()
+    fallback = client.get("/api/understat/league-table/epl").json()
+    assert fallback["source"] == "understat"
+    assert len(fallback["table"]) == 2

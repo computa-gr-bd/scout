@@ -234,20 +234,24 @@ export default function Dashboard() {
     tableQs.forEach((q, i) => {
       for (const r of q.data?.table ?? []) rows.push({ ...r, league: syncedLeagues[i]?.name ?? "" });
     });
-    return rows.filter((r) => r.matches_played >= 3);
+    return rows.filter((r): r is typeof r & { matches_played: number } =>
+      r.matches_played != null && r.matches_played >= 3);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableQs.map((q) => q.dataUpdatedAt).join(","), syncedLeagues]);
   const topTeams = useMemo(
-    () => [...allRows].sort((a, b) => b.points_per_game - a.points_per_game || b.xg - a.xg).slice(0, 8),
+    () => [...allRows].filter((r) => r.points_per_game != null)
+      .sort((a, b) => (b.points_per_game ?? 0) - (a.points_per_game ?? 0)).slice(0, 8),
     [allRows],
   );
   // Destaques estatísticos (calculados das mesmas tabelas reais).
   const bestAttack = useMemo(
-    () => [...allRows].sort((a, b) => b.xg / b.matches_played - a.xg / a.matches_played)[0],
+    () => [...allRows].filter((r) => r.xg != null)
+      .sort((a, b) => (b.xg ?? 0) / b.matches_played - (a.xg ?? 0) / a.matches_played)[0],
     [allRows],
   );
   const bestDefense = useMemo(
-    () => [...allRows].sort((a, b) => a.xga / a.matches_played - b.xga / b.matches_played)[0],
+    () => [...allRows].filter((r) => r.xga != null)
+      .sort((a, b) => (a.xga ?? 0) / a.matches_played - (b.xga ?? 0) / b.matches_played)[0],
     [allRows],
   );
   const bestPpg = topTeams[0];
@@ -347,11 +351,11 @@ export default function Dashboard() {
           right={<Link to="/ligas" className="text-xs text-sv-accent3 hover:underline">Ver tabelas</Link>}>
           <div className="grid sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-sv-border border-b border-sv-border">
             <Leader label="Melhor ataque (xG/jogo)" tone="good" row={bestAttack}
-                    value={bestAttack ? (bestAttack.xg / bestAttack.matches_played).toFixed(2) : "—"} />
+                    value={bestAttack?.xg != null ? (bestAttack.xg / bestAttack.matches_played).toFixed(2) : "—"} />
             <Leader label="Melhor defesa (xGA/jogo)" tone="info" row={bestDefense}
-                    value={bestDefense ? (bestDefense.xga / bestDefense.matches_played).toFixed(2) : "—"} />
+                    value={bestDefense?.xga != null ? (bestDefense.xga / bestDefense.matches_played).toFixed(2) : "—"} />
             <Leader label="Melhor aproveitamento" tone="warn" row={bestPpg}
-                    value={bestPpg ? `${bestPpg.points_per_game.toFixed(2)}` : "—"} />
+                    value={bestPpg?.points_per_game != null ? bestPpg.points_per_game.toFixed(2) : "—"} />
           </div>
           <div className="sv-table-wrap">
             <table className="sv-table">
@@ -373,9 +377,9 @@ export default function Dashboard() {
                         </span>
                       </Link>
                     </td>
-                    <td className="text-right sv-num font-semibold">{r.points_per_game.toFixed(2)}</td>
-                    <td className="text-right sv-num text-sv-accent3">{(r.xg / r.matches_played).toFixed(2)}</td>
-                    <td className="text-right sv-num text-sv-warn">{(r.xga / r.matches_played).toFixed(2)}</td>
+                    <td className="text-right sv-num font-semibold">{r.points_per_game?.toFixed(2) ?? "—"}</td>
+                    <td className="text-right sv-num text-sv-accent3">{r.xg == null ? "—" : (r.xg / r.matches_played).toFixed(2)}</td>
+                    <td className="text-right sv-num text-sv-warn">{r.xga == null ? "—" : (r.xga / r.matches_played).toFixed(2)}</td>
                   </tr>
                 ))}
                 {!topTeams.length && (

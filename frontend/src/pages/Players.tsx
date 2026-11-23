@@ -45,6 +45,19 @@ function PlayerRow({ p, order }: { p: Player; order: PlayerOrder }) {
   // Estatística mais recente (maior season_id) do escopo geral.
   const s = [...p.statistics.filter((x: any) => x.scope === "overall")]
     .sort((a, b) => (b.season_id ?? 0) - (a.season_id ?? 0))[0];
+  const partial = !s?.minutes_played ? p.pitchapi_summary : null;
+  const total = (key: string) => partial?.totals[key]?.value;
+  const coverage = (key: string) => {
+    const metric = partial?.totals[key];
+    return metric && partial ? `Dados em ${metric.matches} de ${partial.matches} partidas PitchAPI` : undefined;
+  };
+  const per90 = (key: string) => {
+    const metric = partial?.totals[key];
+    const minutes = partial?.totals.minutes_played;
+    if (!partial || !metric || !minutes || minutes.value <= 0 ||
+        metric.matches !== partial.matches || minutes.matches !== partial.matches) return null;
+    return metric.value * 90 / minutes.value;
+  };
   const name = p.display_name || `${p.first_name || ""} ${p.last_name}`.trim();
   // A coluna usada na ordenação ganha destaque.
   const hl = (k: PlayerOrder) => (order === k ? "text-sv-accent3 font-semibold" : "");
@@ -58,6 +71,8 @@ function PlayerRow({ p, order }: { p: Player; order: PlayerOrder }) {
           <span className="min-w-0 leading-tight">
             <span className="block font-semibold truncate">{name}</span>
             {p.country && <span className="block text-[11px] text-sv-muted truncate">{p.country}</span>}
+            {partial && <span className="block text-[11px] text-sv-muted"
+              title={`${partial.competition} · ${partial.matches} partidas registradas`}>PitchAPI · parcial</span>}
           </span>
         </Link>
       </td>
@@ -77,13 +92,13 @@ function PlayerRow({ p, order }: { p: Player; order: PlayerOrder }) {
           </span>
         ) : <span className="text-xs text-sv-muted">Sem time</span>}
       </td>
-      <td className="text-right sv-num hidden sm:table-cell">{s?.matches_played ?? "—"}</td>
-      <td className={`text-right sv-num hidden sm:table-cell ${hl("minutes")}`}>{s?.minutes_played ?? "—"}</td>
-      <td className={`text-right sv-num ${hl("goals")}`}>{s?.goals ?? "—"}</td>
-      <td className={`text-right sv-num ${hl("assists")}`}>{s?.assists ?? "—"}</td>
-      <td className="text-right sv-num hidden lg:table-cell">{s?.shots_per_90?.toFixed(2) ?? "—"}</td>
-      <td className={`text-right sv-num ${order === "xg" ? "text-sv-accent3 font-semibold" : "text-sv-accent3"}`}>{s?.xg_per_90?.toFixed(2) ?? "—"}</td>
-      <td className="text-right sv-num hidden lg:table-cell">{s?.xa_per_90?.toFixed(2) ?? "—"}</td>
+      <td className="text-right sv-num hidden sm:table-cell">{partial ? partial.matches : s?.matches_played ?? "—"}</td>
+      <td className={`text-right sv-num hidden sm:table-cell ${hl("minutes")}`} title={coverage("minutes_played")}>{partial ? total("minutes_played") ?? "—" : s?.minutes_played ?? "—"}</td>
+      <td className={`text-right sv-num ${hl("goals")}`} title={coverage("goals")}>{partial ? total("goals") ?? "—" : s?.goals ?? "—"}</td>
+      <td className={`text-right sv-num ${hl("assists")}`} title={coverage("assists")}>{partial ? total("assists") ?? "—" : s?.assists ?? "—"}</td>
+      <td className="text-right sv-num hidden lg:table-cell">{partial ? per90("shots")?.toFixed(2) ?? "—" : s?.shots_per_90?.toFixed(2) ?? "—"}</td>
+      <td className={`text-right sv-num ${order === "xg" ? "text-sv-accent3 font-semibold" : "text-sv-accent3"}`}>{partial ? per90("xg")?.toFixed(2) ?? "—" : s?.xg_per_90?.toFixed(2) ?? "—"}</td>
+      <td className="text-right sv-num hidden lg:table-cell">{partial ? per90("xa")?.toFixed(2) ?? "—" : s?.xa_per_90?.toFixed(2) ?? "—"}</td>
     </tr>
   );
 }
@@ -164,6 +179,9 @@ export default function PlayersPage() {
         />
       ) : (
         <>
+          <p className="text-xs text-sv-muted">
+            Dados PitchAPI são parciais e não entram na ordenação por estatísticas de temporada.
+          </p>
           <div className="sv-card overflow-hidden">
             <div className="sv-table-wrap">
               <table className="sv-table">

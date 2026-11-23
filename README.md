@@ -438,6 +438,9 @@ partida, as análises priorizam Understat e usam PitchAPI como alternativa. As
 coordenadas de chute recebidas em metros (campo de 105 × 68 m) são convertidas
 para a escala 0–100 já usada pelo ScoutVision; estatísticas sem coluna equivalente
 ficam identificadas em `supplemental_stats.pitchapi`.
+Na lista e no perfil dos jogadores, os totais PitchAPI são identificados como
+parciais e não são somados às estatísticas de temporada de outras fontes.
+Na lista, a ordenação continua usando apenas as estatísticas de temporada.
 
 ### SoccerData / FBref
 

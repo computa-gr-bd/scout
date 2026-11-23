@@ -51,10 +51,10 @@ def build_context(db: Session, player: Player, match: Match, is_home: bool,
     opp_w = dw_repo.for_team(db, opponent_team_id, season_id=season_id)
     pz = pz_repo.for_player(db, player.id, season_id=season_id)
     team_detailed = team_repo.get_detailed(db, team_id)
-    team_recent = []
-    if team_detailed and team_detailed.statistics:
-        team_recent = team_detailed.statistics[0].recent_form or []
-    player_recent = ps.recent_form if ps and ps.recent_form else []
+    team_form = team_detailed.statistics[0].recent_form if team_detailed and team_detailed.statistics else None
+    player_form = ps.recent_form if ps else None
+    team_recent = team_form if isinstance(team_form, list) else []
+    player_recent = player_form if isinstance(player_form, list) else []
     return PredictionContext(
         player_id=player.id,
         team_id=team_id,

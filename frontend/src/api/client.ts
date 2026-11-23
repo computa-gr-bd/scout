@@ -87,6 +87,15 @@ export interface DefensiveWeakness {
   sample_size: number;
 }
 
+export interface PitchAPISummary {
+  competition: string;
+  season_start_year: number | null;
+  matches: number;
+  first_match: string;
+  last_match: string;
+  totals: Record<string, { value: number; matches: number }>;
+}
+
 export interface Player {
   id: number;
   first_name: string | null;
@@ -107,6 +116,7 @@ export interface Player {
   league_name?: string | null;
   data_source: string;
   statistics: PlayerStatistics[];
+  pitchapi_summary?: PitchAPISummary | null;
   /** Zonas já embutidas no detalhe (só dados demo). */
   zone_statistics?: PlayerZoneStat[];
 }
@@ -337,6 +347,7 @@ export interface PlayerOverview {
     npg: number; yellow_cards: number; red_cards: number;
   };
   recent: PlayerRecentMatch[];
+  pitchapi_summary: PitchAPISummary | null;
   next_match: {
     match_id: number; kickoff_time: string | null; is_home: boolean;
     opponent_id: number | null; opponent_name: string | null; opponent_logo_url: string | null;
@@ -560,17 +571,17 @@ export async function listUnderstatLeagues() {
 }
 
 export interface UnderstatTableRow {
-  position: number;
+  position: number | null;
   team_id: number;
   team: string;
   short_name: string | null;
   logo_url: string | null;
-  matches_played: number;
-  wins: number; draws: number; losses: number;
-  goals_for: number; goals_against: number; goal_difference: number;
-  points: number; points_per_game: number;
-  xg: number; xga: number;
-  shots: number; shots_on_target: number; corners: number;
+  matches_played: number | null;
+  wins: number | null; draws: number | null; losses: number | null;
+  goals_for: number | null; goals_against: number | null; goal_difference: number | null;
+  points: number | null; points_per_game: number | null;
+  xg: number | null; xga: number | null;
+  shots: number | null; shots_on_target: number | null; corners: number | null;
   recent_form: Record<string, number | string> | null;
   season_id: number;
   season_name: string;
@@ -580,6 +591,7 @@ export interface UnderstatLeagueTable {
   league_key: string;
   season: string;
   season_id: number;
+  source?: "football_data" | "understat";
   table: UnderstatTableRow[];
 }
 export async function getUnderstatLeagueTable(leagueKey: string, seasonId?: number) {

@@ -10,10 +10,10 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base, get_db
 from app.main import app as fastapi_app
 from app.db.models import (
-    Competition, DataSource, Event, EventPosition, EventType, Match, Player, PlayerStatistics,
+    Competition, DataSource, Event, EventPosition, EventType, Match, Player, PlayerMatchStatistics, PlayerStatistics,
     Season, Shot, Team, TeamStatistics,
 )
-from app.services.player_profile import zone_for_point
+from app.services.player_profile import pitchapi_match_summaries, zone_for_point
 
 
 @pytest.fixture
@@ -99,6 +99,112 @@ def test_zone_for_point_covers_pitch():
     assert zone_for_point(50, 50).value == "neutral_midfield"
     # buraco entre retângulos cai na zona mais próxima, sem estourar
     assert zone_for_point(88, 19) is not None
+
+
+def test_player_overview_shows_partial_pitchapi_stats_without_double_counting(world, db_session):
+    match = db_session.query(Match).filter(Match.status == "finished").one()
+    mirror = Match(
+        season_id=match.season_id, home_team_id=match.home_team_id, away_team_id=match.away_team_id,
+        kickoff_time=match.kickoff_time, status="finished", canonical_match_id=match.id,
+        data_source=DataSource.PITCH_API,
+    )
+    db_session.add(mirror)
+    db_session.flush()
+    db_session.add_all([
+        PlayerMatchStatistics(
+            player_id=world["striker"], match_id=match.id, team_id=world["arsenal"],
+            supplemental_stats={"pitchapi": {"mapped": {"minutes_played": 90, "goals": 1, "shots": 2}}},
+        ),
+        PlayerMatchStatistics(
+            player_id=world["striker"], match_id=mirror.id, team_id=world["arsenal"],
+            supplemental_stats={"pitchapi": {"mapped": {"goals": 1}}},
+        ),
+    ])
+    db_session.commit()
+
+    response = client.get(f"/api/players/{world['striker']}/overview")
+    assert response.status_code == 200
+    summary = response.json()["pitchapi_summary"]
+    assert summary["matches"] == 1
+    assert summary["totals"]["goals"] == {"value": 1, "matches": 1}
+    assert summary["totals"]["minutes_played"] == {"value": 90, "matches": 1}
+    assert "assists" not in summary["totals"]
+
+    mirror_stats = db_session.query(PlayerMatchStatistics).filter_by(match_id=mirror.id).one()
+    mirror_stats.supplemental_stats = {"pitchapi": {"mapped": {"goals": 2}}}
+    db_session.commit()
+    assert client.get(f"/api/players/{world['striker']}/overview").json()["pitchapi_summary"] is None
+
+
+def test_list_exposes_partial_pitchapi_totals_without_replacing_season_stats(world, db_session):
+    match = db_session.query(Match).filter(Match.status == "finished").one()
+    db_session.add_all([
+        PlayerMatchStatistics(
+            player_id=world["keeper"], match_id=match.id, team_id=match.away_team_id,
+            supplemental_stats={"pitchapi": {"mapped": {"minutes_played": 90, "goals": 0}}},
+        ),
+        PlayerMatchStatistics(
+            player_id=world["striker"], match_id=match.id, team_id=match.home_team_id,
+            supplemental_stats={"pitchapi": {"mapped": {"minutes_played": 80, "goals": 1}}},
+        ),
+    ])
+    db_session.commit()
+    response = client.get("/api/players", params={"top5": True})
+    assert response.status_code == 200
+    players = {player["id"]: player for player in response.json()}
+    keeper = players[world["keeper"]]
+    assert keeper["statistics"] == []
+    assert keeper["pitchapi_summary"]["matches"] == 1
+    assert keeper["pitchapi_summary"]["totals"]["goals"] == {"value": 0, "matches": 1}
+    assert "assists" not in keeper["pitchapi_summary"]["totals"]
+    assert players[world["striker"]]["statistics"][0]["goals"] == 8
+    assert players[world["striker"]]["pitchapi_summary"]["totals"]["goals"]["value"] == 1
+
+
+def test_pitchapi_summary_groups_aliases_without_mixing_seasons(world, db_session):
+    match = db_session.query(Match).filter(Match.status == "finished").one()
+    alias = Player(last_name="Alias", team_id=world["arsenal"], data_source=DataSource.FOOTBALL_DATA)
+    mirror = Match(
+        season_id=match.season_id, home_team_id=match.home_team_id, away_team_id=match.away_team_id,
+        kickoff_time=match.kickoff_time, status="finished", canonical_match_id=match.id,
+        data_source=DataSource.PITCH_API,
+    )
+    other_season = Season(competition_id=match.season.competition_id, name="2025", data_source=DataSource.FOOTBALL_DATA)
+    db_session.add_all([alias, mirror, other_season])
+    db_session.flush()
+    old_match = Match(
+        season_id=other_season.id, home_team_id=match.home_team_id, away_team_id=match.away_team_id,
+        kickoff_time=match.kickoff_time - timedelta(days=365), status="finished",
+    )
+    db_session.add(old_match)
+    db_session.flush()
+    db_session.add_all([
+        PlayerMatchStatistics(player_id=world["striker"], match_id=match.id, team_id=world["arsenal"],
+                              supplemental_stats={"pitchapi": {"mapped": {"goals": 1}}}),
+        PlayerMatchStatistics(player_id=alias.id, match_id=mirror.id, team_id=world["arsenal"],
+                              supplemental_stats={"pitchapi": {"mapped": {"goals": 1}}}),
+        PlayerMatchStatistics(player_id=alias.id, match_id=old_match.id, team_id=world["arsenal"],
+                              supplemental_stats={"pitchapi": {"mapped": {"goals": 10}}}),
+    ])
+    db_session.commit()
+    summary = pitchapi_match_summaries(db_session, {world["striker"]: [world["striker"], alias.id]})[world["striker"]]
+    assert summary["season_start_year"] == 2026
+    assert summary["matches"] == 1
+    assert summary["totals"]["goals"] == {"value": 1, "matches": 1}
+
+
+def test_goal_probability_accepts_understat_metadata_as_recent_form(world, db_session):
+    stat = db_session.query(PlayerStatistics).filter_by(player_id=world["striker"]).one()
+    team_stat = db_session.query(TeamStatistics).filter_by(team_id=world["arsenal"]).one()
+    stat.recent_form = {"position": "FW", "npxg": 2.5}
+    team_stat.recent_form = {"understat_team": "Arsenal", "points": 20}
+    db_session.commit()
+    response = client.get(
+        f"/api/players/{world['striker']}/goal-probability",
+        params={"opponent_team_id": db_session.get(Match, world["future"]).home_team_id, "venue": "home"},
+    )
+    assert response.status_code == 200
+    assert 0 <= response.json()["probability"] <= 1
 
 
 def test_default_listing_is_unchanged(world):

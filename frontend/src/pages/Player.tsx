@@ -67,6 +67,11 @@ const SUPPLEMENTAL_FBREF_METRICS = [
   { key: "pens_conceded", label: "Pênaltis cometidos" },
   { key: "own_goals", label: "Gols contra" },
 ] as const;
+const PITCHAPI_METRICS = [
+  ["minutes_played", "Minutos"], ["goals", "Gols"], ["assists", "Assistências"],
+  ["shots", "Chutes"], ["shots_on_target", "Chutes no alvo"], ["xg", "xG"], ["xa", "xA"],
+  ["passes_completed", "Passes certos"], ["tackles", "Desarmes"], ["interceptions", "Interceptações"],
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -386,6 +391,28 @@ export default function PlayerPage() {
               </div>
             </Panel>
           ) : null}
+
+          {ov?.pitchapi_summary && (
+            <Panel title="Partidas disponíveis na PitchAPI" right={<Badge kind="accent">Cobertura parcial</Badge>}>
+              <p className="text-xs text-sv-muted mb-3">
+                {ov.pitchapi_summary.competition}
+                {ov.pitchapi_summary.season_start_year != null
+                  ? ` · temporada iniciada em ${ov.pitchapi_summary.season_start_year}`
+                  : " · temporada não identificada"}
+                {" · "}{ov.pitchapi_summary.matches} partidas registradas
+                {" · "}Não representa necessariamente a temporada completa e não é somado a outras fontes.
+              </p>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {PITCHAPI_METRICS.flatMap(([key, label]) => {
+                  const metric = ov.pitchapi_summary?.totals[key];
+                  return metric ? [
+                    <Kpi key={key} label={label} value={metric.value}
+                      sub={`Dados em ${metric.matches} de ${ov.pitchapi_summary?.matches} partidas`} />,
+                  ] : [];
+                })}
+              </div>
+            </Panel>
+          )}
 
           {specialRole ? (
             indexQ.isLoading
