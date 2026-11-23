@@ -1,0 +1,37 @@
+name: Sincronizar PitchAPI
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 05:23 e 17:23 em Brasilia, duas horas apos a coleta football-data.
+    - cron: "23 8,20 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scout-pitchapi-sync
+  cancel-in-progress: false
+
+jobs:
+  pitchapi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      PITCH_API_KEY: ${{ secrets.PITCH_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validar secrets sem exibir valores
+        shell: bash
+        run: |
+          test -n "$DATABASE_URL" || { echo "Configure DATABASE_URL nos Actions secrets"; exit 1; }
+          test -n "$PITCH_API_KEY" || { echo "Configure PITCH_API_KEY nos Actions secrets"; exit 1; }
+      - name: Instalar dependencias
+        run: pip install -r backend/requirements.txt
+      - name: Complementar partidas no Neon
+        working-directory: backend
+        run: python -m app.services.pitchapi_sync --limit 0

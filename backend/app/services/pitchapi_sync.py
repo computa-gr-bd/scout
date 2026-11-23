@@ -346,6 +346,18 @@ def _upsert_source_match(db: Session, fixture: Mapping[str, Any], source_key: st
         for key, value in values.items():
             if value is not None:
                 setattr(source_match, key, value)
+    home_score, away_score = values["home_score"], values["away_score"]
+    if (
+        (match.status or "").lower() == "scheduled"
+        and _is_finished(fixture, match)
+        and match.kickoff_time < datetime.now(timezone.utc).replace(tzinfo=None)
+        and match.home_score is None and match.away_score is None
+        and home_score is not None and away_score is not None
+        and home_score >= 0 and away_score >= 0
+    ):
+        match.status = "finished"
+        match.home_score = home_score
+        match.away_score = away_score
 
 
 def _source_team_map(fixture: Mapping[str, Any], match: Match) -> dict[str, int]:

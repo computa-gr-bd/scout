@@ -12,7 +12,7 @@ from app.db.models import (
 )
 from app.services.event_sources import preferred_shot_event_ids
 from app.services.pitchapi_sync import (
-    PitchAPIClient, PitchAPIError, sync_pitchapi,
+    PitchAPIClient, PitchAPIError, _upsert_source_match, sync_pitchapi,
 )
 
 
@@ -293,6 +293,23 @@ def test_ambiguous_fixture_does_not_create_pitchapi_match(seeded, db_session):
     assert db_session.scalar(
         select(Match).where(Match.data_source == DataSource.PITCH_API)
     ) is None
+
+
+def test_pitchapi_completes_only_missing_finished_results(seeded, db_session):
+    match = seeded["match"]
+    match.kickoff_time = datetime(2020, 9, 12, 14)
+    match.status, match.home_score, match.away_score = "scheduled", None, None
+    _upsert_source_match(db_session, _fixture(), "league:match", match)
+    assert (match.status, match.home_score, match.away_score) == ("finished", 1, 0)
+
+    match.status, match.home_score, match.away_score = "scheduled", 2, 1
+    _upsert_source_match(db_session, _fixture(), "league:match", match)
+    assert (match.status, match.home_score, match.away_score) == ("scheduled", 2, 1)
+
+    match.status, match.home_score, match.away_score = "scheduled", None, None
+    fixture = {**_fixture(), "status": "scheduled"}
+    _upsert_source_match(db_session, fixture, "league:match", match)
+    assert (match.status, match.home_score, match.away_score) == ("scheduled", None, None)
 
 
 def test_shot_analytics_prefers_understat_then_falls_back_to_pitchapi(seeded, db_session):

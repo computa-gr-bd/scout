@@ -422,6 +422,15 @@ Configure `PITCH_API_KEY` localmente no `.env` e nunca a versione. Sem datas
 informadas, o coletor consulta os últimos sete dias e os próximos dois. O escopo
 padrão são as cinco grandes ligas (`PL,PD,BL1,SA,FL1`); use `--leagues` e
 `--limit` para ajustar a execução (o padrão é 100 partidas; `0` remove o limite).
+
+O workflow `Sincronizar PitchAPI` executa a coleta duas vezes ao dia e também
+aceita execução manual no GitHub Actions. Para ativá-lo, publique o workflow no
+branch padrão, configure os secrets `DATABASE_URL` e `PITCH_API_KEY` no repositório
+e mantenha as migrações do banco atualizadas. O agendamento pode sofrer atrasos.
+Ele usa a mesma janela de datas, sem limite de partidas, tenta novamente coletas
+parciais e não reprocessa partidas já concluídas com sucesso, salvo com `--force`
+na execução manual do coletor. Confira falhas no Actions e `/api/data/status`.
+
 A rotina só enriquece partidas já cadastradas,
 pula correspondências ambíguas, grava a origem PitchAPI e só importa escalações
 marcadas como confirmadas. Quando houver chutes de mais de uma fonte na mesma
