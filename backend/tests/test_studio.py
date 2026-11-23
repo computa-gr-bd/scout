@@ -261,8 +261,9 @@ def test_team_aliases_do_not_merge_same_named_clubs_from_different_countries(db_
     spanish_alias = Team(name="FC Barcelona", country="Spain", data_source=DataSource.FOOTBALL_DATA)
     espanyol = Team(name="RCD Espanyol de Barcelona", country="Spain", data_source=DataSource.FOOTBALL_DATA)
     ecuadorian = Team(name="Barcelona", country="Ecuador", data_source=DataSource.PITCH_API)
+    unknown = Team(name="Barcelona", data_source=DataSource.DEMO)
     opponent = Team(name="Opponent", data_source=DataSource.PITCH_API)
-    db.add_all([spanish_season, ecuadorian_season, barcelona, spanish_alias, espanyol, ecuadorian, opponent])
+    db.add_all([spanish_season, ecuadorian_season, barcelona, spanish_alias, espanyol, ecuadorian, unknown, opponent])
     db.flush()
     _match(db, spanish_season, barcelona, opponent, datetime(2026, 9, 1), ext="spanish")
     _match(db, ecuadorian_season, ecuadorian, opponent, datetime(2026, 9, 2), src=DataSource.PITCH_API, ext="ecuadorian")
@@ -270,6 +271,7 @@ def test_team_aliases_do_not_merge_same_named_clubs_from_different_countries(db_
 
     assert studio._team_ids_like(db, barcelona) == sorted([barcelona.id, spanish_alias.id])
     assert studio._team_ids_like(db, ecuadorian) == [ecuadorian.id]
+    assert studio._team_ids_like(db, unknown) == [unknown.id]
 
 
 def _history(db, season, home, away, hp, ap, count=6):

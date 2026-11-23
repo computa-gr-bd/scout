@@ -149,10 +149,14 @@ def _team_ids_like(db: Session, team: Optional[Team]) -> List[int]:
             if team_id in ids:
                 countries[team_id].add(country)
     known = countries[team.id]
+    distinct_countries = set().union(*countries.values())
+    if not known and len(distinct_countries) > 1:
+        return [team.id]
+    conflicts = any(values and not (known & values) for values in countries.values()) if known else False
     return sorted(
         candidate.id for candidate in candidates
-        if candidate.id == team.id or not known or not countries[candidate.id]
-        or bool(known & countries[candidate.id])
+        if candidate.id == team.id or not known or bool(known & countries[candidate.id])
+        or (not countries[candidate.id] and not conflicts)
     )
 
 
