@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any, Optional
 
 from app.vendor.understat import Understat
@@ -31,7 +31,7 @@ from sqlalchemy import select, func, desc
 from app.db import get_db
 from app.db.models import (
     CollectionState, Competition, DataSource, Event, EventPosition, EventType,
-    Lineup, Match, Player, Season, Standing, PlayerMatchStatistics, PlayerStatistics, Shot, Team,
+    Lineup, Match, Player, Season, PlayerMatchStatistics, PlayerStatistics, Shot, Team,
     TeamMatchStatistics, TeamStatistics,
 )
 from app.services.understat_sync import (
@@ -41,6 +41,7 @@ from app.services.understat_sync import (
 from app.db import SessionLocal
 from app.services.crests import resolve_crest
 from app.services.event_sources import preferred_shot_event_ids
+from app.services.standings import official_standings_for_season
 
 try:
     import aiohttp
@@ -1230,68 +1231,52 @@ def get_league_table(
     from app.services.studio import _same_team_name, norm_team
 
     pitchapi_totals = pitchapi_team_totals(db, season.id, comp.code)
-    if season.start_date and comp.code:
-        year = season.start_date.year
-        official_seasons = db.scalars(
-            select(Season).join(Competition, Competition.id == Season.competition_id).where(
-                Competition.code == comp.code,
-                Competition.data_source == DataSource.FOOTBALL_DATA,
-                Season.start_date >= date(year, 1, 1),
-                Season.start_date < date(year + 1, 1, 1),
-                Season.id.in_(select(Standing.season_id)),
+    official = official_standings_for_season(db, season)
+    if official:
+        official_table = []
+        for standing, team in official:
+            candidates = [
+                (stat, candidate) for stat, candidate in teams_stats
+                if _same_team_name(norm_team(team.name), norm_team(candidate.name))
+            ]
+            stat, matched = candidates[0] if len(candidates) == 1 else (None, team)
+            same_coverage = (
+                stat is not None and standing.played is not None
+                and stat.matches_played == standing.played
             )
-        ).all()
-        if len(official_seasons) == 1:
-            official = db.execute(
-                select(Standing, Team).join(Team, Team.id == Standing.team_id)
-                .where(Standing.season_id == official_seasons[0].id, Standing.group_name == "")
-                .order_by(Standing.position)
-            ).all()
-            if official:
-                official_table = []
-                for standing, team in official:
-                    candidates = [
-                        (stat, candidate) for stat, candidate in teams_stats
-                        if _same_team_name(norm_team(team.name), norm_team(candidate.name))
-                    ]
-                    stat, matched = candidates[0] if len(candidates) == 1 else (None, team)
-                    same_coverage = (
-                        stat is not None and standing.played is not None
-                        and stat.matches_played == standing.played
-                    )
-                    official_table.append({
-                        "position": standing.position,
-                        "team_id": matched.id, "team": matched.name,
-                        "short_name": matched.short_name,
-                        "logo_url": resolve_crest(team.name, team.logo_url or matched.logo_url),
-                        "matches_played": standing.played,
-                        "wins": standing.won, "draws": standing.draw, "losses": standing.lost,
-                        "goals_for": standing.goals_for, "goals_against": standing.goals_against,
-                        "goal_difference": standing.goal_difference, "points": standing.points,
-                        "points_per_game": (standing.points / standing.played)
-                        if standing.points is not None and standing.played else None,
-                        "xg": stat.xg_total if same_coverage else None,
-                        "xga": stat.xga_total if same_coverage else None,
-                        "shots": stat.shots if same_coverage else None,
-                        "shots_on_target": stat.shots_on_target if same_coverage else None,
-                        "corners": stat.corners_total if same_coverage else None,
-                        "recent_form": stat.recent_form if same_coverage else None,
-                        "partial_understat": {
-                            "matches_played": stat.matches_played,
-                            "xg": stat.xg_total,
-                            "xga": stat.xga_total,
-                            "shots": stat.shots,
-                            "recent_form": stat.recent_form,
-                        } if stat is not None and stat.matches_played and not same_coverage else None,
-                        "pitchapi_stats": pitchapi_totals.get(matched.id) if stat is not None else None,
-                        "season_id": season.id, "season_name": season.name,
-                    })
-                return {
-                    "league": comp.name, "league_key": league_key,
-                    "season": season.name, "season_id": season.id,
-                    "source": "football_data",
-                    "table": official_table,
-                }
+            official_table.append({
+                "position": standing.position,
+                "team_id": matched.id, "team": matched.name,
+                "short_name": matched.short_name,
+                "logo_url": resolve_crest(team.name, team.logo_url or matched.logo_url),
+                "matches_played": standing.played,
+                "wins": standing.won, "draws": standing.draw, "losses": standing.lost,
+                "goals_for": standing.goals_for, "goals_against": standing.goals_against,
+                "goal_difference": standing.goal_difference, "points": standing.points,
+                "points_per_game": (standing.points / standing.played)
+                if standing.points is not None and standing.played else None,
+                "xg": stat.xg_total if same_coverage else None,
+                "xga": stat.xga_total if same_coverage else None,
+                "shots": stat.shots if same_coverage else None,
+                "shots_on_target": stat.shots_on_target if same_coverage else None,
+                "corners": stat.corners_total if same_coverage else None,
+                "recent_form": stat.recent_form if same_coverage else None,
+                "partial_understat": {
+                    "matches_played": stat.matches_played,
+                    "xg": stat.xg_total,
+                    "xga": stat.xga_total,
+                    "shots": stat.shots,
+                    "recent_form": stat.recent_form,
+                } if stat is not None and stat.matches_played and not same_coverage else None,
+                "pitchapi_stats": pitchapi_totals.get(matched.id) if stat is not None else None,
+                "season_id": season.id, "season_name": season.name,
+            })
+        return {
+            "league": comp.name, "league_key": league_key,
+            "season": season.name, "season_id": season.id,
+            "source": "football_data",
+            "table": official_table,
+        }
 
     table = []
     for pos, (st, team) in enumerate(teams_stats, start=1):

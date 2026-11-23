@@ -73,13 +73,17 @@ def test_data_status_does_not_mark_manual_statsbomb_import_as_stale(_setup):
             provider="statsbomb", resource="3869685", status="success",
             last_success_at=datetime.now() - timedelta(days=30),
         ),
+        CollectionState(
+            provider="understat", resource="epl", status="failed",
+            last_success_at=datetime.now() - timedelta(hours=settings.SYNC_INTERVAL_HOURS * 3),
+        ),
     ])
     db.commit()
     response = client.get("/api/data/status")
     assert response.status_code == 200
     checkpoints = response.json()["competitions"]
     stale_by_provider = {item["provider"]: item["is_stale"] for item in checkpoints}
-    assert stale_by_provider == {"football_data": True, "statsbomb": False}
+    assert stale_by_provider == {"football_data": True, "statsbomb": False, "understat": True}
     assert all(item["last_success_at"].endswith("+00:00") for item in checkpoints)
 
 
@@ -158,14 +162,30 @@ def test_team_defensive_stats_endpoint_uses_provider_data_and_team_alias(_setup)
         "player_id": goalkeeper.id,
         "name": "David Raya",
         "appearances": 1,
-        "sources": ["espn"],
+        "sources": ["calculado (defesas + gols sofridos)", "espn"],
         "saves": 4.0,
         "saves_per_match": 4.0,
         "goals_conceded": 1.0,
         "goals_conceded_per_match": 1.0,
-        "shots_faced": None,
-        "shots_faced_per_match": None,
+        "shots_faced": 5.0,
+        "shots_faced_per_match": 5.0,
     }]
+
+    partial_goalkeeper = Player(
+        last_name="Reserva", display_name="Goleiro Reserva", position="Goalkeeper",
+        data_source=DataSource.UNDERSTAT,
+    )
+    db.add(partial_goalkeeper)
+    db.flush()
+    db.add(PlayerMatchStatistics(
+        player_id=partial_goalkeeper.id, match_id=match.id, team_id=alias.id,
+        position="GK", is_starter=True, saves=2,
+        supplemental_stats={"espn": {"mapped": {"saves": 2}}},
+    ))
+    db.commit()
+    goalkeepers = client.get(f"/api/teams/{team.id}/defensive-stats").json()["goalkeepers"]
+    partial = next(row for row in goalkeepers if row["player_id"] == partial_goalkeeper.id)
+    assert partial["shots_faced"] is None
 
 
 def test_team_defensive_stats_endpoint_marks_missing_values_unavailable(_setup):

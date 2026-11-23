@@ -1,14 +1,15 @@
-from typing import List, Optional, Any
+from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.db.models import Competition, Season, Standing, Team
+from app.db.models import Competition, DataSource, Season, Standing, Team
 from sqlalchemy import select
 from app.repositories.repositories import CompetitionRepository, SeasonRepository
 from app.schemas import CompetitionOut, SeasonOut
 from app.services.crests import resolve_crest
 from app.services.scope import hidden_competition
+from app.services.standings import official_standings_for_season
 
 router = APIRouter(tags=["competitions & seasons"])
 comp_repo = CompetitionRepository()
@@ -35,9 +36,11 @@ def standings(season_id: int, db: Session = Depends(get_db)):
     season = db.get(Season, season_id)
     if season is None:
         raise HTTPException(404, "Season not found")
-    rows = db.execute(select(Standing, Team).join(Team).where(
-        Standing.season_id == season_id
-    ).order_by(Standing.group_name, Standing.position)).all()
+    rows = official_standings_for_season(db, season) if season.data_source == DataSource.UNDERSTAT else []
+    if not rows:
+        rows = [(standing, team) for standing, team in db.execute(select(Standing, Team).join(Team).where(
+            Standing.season_id == season_id
+        ).order_by(Standing.group_name, Standing.position)).all()]
     return [{
         "team_id": team.id, "team_name": team.name,
         "team_logo": resolve_crest(team.name, team.logo_url), "team_code": team.code,

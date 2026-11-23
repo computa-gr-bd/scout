@@ -5,6 +5,20 @@ on: [push, pull_request]
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scout
+          POSTGRES_PASSWORD: scout-test
+          POSTGRES_DB: scout_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scout -d scout_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,6 +38,17 @@ jobs:
           SECRET_KEY: ci-test-secret
           ENVIRONMENT: test
         run: pytest -q
+      - name: Test PostgreSQL migrations
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+psycopg://scout:scout-test@127.0.0.1:5432/scout_test
+          SECRET_KEY: ci-test-secret
+          ENVIRONMENT: test
+        run: |
+          python -m alembic upgrade head
+          python -m alembic downgrade 0009
+          python -c "from app.db import engine; from sqlalchemy import text; c = engine.connect(); assert c.scalar(text(\"SELECT to_regclass('public.ix_event_match_type')\")); c.close()"
+          python -m alembic upgrade head
 
   frontend-build:
     runs-on: ubuntu-latest

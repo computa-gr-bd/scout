@@ -13,6 +13,7 @@ from app.services.crests import resolve_crest
 from app.services.event_sources import preferred_shot_event_ids
 from app.services.home_recent_results import home_recent_results
 from app.services.scope import excluded_season_ids
+from app.services.standings import official_standings_for_season
 from app.services.studio import _same_team_name, _team_ids_like, norm_team
 from app.schemas import (
     MatchOut, MatchDetailedOut, MatchAnalysisOut, PredictionGenerateRequest,
@@ -50,23 +51,57 @@ def _lookup_logo(team: Optional[Team], idx: Optional[Dict[str, str]]) -> Optiona
     return resolve_crest(team.name, url)
 
 
+def _recent_crest_urls(db: Session, matches: List[Match]) -> Dict[tuple[int, int], str]:
+    tables: Dict[int, list[Team]] = {}
+    crests: Dict[tuple[int, int], str] = {}
+    for match in matches:
+        if match.season_id not in tables:
+            tables[match.season_id] = [
+                team for _, team in official_standings_for_season(db, match.season)
+            ]
+        for team in (match.home_team, match.away_team):
+            if not team or team.logo_url:
+                continue
+            candidates = [
+                candidate for candidate in tables[match.season_id]
+                if _same_team_name(norm_team(team.name), norm_team(candidate.name))
+                and (not team.country or not candidate.country
+                     or norm_team(team.country) == norm_team(candidate.country))
+            ]
+            if len(candidates) == 1 and candidates[0].logo_url:
+                crests[(match.season_id, team.id)] = candidates[0].logo_url
+    return crests
+
+
 def _to_match_out(m: Match, logo_idx: Optional[Dict[str, str]] = None, *,
-                  own_logos_only: bool = False) -> MatchOut:
+                  own_logos_only: bool = False,
+                  recent_crests: Optional[Dict[tuple[int, int], str]] = None) -> MatchOut:
+    competition = m.season.competition if m.season and m.season.competition else None
+    competition_name = competition.name if competition else None
+    if (
+        competition
+        and (competition.code or "").upper() == "PD"
+        and (competition.country or "").strip().lower() == "spain"
+        and competition.name.strip().lower() == "primera division"
+    ):
+        competition_name = "La Liga"
     return MatchOut(
         id=m.id,
         season_id=m.season_id,
-        competition_name=(m.season.competition.name if (m.season and m.season.competition) else None),
+        competition_name=competition_name,
         round_name=m.round_name,
         matchday=m.matchday,
         kickoff_time=m.kickoff_time,
         status=m.status,
         home_team=MatchTeamPreview(id=m.home_team.id, name=m.home_team.name,
                                     short_name=m.home_team.short_name, logo_url=(
-                                        m.home_team.logo_url if own_logos_only else _lookup_logo(m.home_team, logo_idx)))
+                                        (m.home_team.logo_url or (recent_crests or {}).get((m.season_id, m.home_team.id)))
+                                        if own_logos_only else _lookup_logo(m.home_team, logo_idx)))
                  if m.home_team else MatchTeamPreview(id=m.home_team_id, name="?", short_name=None),
         away_team=MatchTeamPreview(id=m.away_team.id, name=m.away_team.name,
                                     short_name=m.away_team.short_name, logo_url=(
-                                        m.away_team.logo_url if own_logos_only else _lookup_logo(m.away_team, logo_idx)))
+                                        (m.away_team.logo_url or (recent_crests or {}).get((m.season_id, m.away_team.id)))
+                                        if own_logos_only else _lookup_logo(m.away_team, logo_idx)))
                  if m.away_team else MatchTeamPreview(id=m.away_team_id, name="?", short_name=None),
         home_score=m.home_score, away_score=m.away_score,
         stadium_name=(m.stadium.name if m.stadium else None),
@@ -147,7 +182,8 @@ def list_matches(scope: str = Query("upcoming", pattern="^(upcoming|recent|all)$
         if skip < 0 or limit < 0:
             raise HTTPException(400, "skip e limit devem ser não negativos")
         matches = home_recent_results(db, skip=skip, limit=limit)
-        results = [_to_match_out(m, own_logos_only=True) for m in matches]
+        crests = _recent_crest_urls(db, matches)
+        results = [_to_match_out(m, own_logos_only=True, recent_crests=crests) for m in matches]
         for result in results:
             result.status = "finished"
         return results
@@ -191,7 +227,9 @@ def get_match(match_id: int, source_match: bool = False, db: Session = Depends(g
         m = match_repo.get_detailed(db, m.canonical_match_id)
         if not m:
             raise HTTPException(404, "Canonical match not found")
-    out = _to_match_out(m, None if source_match else _logo_index(db), own_logos_only=source_match)
+    crests = _recent_crest_urls(db, [m]) if source_match else None
+    out = _to_match_out(m, None if source_match else _logo_index(db),
+                        own_logos_only=source_match, recent_crests=crests)
     if source_match and (m.status or "").lower() == "finished":
         out.status = "finished"
     # Pre-load all lineup players in a single query (avoid N+1).

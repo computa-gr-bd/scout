@@ -224,7 +224,7 @@ function SquadCard({ squad, pending, season }: { squad: SquadEntry[]; pending: b
 
 /** Tabela da competição do time, com a linha do próprio time destacada. */
 function StandingsTable({ rows, teamIds }: { rows: StandingRow[]; teamIds: number[] }) {
-  const sorted = [...rows].sort((a, b) => a.position - b.position);
+  const sorted = [...rows].sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity));
   return (
     <div className="overflow-x-auto -mx-1 px-1">
       <table className="w-full text-sm min-w-[420px]">
@@ -246,7 +246,7 @@ function StandingsTable({ rows, teamIds }: { rows: StandingRow[]; teamIds: numbe
             return (
               <tr key={r.team_id}
                   className={`border-b border-sv-border/40 last:border-0 ${mine ? "bg-sv-accent/10" : ""}`}>
-                <td className="py-2 font-mono text-xs">{r.position}</td>
+                <td className="py-2 font-mono text-xs">{r.position ?? "—"}</td>
                 <td className="py-2">
                   {/* Logo e nome abrem o perfil do time (o próprio time já está na página, mas o link é inofensivo) */}
                   <Link
@@ -258,12 +258,12 @@ function StandingsTable({ rows, teamIds }: { rows: StandingRow[]; teamIds: numbe
                     <span className={`truncate group-hover:underline ${mine ? "font-semibold text-white" : ""}`}>{r.team_name}</span>
                   </Link>
                 </td>
-                <td className="text-center font-mono text-xs">{r.played}</td>
-                <td className="text-center font-mono text-xs">{r.won}</td>
-                <td className="text-center font-mono text-xs">{r.draw}</td>
-                <td className="text-center font-mono text-xs">{r.lost}</td>
-                <td className="text-center font-mono text-xs font-semibold text-sv-accent3">{r.points}</td>
-                <td className="text-right font-mono text-xs">{r.goal_difference > 0 ? `+${r.goal_difference}` : r.goal_difference}</td>
+                <td className="text-center font-mono text-xs">{r.played ?? "—"}</td>
+                <td className="text-center font-mono text-xs">{r.won ?? "—"}</td>
+                <td className="text-center font-mono text-xs">{r.draw ?? "—"}</td>
+                <td className="text-center font-mono text-xs">{r.lost ?? "—"}</td>
+                <td className="text-center font-mono text-xs font-semibold text-sv-accent3">{r.points ?? "—"}</td>
+                <td className="text-right font-mono text-xs">{r.goal_difference == null ? "—" : r.goal_difference > 0 ? `+${r.goal_difference}` : r.goal_difference}</td>
               </tr>
             );
           })}
@@ -376,7 +376,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
   const s = stats.data?.[0];
   const profile = profileQ.data?.available ? profileQ.data : undefined;
   const ps = profile?.summary;
-  const seasonId = s?.season_id ?? null;
+  const seasonId = s?.season_id ?? profile?.season?.id ?? null;
   const standingsQ = useQuery({
     queryKey: ["standings", seasonId],
     queryFn: () => getStandings(seasonId!),
@@ -405,8 +405,17 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
   const recent = recentQ.data || [];
   // Classificação do football-data; se o time vem da Understat (ou a tabela não existe), usa a da Understat.
   const standings = (standingsQ.data?.length ? standingsQ.data : profile?.standings) || [];
-  const myIds = profile?.team_ids ?? [teamId];
+  const myIds = profileQ.data?.team_ids ?? [teamId];
   const myStanding = standings.find((r) => myIds.includes(r.team_id));
+  const played = myStanding ? myStanding.played : s?.matches_played ?? ps?.matches;
+  const wins = myStanding ? myStanding.won : s?.wins ?? ps?.wins;
+  const draws = myStanding ? myStanding.draw : s?.draws ?? ps?.draws;
+  const losses = myStanding ? myStanding.lost : s?.losses ?? ps?.losses;
+  const goalsFor = myStanding ? myStanding.goals_for : s?.goals_for ?? ps?.goals_for;
+  const goalsAgainst = myStanding ? myStanding.goals_against : s?.goals_against ?? ps?.goals_against;
+  const pointsPerGame = myStanding
+    ? (myStanding.played && myStanding.points != null ? myStanding.points / myStanding.played : null)
+    : s?.points_per_game ?? null;
 
   // Cartões de ataque/defesa: Understat (calculado dos chutes) primeiro; estatística da liga como reserva.
   const xg90 = ps?.xg_per_90 ?? (s?.xg_per_90 ? s.xg_per_90 : null);
@@ -448,11 +457,11 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
                 <div className="shrink-0 flex items-stretch gap-px rounded-lg overflow-hidden border border-sv-border bg-sv-border" aria-label="Classificação">
                   <div className="bg-sv-bg px-4 py-2 text-center">
                     <div className="sv-label">Posição</div>
-                    <div className="sv-display text-3xl leading-8 text-sv-accent3">{myStanding.position}º</div>
+                    <div className="sv-display text-3xl leading-8 text-sv-accent3">{myStanding.position != null ? `${myStanding.position}º` : "—"}</div>
                   </div>
                   <div className="bg-sv-bg px-4 py-2 text-center">
                     <div className="sv-label">Pontos</div>
-                    <div className="sv-display text-3xl leading-8">{myStanding.points}</div>
+                    <div className="sv-display text-3xl leading-8">{myStanding.points ?? "—"}</div>
                   </div>
                 </div>
               )}
@@ -462,9 +471,12 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
       ) : <EmptyState title="Carregando time" />}
 
       <div className="space-y-2">
+        {standingsQ.isError && (
+          <p role="alert" className="text-xs text-sv-warn">Não foi possível carregar a classificação; os dados alternativos podem estar desatualizados.</p>
+        )}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-          <StatCard label="Partidas jogadas" value={s?.matches_played || ps?.matches || "—"} sub={`${s?.wins ?? ps?.wins ?? 0}V ${s?.draws ?? ps?.draws ?? 0}E ${s?.losses ?? ps?.losses ?? 0}D`} />
-          <StatCard label="Pontos por jogo" value={s ? s.points_per_game.toFixed(2) : "—"} accent="sv-accent" sub={`GP ${(s?.goals_for ?? ps?.goals_for ?? 0).toFixed(0)} · GC ${(s?.goals_against ?? ps?.goals_against ?? 0).toFixed(0)}`} />
+          <StatCard label="Partidas jogadas" value={played ?? "—"} sub={`${wins ?? "—"}V ${draws ?? "—"}E ${losses ?? "—"}D`} />
+          <StatCard label="Pontos por jogo" value={pointsPerGame != null ? pointsPerGame.toFixed(2) : "—"} accent="sv-accent" sub={`GP ${goalsFor ?? "—"} · GC ${goalsAgainst ?? "—"}`} />
           <StatCard label="Ataque (xG/90)" value={xg90 != null ? xg90.toFixed(2) : "—"} accent="sv-accent" sub={`Chutes/90 ${shots90 != null ? shots90.toFixed(1) : "—"}`} />
           <StatCard label="Defesa (xGA/90)" value={xga90 != null ? xga90.toFixed(2) : "—"} accent="sv-danger" sub={`Sofridos/90 ${conceded90 != null ? conceded90.toFixed(2) : "—"}`} />
         </div>
@@ -593,7 +605,7 @@ function ApiTeamPage({ teamId }: { teamId: number }) {
       <div className="grid lg:grid-cols-2 items-start gap-5">
         <div className="sv-card">
           <div className="sv-card-inner">
-            <SectionTitle title="Classificação" hint={myStanding ? `Este time: ${myStanding.position}º com ${myStanding.points} pontos` : "Temporada atual"} />
+            <SectionTitle title="Classificação" hint={myStanding?.position != null && myStanding.points != null ? `Este time: ${myStanding.position}º com ${myStanding.points} pontos` : "Temporada atual"} />
             {(standingsQ.isPending && standingsQ.fetchStatus !== "idle") || (profileQ.isPending && standings.length === 0) ? (
               <div className="sv-card h-40 skeleton" />
             ) : standings.length === 0 ? (

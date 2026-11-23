@@ -286,8 +286,8 @@ def get_team_defensive_stats(
         if not values.get("shots_faced"):
             saves_v = values.get("saves")
             conceded_v = values.get("goals_conceded")
-            if saves_v is not None or conceded_v is not None:
-                values["shots_faced"] = (saves_v or 0.0) + (conceded_v or 0.0)
+            if saves_v is not None and conceded_v is not None:
+                values["shots_faced"] = saves_v + conceded_v
                 sources["shots_faced"] = "calculado (defesas + gols sofridos)"
         # Reserva que só constou no banco de reservas (tudo zerado): não conta como jogo.
         if not (

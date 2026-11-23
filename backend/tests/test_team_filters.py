@@ -163,6 +163,30 @@ def test_hidden_competitions_do_not_appear_in_calendar_or_listings(seeded, db_se
     assert db_session.query(Competition).count() == 3
 
 
+def test_spanish_league_match_label_is_shared_without_renaming_other_countries(seeded, db_session):
+    for country, source, name in [
+        ("Spain", DataSource.FOOTBALL_DATA, "Primera Division"),
+        ("Spain", DataSource.UNDERSTAT, "La Liga"),
+        ("Bolivia", DataSource.FOOTBALL_DATA, "Primera Division"),
+    ]:
+        competition = Competition(name=name, code="PD", country=country, data_source=source)
+        db_session.add(competition)
+        db_session.flush()
+        season = Season(competition_id=competition.id, name="2026", data_source=source)
+        db_session.add(season)
+        db_session.flush()
+        db_session.add(Match(
+            season_id=season.id, home_team_id=seeded["home"], away_team_id=seeded["away"],
+            kickoff_time=datetime.utcnow() + timedelta(days=4), status="scheduled", data_source=source,
+        ))
+    db_session.commit()
+    response = client.get("/api/matches", params={"scope": "upcoming", "limit": 50})
+    assert response.status_code == 200
+    labels = [match["competition_name"] for match in response.json()]
+    assert labels.count("La Liga") == 2
+    assert labels.count("Primera Division") == 1
+
+
 def test_analysis_accepts_understat_metadata_and_real_form(seeded, db_session):
     db_session.add_all([
         TeamStatistics(team_id=seeded["home"], season_id=seeded["season"], scope="overall",

@@ -415,12 +415,12 @@ export interface StandingRow {
   team_name: string;
   team_logo?: string | null;
   team_code?: string | null;
-  position: number;
+  position: number | null;
   group_name: string;
-  played: number;
-  won: number; draw: number; lost: number;
-  points: number;
-  goals_for: number; goals_against: number; goal_difference: number;
+  played: number | null;
+  won: number | null; draw: number | null; lost: number | null;
+  points: number | null;
+  goals_for: number | null; goals_against: number | null; goal_difference: number | null;
   updated_at?: string | null;
 }
 export async function getStandings(seasonId: number) {

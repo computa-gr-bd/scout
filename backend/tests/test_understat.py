@@ -583,7 +583,8 @@ async def test_shot_endpoints_choose_one_provider_per_match(db_session, client):
 @pytest.mark.asyncio
 async def test_league_table_uses_same_season_official_standings(db_session, client):
     await us.sync_understat_league(db_session, FakeClient(), "epl", 2026)
-    competition = Competition(name="Premier League", code="PL", data_source=DataSource.FOOTBALL_DATA)
+    competition = Competition(name="Premier League", code="PL", country="England",
+                              data_source=DataSource.FOOTBALL_DATA)
     db_session.add(competition)
     db_session.flush()
     season = Season(
@@ -609,6 +610,10 @@ async def test_league_table_uses_same_season_official_standings(db_session, clie
     assert row["xg"] is None and row["shots"] is None and row["recent_form"] is None
     assert row["partial_understat"]["matches_played"] == 10
     assert row["partial_understat"]["xg"] == pytest.approx(18.2)
+    standings = client.get(f"/api/seasons/{result['season_id']}/standings").json()
+    assert (standings[0]["team_id"], standings[0]["played"], standings[0]["points"]) == (
+        team.id, 11, 25,
+    )
 
     standing = db_session.query(Standing).one()
     standing.played = 10
@@ -617,6 +622,12 @@ async def test_league_table_uses_same_season_official_standings(db_session, clie
     assert matched["xg"] == pytest.approx(18.2)
     assert matched["partial_understat"] is None
 
+    competition.country = "Austria"
+    db_session.commit()
+    assert client.get("/api/understat/league-table/epl").json()["source"] == "understat"
+    assert client.get(f"/api/seasons/{result['season_id']}/standings").json() == []
+
+    competition.country = "England"
     season.start_date = date(2025, 8, 1)
     db_session.commit()
     fallback = client.get("/api/understat/league-table/epl").json()

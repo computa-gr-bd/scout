@@ -372,7 +372,9 @@ docker compose up --build
 
 Esse comando sobe a interface e a API; o banco continua sendo o PostgreSQL
 configurado em `DATABASE_URL`. O proxy do Vite encaminha `/api` ao serviço
-`backend` dentro da rede Docker. Para ativar também o coletor local recorrente:
+`backend` dentro da rede Docker. Se o Neon recusar conexões por cota excedida,
+verifique o consumo e os limites do projeto na plataforma Neon; reiniciar o
+Docker não remove o limite. Para ativar também o coletor local recorrente:
 
 ```bash
 docker compose --profile local-collector up --build
@@ -442,6 +444,9 @@ Na Home, resultados recentes finalizados da Understat e da PitchAPI são
 deduplicados mesmo quando não há chutes disponíveis para a partida. O relatório
 pós-jogo usa chutes do registro selecionado ou de uma partida vinculada
 canonicamente, sem somar fontes; sem chutes com coordenadas, informa a ausência.
+Quando o time não tem escudo próprio, os resultados recentes usam o escudo da
+classificação oficial da mesma liga, país e temporada somente se o nome tiver
+uma correspondência inequívoca; caso contrário, exibem as iniciais.
 Competições PitchAPI fora das cinco ligas são preservadas no banco, mas ocultadas
 das listagens principais. Times homônimos com países distintos não são associados.
 As coordenadas de chute recebidas em metros (campo de 105 × 68 m) são convertidas
@@ -457,6 +462,10 @@ ou com associações ambíguas não entram nesses totais. xPts, PPDA e Deep cont
 vindo da Understat, com a cobertura identificada. Pts−xPts e GP−xG subtraem
 os valores exibidos, mesmo quando as coberturas diferem; nesses casos, não
 representam uma comparação dos mesmos jogos. Os totais das fontes não são somados.
+Na lista e no perfil dos times, jogos e pontos usam a classificação oficial quando
+há uma única temporada correspondente em liga, país e ano; métricas de xG podem
+ter cobertura diferente. Sem correspondência segura, permanece a tabela disponível
+da própria fonte.
 
 ### SoccerData / FBref
 

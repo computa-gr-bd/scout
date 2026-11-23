@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 import { EmptyState, ErrorState, Segmented, Skeleton, TeamLogo } from "../components/ui";
 import type { League } from "../api/teamsData";
-import { listTeams, listCompetitions, listSeasons, type Competition, type Season, type Team } from "../api/client";
+import {
+  getUnderstatLeagueTable, listTeams, listCompetitions, listSeasons,
+  type Competition, type Season, type Team, type UnderstatTableRow,
+} from "../api/client";
 
 /** Rótulo de temporada ("2026/27" quando cruza anos, "2026" quando não cruza). */
 function seasonLabel(s: Season | undefined): string {
@@ -67,7 +70,9 @@ function MiniBar({ value, max, tone }: { value: number | null | undefined; max: 
   );
 }
 
-function TeamTableRow({ t, league, maxXg, maxXga }: { t: TeamRowData; league?: League; maxXg: number; maxXga: number }) {
+function TeamTableRow({ t, league, standing, maxXg, maxXga }: {
+  t: TeamRowData; league?: League; standing?: UnderstatTableRow; maxXg: number; maxXga: number;
+}) {
   const s = teamStat(t);
   const navigate = useNavigate();
   return (
@@ -84,8 +89,10 @@ function TeamTableRow({ t, league, maxXg, maxXga }: { t: TeamRowData; league?: L
       <td className="hidden md:table-cell text-xs text-sv-muted whitespace-nowrap">
         {league ? `${league.short_name} · ${league.season}` : "Competição indisponível"}
       </td>
-      <td className="text-right sv-num">{s?.matches_played ?? "—"}</td>
-      <td className="text-right sv-num font-semibold">{s?.points_per_game != null ? s.points_per_game.toFixed(2) : "—"}</td>
+      <td className="text-right sv-num">{standing ? standing.matches_played ?? "—" : s?.matches_played ?? "—"}</td>
+      <td className="text-right sv-num font-semibold">
+        {(standing ? standing.points_per_game : s?.points_per_game)?.toFixed(2) ?? "—"}
+      </td>
       <td><MiniBar value={s?.xg_per_90} max={maxXg} tone="good" /></td>
       <td><MiniBar value={s?.xga_per_90} max={maxXga} tone="warn" /></td>
     </tr>
@@ -295,8 +302,30 @@ export default function TeamsPage() {
     });
   }, [teamsQ.data, compIdBySeasonId, comps, compsQ.data, seasonsQ.data]);
 
-  const sortedTeams = useMemo(() => {
-    const val = (t: Team, k: "points_per_game" | "xg_per_90" | "xga_per_90") => teamStat(t)?.[k] ?? null;
+  const tableSources = useMemo(() => (compsQ.data ?? []).flatMap((competition) => {
+    if (competition.data_source !== "understat" || !competition.external_id) return [];
+    if (leagueId !== "all" && leagueId !== String(competition.id)) return [];
+    const season = currentSeasonByComp.get(competition.id);
+    return season ? [{ id: String(competition.id), key: competition.external_id, seasonId: season.id }] : [];
+  }), [compsQ.data, currentSeasonByComp, leagueId]);
+  const tableQueries = useQueries({
+    queries: tableSources.map((source) => ({
+      queryKey: ["understat", "league-table", source.key, source.seasonId],
+      queryFn: () => getUnderstatLeagueTable(source.key, source.seasonId),
+      staleTime: 5 * 60_000, retry: 1,
+    })),
+  });
+  const standings = new Map<string, UnderstatTableRow>();
+  tableQueries.forEach((query, index) => {
+    for (const row of query.data?.table ?? []) standings.set(`${tableSources[index].id}:${row.team_id}`, row);
+  });
+  const standingFor = (team: TeamRowData) => standings.get(`${team.league_id}:${team.id}`);
+
+  const sortedTeams = (() => {
+    const val = (t: TeamRowData, k: "points_per_game" | "xg_per_90" | "xga_per_90") => {
+      const standing = standingFor(t);
+      return k === "points_per_game" && standing ? standing.points_per_game : teamStat(t)?.[k] ?? null;
+    };
     const arr = [...teams];
     if (sort === "name") return arr.sort((a, b) => a.name.localeCompare(b.name));
     const key = sort === "pts" ? "points_per_game" : sort === "xg" ? "xg_per_90" : "xga_per_90";
@@ -308,7 +337,7 @@ export default function TeamsPage() {
       if (vb == null) return -1;
       return sort === "xga" ? va - vb : vb - va;
     });
-  }, [teams, sort]);
+  })();
   const maxXg = Math.max(0, ...teams.map((t) => teamStat(t)?.xg_per_90 ?? 0));
   const maxXga = Math.max(0, ...teams.map((t) => teamStat(t)?.xga_per_90 ?? 0));
 
@@ -391,6 +420,10 @@ export default function TeamsPage() {
         )
       ) : (
         <div className="space-y-4">
+          {tableQueries.some((query) => query.isError) && (
+            <p className="text-xs text-sv-warn">Não foi possível carregar todas as classificações; alguns números podem estar desatualizados.</p>
+          )}
+          <p className="text-xs text-sv-muted">Jogos e pontos vêm da classificação disponível; xG e xGA usam a cobertura das estatísticas do time.</p>
           <div className="sv-card overflow-hidden">
             <div className="sv-table-wrap">
               <table className="sv-table">
@@ -407,7 +440,7 @@ export default function TeamsPage() {
                 </thead>
                 <tbody>
                   {sortedTeams.map((t) => (
-                    <TeamTableRow key={t.id} t={t} league={leagueById[t.league_id]} maxXg={maxXg} maxXga={maxXga} />
+                    <TeamTableRow key={t.id} t={t} league={leagueById[t.league_id]} standing={standingFor(t)} maxXg={maxXg} maxXga={maxXga} />
                   ))}
                 </tbody>
               </table>

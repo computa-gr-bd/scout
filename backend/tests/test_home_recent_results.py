@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
-from app.db.models import Competition, DataSource, Event, EventPosition, EventType, Match, Season, Shot, Team
+from app.db.models import Competition, DataSource, Event, EventPosition, EventType, Match, Season, Shot, Standing, Team
 from app.main import app
 from app.services import home_recent_results as recent_service
 
@@ -155,6 +155,58 @@ def test_home_alias_details_keep_selected_source_and_default_stays_canonical(hom
         alias.id, "finished", 3, 1,
     )
     assert client.get(f"/api/matches/{alias.id}").json()["id"] == root.id
+
+
+def test_home_uses_official_crests_for_the_same_league_and_season(home_db):
+    db, client = home_db
+    kickoff = datetime.utcnow() - timedelta(days=1)
+    understat = _season(db, DataSource.UNDERSTAT, "PD", "Spain")
+    official = _season(db, DataSource.FOOTBALL_DATA, "PD", "Spain")
+    wrong_country = _season(db, DataSource.FOOTBALL_DATA, "PD", "Bolivia")
+    wrong_year = _season(db, DataSource.FOOTBALL_DATA, "PD", "Spain")
+    understat.start_date = official.start_date = wrong_country.start_date = date(2026, 8, 1)
+    wrong_year.start_date = date(2025, 8, 1)
+    match = _match(db, understat, DataSource.UNDERSTAT, kickoff,
+                   names=("Getafe", "Atletico Madrid"))
+    match.away_team.logo_url = "https://example.invalid/own.png"
+    for season, name, url in (
+        (official, "Getafe CF", "https://example.invalid/getafe.png"),
+        (official, "Club Atlético de Madrid", "https://example.invalid/atletico.png"),
+        (wrong_country, "Getafe CF", "https://example.invalid/bolivia.png"),
+        (wrong_year, "Getafe CF", "https://example.invalid/old.png"),
+    ):
+        team = Team(name=name, logo_url=url, data_source=DataSource.FOOTBALL_DATA)
+        db.add(team)
+        db.flush()
+        db.add(Standing(season_id=season.id, team_id=team.id))
+    db.commit()
+
+    row = _results(client)[0]
+    assert row["home_team"]["logo_url"] == "https://example.invalid/getafe.png"
+    assert row["away_team"]["logo_url"] == "https://example.invalid/own.png"
+    details = client.get(f"/api/matches/{match.id}", params={"source_match": True}).json()
+    assert details["home_team"]["logo_url"] == row["home_team"]["logo_url"]
+
+
+def test_home_does_not_guess_ambiguous_or_conflicting_crests(home_db):
+    db, client = home_db
+    source = _season(db, DataSource.UNDERSTAT)
+    official = _season(db, DataSource.FOOTBALL_DATA)
+    source.start_date = official.start_date = date(2026, 8, 1)
+    match = _match(db, source, DataSource.UNDERSTAT, datetime.utcnow() - timedelta(days=1),
+                   names=("United", "City"), countries=(None, "England"))
+    for name, country in (("Manchester United", "England"), ("Newcastle United", "England"),
+                          ("City", "Scotland")):
+        team = Team(name=name, country=country, logo_url="https://example.invalid/crest.png",
+                    data_source=DataSource.FOOTBALL_DATA)
+        db.add(team)
+        db.flush()
+        db.add(Standing(season_id=official.id, team_id=team.id))
+    db.commit()
+
+    row = _results(client)[0]
+    assert row["home_team"]["logo_url"] is None
+    assert row["away_team"]["logo_url"] is None
 
 
 def test_home_alias_studio_uses_canonical_events_not_homonymous_fixture(home_db):
